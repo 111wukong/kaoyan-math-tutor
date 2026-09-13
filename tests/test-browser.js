@@ -205,6 +205,12 @@ async function waitPort(file, ms) {
     }
     await sleep(250);   // 让渲染后的收尾逻辑（resetRoster / scrollStream）跑完
 
+    const evalVal = async (expr) => {
+      const r = await client.send('Runtime.evaluate', { expression: expr, returnByValue: true });
+      return r.result ? r.result.value : undefined;
+    };
+    const runProbe = async (expr) => String((await evalVal(expr)) || '');
+
     // 探针自己包一层 try/catch —— 否则它一抛异常，测试只会报"什么都没测到"，
     // 看不出到底是页面坏了还是探针写错了。
     const probe = `(function () {
@@ -239,12 +245,9 @@ async function waitPort(file, ms) {
       }
     })()`;
 
-    const res = await client.send('Runtime.evaluate', { expression: probe, returnByValue: true });
-    out = String(res.result.value || '').split('\n').filter(Boolean);
+    out = (await runProbe(probe)).split('\n').filter(Boolean);
 
-    const pageErrs = (await client.send('Runtime.evaluate', {
-      expression: 'JSON.stringify(window.__errors || [])', returnByValue: true
-    })).result.value;
+    const pageErrs = await evalVal('JSON.stringify(window.__errors || [])');
     let jsErrs = [];
     try { jsErrs = JSON.parse(pageErrs); } catch (e) { }
 
@@ -261,7 +264,151 @@ async function waitPort(file, ms) {
       console.log('  ✗ 页面 15 秒内没加载完 —— 可能有外部资源在阻塞');
     }
 
-    const allErr = jsErrs.concat(consoleErrors);
+    /* ================= B. 卡片库：课堂记录 → 卡片 → 导出 ================= */
+    const seeded = {
+      classrooms: {
+        c1n4: {
+          kid: 'c1n4', mode: 'lesson', stage: 'done',
+          question: {
+            id: 'q1', kid: 'c1n4', type: 'choice',
+            stem: '求极限 lim (tan x - sin x) / x^3',
+            options: [{ k: 'A', t: '1/2' }, { k: 'B', t: '0' }],
+            answer: 'A', analysis: 'tan x - sin x 等价于 x^3/2，所以极限是 $1/2$。'
+          },
+          reason: '你在这一节错过 3 次',
+          turns: [
+            { role: 'teacher', text: '这一步讲完了。当 x 趋于 0 时，sin x 等价于 x。' },
+            { role: 'average', text: '那为什么不能拆开代换呢？' },
+            { role: 'weak', text: '我觉得是 0 吧，两个都换成 x 就减没了。' },
+            { role: 'teacher', text: '学生丙把等价代换当成了普通约分，这是典型混淆。加减中不能随便代换。' },
+            { role: 'teacher', text: '这节课记住两件事：\n1. 等价代换只能用于乘除因子，加减中慎用。\n2. 遇到 tan x - sin x 要先提取公因式。' }
+          ],
+          spoken: [], userTurns: [], board: [], memory: {}
+        }
+      }
+    };
+    await evalVal('localStorage.setItem("kaoyan_math_tutor_v1", ' + JSON.stringify(JSON.stringify(seeded)) + ')');
+    // 必须让 URL 真的变化才会重新加载 —— 导航到一模一样的地址浏览器会当成空操作，
+    // 页面不会重跑 load()，种子数据就白写了。
+    // 注意：query 要插在 # 之前，否则会被当成 hash 的一部分，路由就匹配不上了。
+    const parts = url.split('#');
+    await client.send('Page.navigate', { url: parts[0] + '?seed=' + Date.now() + '#' + (parts[1] || '') });
+    const dl2 = Date.now() + 15000;
+    while (Date.now() < dl2) {
+      const v = String(await evalVal('document.readyState + "|" + (typeof window.App) + "|" + document.querySelectorAll(".c-roster-item").length') || '');
+      if (v.indexOf('complete|object|4') === 0) break;
+      await sleep(150);
+    }
+    await sleep(200);
+
+    const cardOut = [];
+
+    // B1：课堂页有没有「整理成复习卡片」入口
+    cardOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var side = document.querySelector('.class-side');
+        chk(!!side, '课堂页渲染出来了（种子数据被读到了）');
+        chk(/重开一节/.test(side ? side.textContent : ''), '★ 认出了已有的课堂记录（按钮变成「重开一节」）');
+        chk(!!side && /整理成复习卡片/.test(side.textContent), '课堂页出现「整理成复习卡片」入口');
+        chk(typeof window.Cards.distill === 'function', 'Cards 引擎已加载');
+        chk(!!document.getElementById('pk-card-css'), '★ 卡片样式已注入 head（只有一份来源）');
+        chk(!!document.getElementById('print-root'), '打印容器存在于 body 直接子级');
+        chk(getComputedStyle(document.getElementById('print-root')).display === 'none', '屏幕上打印容器是隐藏的');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    // B2：生成卡片并跳转
+    await evalVal("window.App.makeCards('c1n4')");
+    await sleep(400);
+    cardOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        chk(location.hash === '#/cards/c1n4', '跳到卡片库（' + location.hash + '）');
+        var cells = document.querySelectorAll('#main .pk-cell');
+        chk(cells.length >= 4, '渲染出 ' + cells.length + ' 张卡片');
+        chk(!!document.querySelector('#main .pk-card.pk-problem'), '有题目卡');
+        chk(!!document.querySelector('#main .pk-card.pk-point'), '有结论卡');
+        chk(!!document.querySelector('#main .pk-card.pk-pitfall'), '★ 有易错卡（从老师点名点评里抽的）');
+        chk(!!document.querySelector('#main .pk-card.pk-question'), '★ 有疑问卡（学生问句 + 老师回应）');
+        chk(!document.querySelector('#main .pk-cover'), '屏幕上不显示封面（封面只在打印时出现）');
+        var pit = document.querySelector('#main .pk-card.pk-pitfall');
+        chk(pit && getComputedStyle(pit).borderLeftColor === 'rgb(185, 28, 28)',
+            '★ 易错卡的类型色条真的生效了（' + (pit ? getComputedStyle(pit).borderLeftColor : '无') + '）');
+        var del = document.querySelector('#main .pk-del');
+        chk(!!del && getComputedStyle(del).display !== 'none', '屏幕上有删除按钮');
+        var c0 = document.querySelector('#main .pk-card');
+        chk(c0 && getComputedStyle(c0).breakInside === 'avoid',
+            '★ 卡片声明了 break-inside:avoid（不会被分页切断）');
+        chk(document.querySelectorAll('#main .deck-chip').length >= 3, '有类型筛选按钮');
+        chk(/共 \\d+ 张/.test(document.querySelector('.page-sub').textContent), '副标题报出了卡片总数');
+        chk(!document.querySelector('#main .pk-card.pk-formula') ||
+            /[=\\\\]/.test(document.querySelector('#main .pk-card.pk-formula').textContent),
+            '★ 公式卡里没有纯碎片（都带等号或 LaTeX 命令）');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    const totalCells = await evalVal('document.querySelectorAll("#main .pk-cell").length');
+
+    // B3：按类型筛选
+    await evalVal("window.App.setDeckFilter('pitfall')");
+    await sleep(200);
+    cardOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var n = document.querySelectorAll('#main .pk-cell').length;
+        var p = document.querySelectorAll('#main .pk-card.pk-pitfall').length;
+        chk(n >= 1 && n === p, '★ 筛选「易错点」后只剩易错卡（' + n + ' / ' + p + '）');
+        chk(n < ${totalCells}, '确实比全部少了（' + n + ' < ${totalCells}）');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+    await evalVal("window.App.setDeckFilter('all')");
+    await sleep(200);
+
+    // B4：导出 —— 把 window.print 换掉，否则无头浏览器会卡在打印对话框
+    await evalVal('window.__printHtml = ""; window.print = function () { window.__printHtml = document.getElementById("print-root").innerHTML; };');
+    await evalVal('window.App.exportCards()');
+    await sleep(500);
+    cardOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var h = window.__printHtml || '';
+        chk(h.length > 300, '★ 打印容器被填上了内容（' + h.length + ' 字符）');
+        chk(h.indexOf('pk-cover') >= 0, '★ 打印版有封面块');
+        chk(h.indexOf('class="pk-card') >= 0, '打印版有卡片');
+        chk(h.indexOf('pk-del') < 0, '★ 打印版里没有删除按钮');
+        chk(h.indexOf('pk-src') < 0, '打印版里没有来源角标');
+        chk(h.indexOf('课堂复习卡片') >= 0, '打印版有标题');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    // B5：切到打印媒体，验证「打印出来只剩卡片」这件事真的成立
+    await client.send('Emulation.setEmulatedMedia', { media: 'print' });
+    await sleep(200);
+    cardOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var d = function (id) { var e = document.getElementById(id); return e ? getComputedStyle(e).display : '不存在'; };
+        chk(d('app') === 'none', '★ 打印时整个应用界面被隐藏（#app = ' + d('app') + '）');
+        chk(d('toast-root') === 'none', '打印时提示条被隐藏');
+        chk(d('print-root') === 'grid', '★ 打印时卡片容器显示为两栏网格（' + d('print-root') + '）');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+    await client.send('Emulation.setEmulatedMedia', { media: 'screen' });
+
+    const cardErrs = JSON.parse(await evalVal('JSON.stringify(window.__errors || [])') || '[]');
+
+    console.log('\n=== 卡片库：课堂记录 → 卡片 → 导出 ===');
+    cardOut.forEach(l => console.log('  ' + l));
+    passes += cardOut.filter(l => l.startsWith('✓')).length;
+    fails += cardOut.filter(l => l.startsWith('✗')).length;
+
+    const allErr = jsErrs.concat(consoleErrors, cardErrs);
     if (allErr.length) {
       fails++;
       console.log('  ✗ 页面有 JS 报错：');

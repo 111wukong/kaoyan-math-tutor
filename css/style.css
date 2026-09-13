@@ -404,3 +404,60 @@ body { font-family: var(--font); background: var(--bg); color: var(--ink); font-
   .class-side, .class-board { width:100%; }
   .class-main { order:-1;flex-basis:100%; }
 }
+
+/* ============ 卡片库 ============
+ * 卡片本体的样式来自 cards.js 的 CARD_CSS（启动时注入 <head>），
+ * 屏幕上、打印时、下载的独立 HTML 三处共用同一份 —— 所见即所得。
+ * 这里只管：屏幕上的容器外观、交互控件、以及打印页面的规则。
+ */
+#main .pk-deck { margin-bottom:20px; align-items:stretch; }
+.pk-cell { position:relative; display:flex; }
+.pk-cell .pk-card { width:100%; box-shadow:0 1px 2px rgba(28,35,51,.04); }
+.pk-del { position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;
+  border:none;background:rgba(224,49,49,.09);color:var(--red);font-size:15px;line-height:1;
+  cursor:pointer;opacity:0;transition:opacity .15s,background .15s;font-family:var(--font);padding:0; }
+.pk-cell:hover .pk-del { opacity:1; }
+.pk-del:hover { background:var(--red);color:#fff; }
+.pk-src { position:absolute;right:8px;bottom:6px;font-size:10.5px;color:var(--ink-3);
+  opacity:0;transition:opacity .15s;pointer-events:none; }
+.pk-cell:hover .pk-src { opacity:1; }
+
+.deck-chips { display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:20px; }
+.deck-chip { border:1.5px solid var(--line);background:#fff;color:var(--ink-2);border-radius:999px;
+  padding:6px 13px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);
+  display:inline-flex;align-items:center;gap:7px;transition:all .15s; }
+.deck-chip:hover { border-color:var(--brand-2);color:var(--brand); }
+.deck-chip.on { background:var(--brand-soft);border-color:var(--brand-2);color:var(--brand); }
+.deck-chip-n { font-size:11.5px;color:var(--ink-3);font-variant-numeric:tabular-nums; }
+.deck-chip.on .deck-chip-n { color:var(--brand); }
+.deck-count { margin-left:auto;font-size:12.5px;color:var(--ink-3); }
+
+.deck-group-head { display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  margin:26px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line); }
+.deck-group-head:first-of-type { margin-top:2px; }
+.deck-group-title { font-size:15px;font-weight:700; }
+.deck-group-link { font-size:12.5px;color:var(--brand);text-decoration:none;white-space:nowrap; }
+.deck-group-link:hover { text-decoration:underline; }
+
+.btn.danger { color:var(--red); }
+.btn.danger:hover { border-color:var(--red);color:var(--red); }
+
+.empty-box { text-align:center;padding:28px 20px; }
+.empty-title { font-size:17px;font-weight:700;margin-bottom:12px; }
+.empty-box .side-note { display:inline-block;text-align:left;max-width:540px;margin-bottom:16px; }
+.empty-box .btn { display:inline-block;text-decoration:none; }
+
+/* ---------- 打印 ---------- */
+/* 打印容器平时不显示；打印时把 body 下除它以外的一切都藏掉。
+   放在 body 直接子级，就是为了能用这一条选择器一刀切。 */
+#print-root { display:none; }
+
+@media print {
+  @page { size:A4; margin:13mm 11mm; }
+  html, body { background:#fff !important; height:auto; }
+  body > *:not(#print-root) { display:none !important; }
+  #print-root { display:grid;font-size:10pt;grid-template-columns:1fr 1fr;gap:5mm;align-items:start; }
+  .pk-card { box-shadow:none !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .pk-del, .pk-src { display:none !important; }
+}
+

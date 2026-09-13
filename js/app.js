@@ -264,7 +264,7 @@
   var DB_KEY = 'kaoyan_math_tutor_v1';
   var sessionLLMKey = '';
   var defaults = {
-    cards: {}, attempts: [], checkins: {}, daily: null, customQ: [], notes: {}, classrooms: {},
+    cards: {}, attempts: [], checkins: {}, daily: null, customQ: [], notes: {}, classrooms: {}, cardDeck: {},
     settings: {
       examTrack: 'math1', dailyNew: 2, examDate: '', persona: 'strict',
       llm: {
@@ -291,6 +291,7 @@
       if (!base.settings.persona) base.settings.persona = 'strict';
       if (!base.notes) base.notes = {};
       if (!base.classrooms) base.classrooms = {};
+      if (!base.cardDeck) base.cardDeck = {};
       // 旧版只有单一 base/model，这里迁移成 本地/云端 双通道
       var L = base.settings.llm;
       if (!L.localBase) L.localBase = 'http://127.0.0.1:1234/v1';
@@ -501,7 +502,7 @@
   function setActiveNav(h) {
     var seg = h.split('/')[1] || '';
     $$('.nav-item').forEach(function (a) { a.classList.remove('active'); });
-    var map = { '': '/', learn: '/learn', quiz: '/quiz', review: '/review', mistakes: '/mistakes', stats: '/stats', settings: '/settings' };
+    var map = { '': '/', learn: '/learn', quiz: '/quiz', review: '/review', mistakes: '/mistakes', stats: '/stats', settings: '/settings', cards: '/cards' };
     var target = map[seg];
     if (!target) target = seg === 'learn' ? '/learn' : '/';
     $$('.nav-item').forEach(function (a) {
@@ -1251,6 +1252,7 @@
     var live = !!(session && session.turns && session.turns.length);
     var mode = (session && session.mode) || 'debate';
     var chap = chapOf(n) || { cat: { name: '' } };
+    var deck = (state.cardDeck && state.cardDeck[kid]) || [];
 
     $('#main').innerHTML = head('课堂', esc(n.title) + ' · 老师和三个学生，四个都是真 agent') +
       '<div class="class-layout">' +
@@ -1263,6 +1265,8 @@
               '<button class="seg-btn' + (mode === 'debate' ? ' on' : '') + '" onclick="App.startClass(\'debate\')">讨论模式</button>' +
             '</div>' +
             '<button class="btn primary" style="width:100%;margin-top:10px" onclick="App.startClass(\'' + mode + '\')">' + (session ? '重开一节' : '开始') + '</button>' +
+            (live ? '<button class="btn" style="width:100%;margin-top:8px" onclick="App.makeCards(\'' + esc(kid) + '\')">整理成复习卡片 →</button>' : '') +
+            (deck.length ? '<a class="btn" style="width:100%;margin-top:8px;display:block;text-align:center;box-sizing:border-box" href="#/cards/' + esc(kid) + '">卡片库（' + deck.length + ' 张）</a>' : '') +
             (session ? '<button class="btn" style="width:100%;margin-top:8px" onclick="App.clearClass()">清空记录</button>' : '') +
           '</div>' +
           '<div class="card"><div class="sub-title">他们为什么不一样</div><div class="side-note">' +
@@ -1461,6 +1465,235 @@
     save();
     pageClass(kid);
     toast('已清空');
+  };
+
+  /* ============ 卡片库：把课堂讨论变成能打印的复习卡 ============
+   * 屏幕上的卡片和打印出来的卡片用**同一套 HTML 与同一套 CSS**，
+   * 所以「所见即所得」不是靠对两份模板，而是根本只有一份。
+   */
+  var deckKid = null;
+  var deckFilter = 'all';
+
+  function deckOf(kid) {
+    if (!state.cardDeck) state.cardDeck = {};
+    if (!state.cardDeck[kid]) state.cardDeck[kid] = [];
+    return state.cardDeck[kid];
+  }
+  function deckKids() {
+    if (!state.cardDeck) state.cardDeck = {};
+    return Object.keys(state.cardDeck).filter(function (k) {
+      return state.cardDeck[k] && state.cardDeck[k].length;
+    });
+  }
+  function deckTotal() {
+    return deckKids().reduce(function (n, k) { return n + state.cardDeck[k].length; }, 0);
+  }
+  /* 取卡片：kid 为空 = 全部考点；按类型筛选。返回分组结构。 */
+  function deckPick(kid, filter) {
+    var f = filter || 'all';
+    var groups = kid
+      ? [{ kid: kid, cards: deckOf(kid) }]
+      : deckKids().map(function (k) { return { kid: k, cards: state.cardDeck[k] }; });
+    return groups.map(function (g) {
+      return {
+        kid: g.kid,
+        kidTitle: (NODE[g.kid] || {}).title || g.kid,
+        cards: g.cards.filter(function (c) { return f === 'all' || c.type === f; })
+      };
+    }).filter(function (g) { return g.cards.length; });
+  }
+  function deckFlat(kid, filter) {
+    return deckPick(kid, filter).reduce(function (a, g) { return a.concat(g.cards); }, []);
+  }
+
+  function deckChips(kid) {
+    var all = deckFlat(kid, 'all');
+    var cnt = Cards.countByType(all);
+    var defs = [{ k: 'all', name: '全部', n: all.length }].concat(
+      Cards.TYPE_ORDER.map(function (t) { return { k: t, name: Cards.TYPES[t].name, n: cnt[t] || 0 }; })
+    );
+    return defs.filter(function (d) {
+      return d.n > 0 || d.k === 'all' || d.k === deckFilter;
+    }).map(function (d) {
+      return '<button class="deck-chip' + (deckFilter === d.k ? ' on' : '') +
+        '" onclick="App.setDeckFilter(\'' + d.k + '\')">' + esc(d.name) +
+        '<span class="deck-chip-n">' + d.n + '</span></button>';
+    }).join('');
+  }
+
+  /* 屏幕上的卡片 = 打印卡片 + 删除按钮（删除按钮打印时被 @media print 藏掉） */
+  function deckCell(card) {
+    return '<div class="pk-cell">' +
+      Cards.cardHtml(card, renderFormula) +
+      '<button class="pk-del" title="删掉这张" onclick="App.delCard(\'' +
+        esc(card.kid) + '\',\'' + esc(card.id) + '\')">×</button>' +
+      '<div class="pk-src">' + (card.src === 'ai' ? 'AI 精炼' : '课堂抽取') + '</div>' +
+      '</div>';
+  }
+
+  function deckMeta(kid, n) {
+    var title = kid ? ((NODE[kid] || {}).title || kid) : '全部考点';
+    return { title: '课堂复习卡片', sub: title, date: todayStr(), count: n + ' 张' };
+  }
+
+  function pageCards(kid) {
+    deckKid = kid || null;
+    var total = deckFlat(deckKid, 'all').length;
+    var groups = deckPick(deckKid, deckFilter);
+    var shown = groups.reduce(function (n, g) { return n + g.cards.length; }, 0);
+
+    var sub = deckKid
+      ? ((NODE[deckKid] || {}).title || deckKid) + ' · 共 ' + total + ' 张'
+      : '共 ' + total + ' 张，来自 ' + deckKids().length + ' 个考点';
+
+    var actions = total
+      ? '<button class="btn primary" onclick="App.exportCards()">导出 PDF</button>' +
+        '<button class="btn" onclick="App.downloadCardsHtml()">下载 HTML</button>' +
+        (deckKid ? '<button class="btn" onclick="App.polishCards(\'' + esc(deckKid) + '\')">AI 精炼</button>' : '') +
+        '<button class="btn danger" onclick="App.clearDeck()">清空</button>'
+      : '';
+
+    var body;
+    if (!total) {
+      body = '<div class="card"><div class="empty-box">' +
+        '<div class="empty-title">还没有卡片</div>' +
+        '<div class="side-note">去知识点页开一节<b>课堂</b>，聊完之后点「整理成复习卡片」，' +
+        '这节课的结论、易错点、疑问和公式会被自动抽成卡片，可以导出成 PDF。</div>' +
+        '<a class="btn primary" href="#/learn">去知识树挑一个考点</a>' +
+        '</div></div>';
+    } else {
+      body = '<div class="deck-chips">' + deckChips(deckKid) +
+        '<span class="deck-count">当前显示 ' + shown + ' / ' + total + ' 张</span></div>';
+      if (!groups.length) {
+        body += '<div class="card"><div class="side-note">这个筛选下没有卡片。</div></div>';
+      } else {
+        groups.forEach(function (g) {
+          if (!deckKid) {
+            body += '<div class="deck-group-head">' +
+              '<span class="deck-group-title">' + esc(g.kidTitle) + '</span>' +
+              '<a class="deck-group-link" href="#/class/' + esc(g.kid) + '">回这节课 →</a></div>';
+          }
+          body += '<div class="pk-deck">' + g.cards.map(deckCell).join('') + '</div>';
+        });
+      }
+    }
+    $('#main').innerHTML = head('卡片库', esc(sub), actions) + body;
+  }
+
+  App.setDeckFilter = function (f) { deckFilter = f; pageCards(deckKid); };
+
+  /* 从课堂记录本地抽取卡片（免费、即时、离线可用） */
+  App.makeCards = function (kid) {
+    var session = classOf(kid);
+    if (!session || !session.turns || !session.turns.length) {
+      toast('这个考点还没有课堂记录，先上一节课', 'no'); return;
+    }
+    var fresh = Cards.distill(session, NODE[kid]);
+    if (!fresh.length) { toast('这节课没留下能整理成卡片的内容', 'no'); return; }
+    var old = deckOf(kid).slice();
+    var merged = Cards.merge(old, fresh);
+    state.cardDeck[kid] = merged;
+    save();
+    var added = merged.length - old.length;
+    toast(added ? ('整理出 ' + merged.length + ' 张卡片，新增 ' + added + ' 张')
+                : ('已有 ' + merged.length + ' 张，没有新的内容'), added ? 'ok' : 'no');
+    deckFilter = 'all';
+    var target = '#/cards/' + kid;
+    if (window.location.hash === target) pageCards(kid);
+    else window.location.hash = target;
+  };
+
+  /* 让模型把讨论重新整理成卡片（1 次调用，front/back 拆得更干净） */
+  App.polishCards = async function (kid) {
+    var session = classOf(kid);
+    if (!session || !session.turns || !session.turns.length) {
+      toast('这个考点还没有课堂记录', 'no'); return;
+    }
+    var conf = llmConf();
+    if (!conf) {
+      toast('AI 精炼需要先接入模型', 'no');
+      window.location.hash = '#/settings';
+      return;
+    }
+    var cur = deckOf(kid).length;
+    if (cur && !confirmDialog('AI 精炼会用模型重新整理，覆盖当前 ' + cur + ' 张卡片。继续？')) return;
+    var node = NODE[kid];
+    toast('正在精炼，大约 10 秒…');
+    try {
+      var res = await LLM.chat(conf, Cards.aiMessages(session, node),
+        { stream: false, temperature: 0.3, maxTokens: 2000 });
+      var meta = { kid: kid, kidTitle: (node || {}).title || kid, src: 'ai', ts: Date.now() };
+      var aiCards = Cards.parseCards((res && res.content) || '', meta);
+      if (!aiCards || !aiCards.length) {
+        toast('模型这次没给出可用的卡片，原卡片已保留', 'no'); return;
+      }
+      state.cardDeck[kid] = aiCards;
+      save();
+      deckFilter = 'all';
+      pageCards(kid);
+      toast('精炼完成，共 ' + aiCards.length + ' 张', 'ok');
+    } catch (e) {
+      toast('精炼失败：' + String((e && e.message) || e).slice(0, 60), 'no');
+    }
+  };
+
+  App.delCard = function (kid, id) {
+    state.cardDeck[kid] = deckOf(kid).filter(function (c) { return c.id !== id; });
+    save();
+    pageCards(deckKid);
+  };
+
+  App.clearDeck = function () {
+    if (!deckTotal()) return;
+    if (!confirmDialog(deckKid ? '清空这个考点的卡片？' : '清空全部卡片？')) return;
+    if (deckKid) delete state.cardDeck[deckKid];
+    else state.cardDeck = {};
+    save();
+    pageCards(deckKid);
+    toast('已清空');
+  };
+
+  /* 导出 PDF：填好打印容器 → 调浏览器打印 → 用户选「另存为 PDF」。
+     这是零依赖下唯一能正确渲染中文与公式的 PDF 路径。 */
+  App.exportCards = function () {
+    var list = deckFlat(deckKid, deckFilter);
+    if (!list.length) { toast('当前筛选下没有可导出的卡片', 'no'); return; }
+    var root = $('#print-root');
+    if (!root) { toast('打印容器缺失，请刷新页面重试', 'no'); return; }
+    root.innerHTML = Cards.deckHtml(list, { render: renderFormula, meta: deckMeta(deckKid, list.length) });
+
+    var done = false;
+    var cleanup = function () {
+      if (done) return;
+      done = true;
+      window.removeEventListener('afterprint', cleanup);
+      root.innerHTML = '';
+    };
+    window.addEventListener('afterprint', cleanup);
+    setTimeout(function () {
+      window.print();
+      setTimeout(cleanup, 1200);   // Safari 不派发 afterprint，兜底清一次
+    }, 80);
+  };
+
+  /* 下载成独立 HTML：双击就能打开再打印，也不怕清浏览器缓存 */
+  App.downloadCardsHtml = function () {
+    var list = deckFlat(deckKid, deckFilter);
+    if (!list.length) { toast('当前筛选下没有可导出的卡片', 'no'); return; }
+    var title = deckKid ? ((NODE[deckKid] || {}).title || deckKid) : '全部考点';
+    var name = ('研数卡片-' + title + '-' + todayStr()).replace(/[\\/:*?"<>|]/g, '_') + '.html';
+    try {
+      var blob = new Blob([Cards.standaloneHtml(list, { meta: deckMeta(deckKid, list.length) })],
+        { type: 'text/html;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+      toast('已下载，双击打开后可再打印一次', 'ok');
+    } catch (e) {
+      toast('下载失败，请改用「导出 PDF」', 'no');
+    }
   };
 
   /* ----- 做题页 ----- */
@@ -2197,6 +2430,9 @@
     if (m) { window.__curKid = m[1]; return pageLearn(m[1]); }
     m = h.match(/^\/class\/(.+)$/);
     if (m) { window.__curKid = m[1]; return pageClass(m[1]); }
+    m = h.match(/^\/cards\/(.+)$/);
+    if (m) { window.__curKid = m[1]; return pageCards(m[1]); }
+    if (h === '/cards') { window.__curKid = null; return pageCards(null); }
     m = h.match(/^\/quiz\/r\/(.+)$/);
     if (m) { quizState.qids = [m[1]]; quizState.done = {}; quizState.results = []; return renderQuizList(); }
     if (h === '/quiz') return pageQuiz('daily');
@@ -2223,6 +2459,17 @@
 
   /* ----- 启动 ----- */
   window.App = App;
+
+  /* 卡片样式只有一份来源（cards.js 的 CARD_CSS）：屏幕上看到的、打印出来的、
+     下载的独立 HTML —— 三处共用。启动时同步注入，不会闪。 */
+  (function injectCardCss() {
+    if (!window.Cards || !Cards.CARD_CSS || $('#pk-card-css')) return;
+    var st = document.createElement('style');
+    st.id = 'pk-card-css';
+    st.textContent = Cards.CARD_CSS;
+    document.head.appendChild(st);
+  })();
+
   state = load();
   mergeCustomQ();
   window.addEventListener('hashchange', route);
