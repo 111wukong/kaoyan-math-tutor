@@ -299,3 +299,37 @@ body { font-family: var(--font); background: var(--bg); color: var(--ink); font-
 .import-zone { border:2px dashed var(--line);border-radius:10px;padding:22px;text-align:center;color:var(--ink-3);cursor:pointer;transition:border-color .2s,background .2s; }
 .import-zone:hover { border-color:var(--brand-2);background:var(--brand-soft);color:var(--brand); }
 .import-zone.dragover { border-color:var(--brand);background:var(--brand-soft); }
+
+/* ===== Agent 工具调用卡片：让学生看见 AI 在干什么 ===== */
+.tool-card { display:flex;align-items:center;gap:8px;margin:6px 0 6px 44px;padding:7px 12px;border-radius:10px;
+  background:#f7f9ff;border:1px solid var(--line);font-size:12.5px;color:var(--ink-2);
+  max-width:min(560px,86%);animation:toolIn .22s ease-out; }
+@keyframes toolIn { from { opacity:0;transform:translateY(-4px); } to { opacity:1;transform:none; } }
+.tool-card .tc-dot { width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex-shrink:0; }
+.tool-card.running .tc-dot { background:var(--amber);animation:pulse 1s ease-in-out infinite; }
+.tool-card.ok .tc-dot { background:var(--green); }
+.tool-card.fail .tc-dot { background:var(--red); }
+@keyframes pulse { 0%,100% { opacity:1;transform:scale(1); } 50% { opacity:.45;transform:scale(.7); } }
+.tool-card .tc-name { font-weight:600;color:var(--ink);white-space:nowrap; }
+.tool-card .tc-args { font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0; }
+.tool-card .tc-state { margin-left:auto;font-size:11.5px;color:var(--ink-3);white-space:nowrap;flex-shrink:0; }
+.tool-card.ok .tc-state { color:var(--green); }
+.tool-card.fail .tc-state { color:var(--red); }
+.tool-graph { margin:6px 0 12px 44px;max-width:min(620px,92%);
+  border-radius:12px;overflow:hidden;box-shadow:var(--shadow);animation:toolIn .25s ease-out; }
+
+/* ===== 设置页分段控件 ===== */
+.seg-row { display:flex;gap:6px;background:var(--bg);border-radius:10px;padding:4px;margin:4px 0 14px;width:fit-content; }
+.seg-btn { border:none;background:transparent;padding:7px 18px;border-radius:8px;font-size:13.5px;
+  color:var(--ink-2);cursor:pointer;font-family:inherit;transition:background .15s,color .15s; }
+.seg-btn:hover { color:var(--ink); }
+.seg-btn.on { background:#fff;color:var(--brand);font-weight:600;box-shadow:0 1px 3px rgba(28,35,51,.1); }
+
+/* ===== 提示框 ===== */
+.tip-box { margin:2px 0 12px;padding:10px 13px;border-radius:9px;background:var(--amber-soft);
+  border-left:3px solid var(--amber);font-size:12.5px;line-height:1.6;color:#7a5200; }
+.tip-box code { font-family:var(--mono);font-size:12px;background:rgba(255,255,255,.7);padding:1px 5px;border-radius:4px; }
+
+/* ===== 聊天气泡里的函数图像 ===== */
+.msg .bubble svg { display:block;margin:8px 0;border-radius:10px; }

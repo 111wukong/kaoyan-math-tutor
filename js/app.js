@@ -264,10 +264,15 @@
   var DB_KEY = 'kaoyan_math_tutor_v1';
   var sessionLLMKey = '';
   var defaults = {
-    cards: {}, attempts: [], checkins: {}, daily: null, customQ: [],
+    cards: {}, attempts: [], checkins: {}, daily: null, customQ: [], notes: {},
     settings: {
-      examTrack: 'math1', dailyNew: 2, examDate: '',
-      llm: { enabled: false, base: 'https://api.deepseek.com', model: 'deepseek-chat' }
+      examTrack: 'math1', dailyNew: 2, examDate: '', persona: 'strict',
+      llm: {
+        enabled: false, kind: 'local',
+        base: '', model: '',
+        localBase: 'http://127.0.0.1:1234/v1', localModel: '', localName: '',
+        cloudBase: 'https://api.deepseek.com', cloudModel: 'deepseek-chat'
+      }
     },
     chats: {}
   };
@@ -282,8 +287,19 @@
       for (var k in d) { if (d.hasOwnProperty(k)) base[k] = d[k]; }
       if (!base.settings) base.settings = JSON.parse(JSON.stringify(defaults.settings));
       if (!base.settings.llm) base.settings.llm = JSON.parse(JSON.stringify(defaults.settings.llm));
-      if (!base.settings.llm.base) base.settings.llm.base = 'https://api.deepseek.com';
-      if (!base.settings.llm.model) base.settings.llm.model = 'deepseek-chat';
+      if (!base.settings.persona) base.settings.persona = 'strict';
+      if (!base.notes) base.notes = {};
+      // 旧版只有单一 base/model，这里迁移成 本地/云端 双通道
+      var L = base.settings.llm;
+      if (!L.localBase) L.localBase = 'http://127.0.0.1:1234/v1';
+      if (!L.cloudBase) L.cloudBase = 'https://api.deepseek.com';
+      if (!L.cloudModel) L.cloudModel = 'deepseek-chat';
+      if (!L.kind) L.kind = (L.base && !/127\.0\.0\.1|localhost/i.test(L.base)) ? 'cloud' : 'local';
+      if (L.kind === 'cloud' && L.base && !/127\.0\.0\.1|localhost/i.test(L.base)) L.cloudBase = L.base;
+      if (L.kind === 'cloud' && L.model) L.cloudModel = L.model;
+      if (!L.localModel) L.localModel = '';
+      L.base = L.kind === 'cloud' ? L.cloudBase : L.localBase;
+      L.model = L.kind === 'cloud' ? L.cloudModel : L.localModel;
       if (!base.settings.examTrack) base.settings.examTrack = 'math1';
       if (!base.settings.dailyNew) base.settings.dailyNew = 2;
       return base;
@@ -808,7 +824,7 @@
       return '<button class="' + cls + '" onclick="App.quickSend(\'' + h.replace(/'/g, '') + '\')">' + esc(h) + '</button>';
     }).join('') + '<span style="margin-left:auto;font-size:11.5px;color:var(--ink-3)" id="llm-indicator"></span>';
     var ind = $('#llm-indicator');
-    ind.innerHTML = llmOn() ? '模型：' + esc(state.settings.llm.model) : '内置名师';
+    ind.textContent = llmOn() ? 'AI 老师 · ' + state.settings.llm.model : '内置引擎（未接模型）';
   }
   function appendMsg(area, role, content, opts, streamingId) {
     var div = document.createElement('div');
@@ -828,13 +844,125 @@
     return div;
   }
   var llmKeyVar = { key: '' };
-  function llmOn() { return !!(state.settings.llm && state.settings.llm.enabled && (sessionLLMKey || llmKeyVar.key)); }
+  function isLocalBase(base) { return /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(String(base || '')); }
+  function llmKey() { return sessionLLMKey || llmKeyVar.key || ''; }
+  /* 本地模型免 Key；云端必须有 Key。配置齐全即可用。 */
+  function llmOn() {
+    var s = state.settings.llm;
+    if (!s || !s.enabled || !s.base || !s.model) return false;
+    if (!isLocalBase(s.base) && !llmKey()) return false;
+    return true;
+  }
   function llmConf() {
+    var s = state.settings.llm || {};
+    if (!s.base || !s.model) return null;
+    if (!isLocalBase(s.base) && !llmKey()) return null;
+    return { base: s.base, model: s.model, key: llmKey(), kind: s.kind || 'local' };
+  }
+  function switchLLMKind(kind) {
+    var s = state.settings.llm;
+    s.kind = kind;
+    s.base = kind === 'cloud' ? s.cloudBase : s.localBase;
+    s.model = kind === 'cloud' ? s.cloudModel : s.localModel;
+    save();
+  }
+
+  /* ============ Agent 工具上下文 ============
+   * 把工具需要的真实数据源统一注入。AI 通过它"看见"这名学生。
+   */
+  function createToolContext() {
     return {
-      base: state.settings.llm.base, model: state.settings.llm.model,
-      key: sessionLLMKey || llmKeyVar.key
+      persona: function () { return state.settings.persona || 'strict'; },
+      llmConf: llmConf,
+
+      node: function (kid) { return NODE[kid] || null; },
+      allNodes: flatNodes,
+      questionsOf: function (kid) { return AIEngine.questionsOf(kid); },
+      attemptsOf: function (kid) {
+        return state.attempts.filter(function (a) { return a.kid === kid; });
+      },
+      nodeStatus: nodeStatus,
+      correctRate: correctRateOf,
+
+      mistakeCards: function () {
+        var out = [];
+        Object.keys(state.cards).forEach(function (id) {
+          var c = state.cards[id];
+          if (c.type !== 'mistake' || !c.questionId) return;
+          var q = null;
+          for (var i = 0; i < QDATA.length; i++) { if (QDATA[i].id === c.questionId) { q = QDATA[i]; break; } }
+          if (!q) return;
+          var n = NODE[q.kid] || {};
+          out.push({
+            qid: q.id, kid: q.kid, title: n.title || q.kid,
+            stem: q.stem, answer: q.answer, analysis: q.analysis || '',
+            lapses: c.lapses || 0
+          });
+        });
+        return out;
+      },
+
+      publicQuestion: function (q) {
+        return {
+          id: q.id, kid: q.kid, type: q.type, stem: q.stem,
+          options: q.options || null, difficulty: q.difficulty || 2,
+          sourceType: q.sourceType || null, sourceYear: q.sourceYear || null
+        };
+      },
+
+      weakNodes: function (limit) {
+        var rows = [];
+        flatNodes().forEach(function (n) {
+          var arr = state.attempts.filter(function (a) { return a.kid === n.id; });
+          if (!arr.length) return;
+          var wrong = arr.filter(function (a) { return !a.correct; }).length;
+          rows.push({
+            kid: n.id, title: n.title, wrong: wrong,
+            accuracy: Math.round((arr.length - wrong) / arr.length * 100)
+          });
+        });
+        rows.sort(function (a, b) { return (b.wrong - a.wrong) || (a.accuracy - b.accuracy); });
+        return rows.slice(0, limit || 4);
+      },
+
+      progress: function () {
+        var all = flatNodes(), mastered = 0, learning = 0, untouched = 0;
+        all.forEach(function (n) {
+          var s = nodeStatus(n.id);
+          if (s === 'mastered') mastered++;
+          else if (s === 'learning') learning++;
+          else untouched++;
+        });
+        var week = [];
+        for (var i = 6; i >= 0; i--) week.push(addDaysStr(todayStr(), -i));
+        var recent = state.attempts.filter(function (a) { return week.indexOf(a.date) >= 0; });
+        var track = state.settings.examTrack || 'math1';
+        return {
+          trackName: track === 'math1' ? '数学一' : track === 'math2' ? '数学二' : '数学三',
+          mastered: mastered, learning: learning, untouched: untouched, total: all.length,
+          streak: calcStreak(),
+          accuracy7d: recent.length ? recent.filter(function (a) { return a.correct; }).length / recent.length : null,
+          attempts7d: recent.length,
+          daysLeft: daysUntilExam(),
+          examDate: state.settings.examDate || null,
+          dueToday: dueCards().length
+        };
+      },
+
+      notesOf: function (kid) {
+        if (!state.notes) state.notes = {};
+        return state.notes[kid] || [];
+      },
+      addNote: function (kid, text) {
+        if (!state.notes) state.notes = {};
+        if (!state.notes[kid]) state.notes[kid] = [];
+        state.notes[kid].push({ text: text, date: todayStr(), ts: Date.now() });
+        save();
+      },
+      markLearned: function (kid) { markLearned(kid); save(); }
     };
   }
+
   window.__curKid = '';
   App.sendChat = async function () {
     var kid = window.__curKid;
@@ -848,28 +976,112 @@
     sess.history.push({ role: 'user', content: text });
     save();
     appendMsg(area, 'user', text, null);
+
     if (llmOn()) {
-      var typingBubble = appendMsg(area, 'assistant', '', null, 'stream-msg');
-      var bubbleDiv = typingBubble.querySelector('.bubble');
-      bubbleDiv.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
-      try {
-        var full = await AIEngine.llmChat(llmConf(), AIEngine.buildMessages(sess, text), function (delta) {
-          bubbleDiv.textContent = '';
-          bubbleDiv.innerHTML = md(full + delta);
-          area.scrollTop = area.scrollHeight;
-        });
-        bubbleDiv.innerHTML = md(full);
-        sess.history.push({ role: 'assistant', content: full });
-        if (/学会|验收|完成|考考/.test(text)) { markLearned(kid); toast('已标记学习完成，生成复习卡片', 'ok'); }
-        save();
-      } catch (e) {
-        toast('LLM 调用失败，已切换内置老师：' + e.message.slice(0, 60), 'no');
-        idleRespond(sess, text, area);
-      }
-    } else {
-      idleRespond(sess, text, area);
+      var ok = await runAgentTurn(sess, text, area);
+      if (ok) return;
     }
+    idleRespond(sess, text, area);
   };
+
+  /* ----- Agent 回合：模型带着工具自主作答 ----- */
+  async function runAgentTurn(sess, text, area) {
+    var ctx = createToolContext();
+    var pending = null;
+    var indicator = $('#llm-indicator');
+    if (indicator) indicator.textContent = '思考中…';
+    try {
+      var out = await Agent.run(sess, text, ctx, {
+        onAssistantStart: function () {
+          var el = appendMsg(area, 'assistant', '', null, null);
+          var b = el.querySelector('.bubble');
+          b.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+          pending = { el: el, bubble: b };
+          return pending;
+        },
+        onAssistantDelta: function (b, full) {
+          if (!b || !b.bubble) return;
+          b.bubble.innerHTML = md(full);
+          area.scrollTop = area.scrollHeight;
+        },
+        onAssistantDone: function (b, full) {
+          if (!b || !b.bubble) return;
+          b.bubble.innerHTML = md(full);
+          area.scrollTop = area.scrollHeight;
+          pending = null;
+        },
+        onAssistantDrop: function (b) {
+          if (b && b.el && b.el.parentNode) b.el.parentNode.removeChild(b.el);
+          pending = null;
+        },
+        onToolStart: function (tc) { appendToolCard(area, tc); },
+        onToolEnd: function (tc, res) { finishToolCard(area, tc, res); }
+      });
+      sess.history.push({ role: 'assistant', content: out.content });
+      save();
+      var marked = (out.usedTools || []).some(function (t) { return t.name === 'mark_mastered' && t.ok; });
+      if (marked) toast('已标记学习完成，生成复习卡片', 'ok');
+      refreshBadges();
+      return true;
+    } catch (e) {
+      if (pending && pending.el && pending.el.parentNode) pending.el.parentNode.removeChild(pending.el);
+      toast('AI 老师暂不可用，已切回内置引擎：' + String(e.message || e).slice(0, 60), 'no');
+      return false;
+    } finally {
+      if (indicator) indicator.textContent = llmOn() ? '模型：' + state.settings.llm.model : '内置名师';
+    }
+  }
+
+  /* ----- 工具调用卡片：让学生看见 AI 在干什么 ----- */
+  function shortArgs(args) {
+    if (!args) return '';
+    var parts = [];
+    Object.keys(args).forEach(function (k) {
+      var v = args[k];
+      if (v == null || v === '' || (Object.prototype.toString.call(v) === '[object Array]' && !v.length)) return;
+      parts.push(k + '=' + (typeof v === 'object' ? JSON.stringify(v) : String(v)));
+    });
+    var s = parts.join(' ');
+    return s.length > 48 ? s.slice(0, 48) + '…' : s;
+  }
+  function summarizeResult(name, data) {
+    if (!data) return '完成';
+    if (name === 'query_weakness') return '找到 ' + ((data.weak || []).length) + ' 个薄弱点';
+    if (name === 'get_mistakes') return (data.count || 0) + ' 道错题';
+    if (name === 'pick_question') return data.found ? '抽到 1 题' : '该考点暂无题';
+    if (name === 'get_node') return '已读取正文';
+    if (name === 'search_nodes') return (data.hitCount || 0) + ' 个匹配';
+    if (name === 'get_progress') return '已读取进度';
+    if (name === 'draw_graph') return '图像已生成';
+    if (name === 'save_note') return '已记入笔记';
+    if (name === 'mark_mastered') return '已标记掌握';
+    return '完成';
+  }
+  function appendToolCard(area, tc) {
+    var label = (window.Tools && Tools.LABELS && Tools.LABELS[tc.name]) || tc.name;
+    var el = document.createElement('div');
+    el.className = 'tool-card running';
+    el.id = 'toolcard-' + String(tc.id).replace(/[^a-zA-Z0-9_-]/g, '');
+    el.innerHTML = '<span class="tc-dot"></span><span class="tc-name">' + esc(label) + '</span>' +
+      (shortArgs(tc.args) ? '<span class="tc-args">' + esc(shortArgs(tc.args)) + '</span>' : '') +
+      '<span class="tc-state">执行中</span>';
+    area.appendChild(el);
+    area.scrollTop = area.scrollHeight;
+  }
+  function finishToolCard(area, tc, res) {
+    var el = document.getElementById('toolcard-' + String(tc.id).replace(/[^a-zA-Z0-9_-]/g, ''));
+    if (!el) return;
+    el.className = 'tool-card ' + (res.ok ? 'ok' : 'fail');
+    var st = el.querySelector('.tc-state');
+    if (st) st.textContent = res.ok ? summarizeResult(tc.name, res.data) : '执行失败';
+    if (res.ok && res.render && res.render.type === 'svg') {
+      var box = document.createElement('div');
+      box.className = 'tool-graph';
+      box.innerHTML = res.render.html;
+      area.appendChild(box);
+      area.scrollTop = area.scrollHeight;
+    }
+  }
   function idleRespond(sess, text, area) {
     var r = AIEngine.builtinRespond(sess, text);
     sess.history.push({ role: 'assistant', content: r.text });
@@ -1326,16 +1538,41 @@
       '<div class="set-row"><div><div class="slabel">目标考试日期</div><div class="sdesc">用于倒排计划（可选）</div></div>' +
         '<input type="date" id="set-exam" value="' + esc(s.examDate || '') + '"></div>' +
       '</div>';
-    html += '<div class="card mt16"><div class="card-title">AI 老师（LLM）<span class="sub">默认使用内置教学引擎，无需 Key；配置后可换真实大模型</span></div>' +
-      '<div class="set-row"><div><div class="slabel">启用真实 LLM</div><div class="sdesc">关闭时由内置名师引擎讲解，符合考研数学大纲</div></div>' +
+    html += '<div class="card mt16"><div class="card-title">AI 老师 <span class="sub">' + (llmOn() ? '已接入 ' + esc(s.llm.model) : '当前使用内置引擎（未接模型）') + '</span></div>' +
+      '<div class="set-row"><div><div class="slabel">启用真实 AI</div><div class="sdesc">关闭时使用内置教学引擎；开启后 AI 会读你的错题本、按水平出题、画函数图像</div></div>' +
         '<label class="switch"><input type="checkbox" id="set-llm-on"' + (s.llm.enabled ? ' checked' : '') + '><span class="sl"></span></label></div>' +
-      '<div class="set-row"><div><div class="slabel">API 地址（Base URL）</div><div class="sdesc">兼容 OpenAI 格式：DeepSeek / Kimi(Moonshot) / 通义千问</div></div>' +
-        '<input type="text" id="set-llm-base" value="' + esc(s.llm.base) + '" style="width:280px" placeholder="https://api.deepseek.com"></div>' +
-      '<div class="set-row"><div><div class="slabel">模型名称</div><div class="sdesc">如 deepseek-chat / moonshot-v1-8k / qwen-max</div></div>' +
-        '<input type="text" id="set-llm-model" value="' + esc(s.llm.model) + '" style="width:200px"></div>' +
-      '<div class="set-row"><div><div class="slabel">API Key</div><div class="sdesc">仅保存在内存，刷新页面后需重新输入；不会写入本地存储</div></div>' +
-        '<input type="password" id="set-llm-key" value="" style="width:280px" placeholder="sk-..."></div>' +
-      '<div class="set-row"><div><div class="slabel"> &nbsp; </div><div class="sdesc"></div></div><button class="btn" onclick="App.testLLM()">测试连接</button></div>' +
+      '<div class="set-row"><div><div class="slabel">老师风格</div><div class="sdesc">同一套内核，四种语气与策略</div></div>' +
+        '<select id="set-persona">' +
+          Object.keys(Agent.PERSONAS).map(function (k) {
+            var p = Agent.PERSONAS[k];
+            return '<option value="' + k + '"' + (s.persona === k ? ' selected' : '') + '>' + esc(p.name) + ' —— ' + esc(p.desc) + '</option>';
+          }).join('') +
+        '</select></div>' +
+      '</div>';
+
+    var kind = s.llm.kind || 'local';
+    html += '<div class="card mt16"><div class="card-title">模型通道 <span class="sub">本地模型免 Key、离线、数据不出本机</span></div>' +
+      '<div class="seg-row">' +
+        '<button class="seg-btn' + (kind === 'local' ? ' on' : '') + '" onclick="App.setLLMKind(\'local\')">本地模型</button>' +
+        '<button class="seg-btn' + (kind === 'cloud' ? ' on' : '') + '" onclick="App.setLLMKind(\'cloud\')">云端 API</button>' +
+      '</div>';
+    if (kind === 'local') {
+      html += '<div class="set-row"><div><div class="slabel">服务地址</div><div class="sdesc">LM Studio 默认 127.0.0.1:1234/v1 · Ollama 默认 127.0.0.1:11434/v1</div></div>' +
+          '<input type="text" id="set-local-base" value="' + esc(s.llm.localBase || '') + '" style="width:280px"></div>' +
+        '<div class="set-row"><div><div class="slabel">本机服务</div><div class="sdesc" id="local-hint">' + (s.llm.localName ? '上次探测到：' + esc(s.llm.localName) : '点右侧按钮自动扫描本机在跑的推理服务') + '</div></div>' +
+          '<div><button class="btn" onclick="App.detectLocal()">探测本机</button></div></div>' +
+        '<div class="set-row"><div><div class="slabel">模型</div><div class="sdesc">' + (s.llm.localModel ? '当前：' + esc(s.llm.localModel) : '尚未选择，先点"探测本机"') + '</div></div>' +
+          '<select id="set-local-model" style="min-width:240px"><option value="' + esc(s.llm.localModel || '') + '">' + esc(s.llm.localModel || '（未选择）') + '</option></select></div>' +
+        '<div class="tip-box">用 file:// 直接打开页面时，浏览器会拦截对 localhost 的请求。请在本项目目录执行 <code>python3 -m http.server 8080</code>，再用 http://localhost:8080 打开本页。LM Studio 还需在 Server 设置里开启 CORS。</div>';
+    } else {
+      html += '<div class="set-row"><div><div class="slabel">API 地址（Base URL）</div><div class="sdesc">兼容 OpenAI 格式：DeepSeek / Kimi / 通义千问</div></div>' +
+          '<input type="text" id="set-cloud-base" value="' + esc(s.llm.cloudBase || '') + '" style="width:280px" placeholder="https://api.deepseek.com"></div>' +
+        '<div class="set-row"><div><div class="slabel">模型名称</div><div class="sdesc">如 deepseek-chat / moonshot-v1-8k / qwen-max</div></div>' +
+          '<input type="text" id="set-cloud-model" value="' + esc(s.llm.cloudModel || '') + '" style="width:220px"></div>' +
+        '<div class="set-row"><div><div class="slabel">API Key</div><div class="sdesc">仅保存在内存，刷新页面后需重新输入；不会写入本地存储</div></div>' +
+          '<input type="password" id="set-llm-key" value="" style="width:280px" placeholder="sk-..."></div>';
+    }
+    html += '<div class="set-row"><div><div class="slabel"> &nbsp; </div><div class="sdesc" id="llm-test-result"></div></div><button class="btn" onclick="App.testLLM()">测试连接</button></div>' +
       '</div>';
     html += '<div class="card mt16"><div class="card-title">自定义题库导入</div>' +
       '<div class="sdesc" style="margin-bottom:10px">支持从 JSON 文件或文本导入题目（纯前端解析，不上传）。每条题目字段：<code>stem</code>、<code>kid</code>（知识点 id）、<code>type</code>（choice/blank）、<code>answer</code>，选择题还需 <code>options</code>（数组，可为字符串或 {k,t} 对象）；<code>analysis</code>/<code>difficulty</code>/<code>optionKeys</code> 可选。已导入 <b id="import-count">' + (state.customQ ? state.customQ.length : 0) + '</b> 题。</div>' +
@@ -1379,12 +1616,43 @@
     $('#set-exam').addEventListener('change', function () { s.examDate = this.value; save(); });
     $('#set-llm-on').addEventListener('change', function () {
       s.llm.enabled = this.checked;
-      if (!this.checked) { sessionLLMKey = ''; $('#set-llm-key').value = ''; }
+      if (!this.checked) { sessionLLMKey = ''; var k0 = $('#set-llm-key'); if (k0) k0.value = ''; }
+      save();
+      toast(this.checked ? '已启用真实 AI 老师' : '已切回内置教学引擎');
+      pageSettings();
+    });
+    $('#set-persona').addEventListener('change', function () {
+      s.persona = this.value;
+      save();
+      toast('老师风格已切换为「' + Agent.PERSONAS[this.value].name + '」');
+    });
+    var lb = $('#set-local-base');
+    if (lb) lb.addEventListener('change', function () {
+      s.llm.localBase = this.value.trim();
+      if (s.llm.kind === 'local') s.llm.base = s.llm.localBase;
       save();
     });
-    $('#set-llm-base').addEventListener('change', function () { s.llm.base = this.value.trim(); save(); });
-    $('#set-llm-model').addEventListener('change', function () { s.llm.model = this.value.trim(); save(); });
-    $('#set-llm-key').addEventListener('input', function () { sessionLLMKey = this.value.trim(); });
+    var lm = $('#set-local-model');
+    if (lm) lm.addEventListener('change', function () {
+      s.llm.localModel = this.value;
+      if (s.llm.kind === 'local') s.llm.model = s.llm.localModel;
+      save();
+      toast(this.value ? '已选择模型：' + this.value : '已取消模型选择');
+    });
+    var cb = $('#set-cloud-base');
+    if (cb) cb.addEventListener('change', function () {
+      s.llm.cloudBase = this.value.trim();
+      if (s.llm.kind === 'cloud') s.llm.base = s.llm.cloudBase;
+      save();
+    });
+    var cm = $('#set-cloud-model');
+    if (cm) cm.addEventListener('change', function () {
+      s.llm.cloudModel = this.value.trim();
+      if (s.llm.kind === 'cloud') s.llm.model = s.llm.cloudModel;
+      save();
+    });
+    var kk = $('#set-llm-key');
+    if (kk) kk.addEventListener('input', function () { sessionLLMKey = this.value.trim(); });
     ['f-src', 'f-year', 'f-diff'].forEach(function (id) {
       var el = $('#' + id);
       if (el) el.addEventListener('change', refreshFilterCount);
@@ -1457,23 +1725,64 @@
     if (c) c.textContent = String(state.customQ ? state.customQ.length : 0);
     var f = $('#import-file'); if (f) f.value = '';
   };
+  App.setLLMKind = function (kind) {
+    switchLLMKind(kind);
+    pageSettings();
+  };
+  App.detectLocal = async function () {
+    var hint = $('#local-hint');
+    var box = $('#llm-test-result');
+    if (hint) hint.textContent = '正在扫描本机推理服务…';
+    try {
+      var found = await LLM.detectLocal(function (msg) { if (hint) hint.textContent = msg; });
+      if (!found) {
+        if (hint) hint.textContent = '没探测到本机服务';
+        if (box) box.textContent = '未发现正在运行的推理服务。请先启动 LM Studio 并开启 Local Server（默认端口 1234），或启动 Ollama（默认端口 11434）。';
+        toast('未探测到本地模型服务', 'no');
+        return;
+      }
+      var L = state.settings.llm;
+      L.localBase = found.base;
+      L.localName = found.name;
+      L.kind = 'local';
+      L.base = found.base;
+      if (found.models.indexOf(L.localModel) < 0) L.localModel = found.models[0];
+      L.model = L.localModel;
+      save();
+      var sel = $('#set-local-model');
+      if (sel) {
+        sel.innerHTML = found.models.map(function (m) {
+          return '<option value="' + esc(m) + '"' + (m === L.localModel ? ' selected' : '') + '>' + esc(m) + '</option>';
+        }).join('');
+      }
+      if (hint) hint.textContent = '已连接 ' + found.name + '（' + found.base + '），共 ' + found.models.length + ' 个模型';
+      if (box) box.textContent = '可用模型：' + found.models.join('、');
+      toast('探测到 ' + found.name + '，已选好模型', 'ok');
+    } catch (e) {
+      if (hint) hint.textContent = '探测失败';
+      toast('探测失败：' + String(e.message || e).slice(0, 60), 'no');
+    }
+  };
   App.testLLM = async function () {
     var conf = llmConf();
-    if (!conf.key) { toast('请先输入 API Key（仅本次会话有效）', 'no'); return; }
-    var old = state.settings.llm.enabled;
+    var box = $('#llm-test-result');
+    if (!conf) {
+      var L = state.settings.llm;
+      if (!L.base || !L.model) { toast('请先选择模型', 'no'); return; }
+      toast('云端通道需要先填 API Key（仅本次会话有效）', 'no');
+      return;
+    }
     toast('正在测试连接…');
     try {
-      var res = await fetch((state.settings.llm.base.replace(/\/+$/, '')) + '/models', {
-        headers: { 'Authorization': 'Bearer ' + conf.key }
-      });
-      if (res.ok) {
-        state.settings.llm.enabled = true; save();
-        toast('连接成功！LLM 已启用：' + state.settings.llm.model, 'ok');
-      } else {
-        toast('接口返回 ' + res.status + '，请检查地址与 Key', 'no');
-      }
+      await LLM.testConnection(conf);
+      state.settings.llm.enabled = true;
+      save();
+      if (box) box.textContent = '连接正常，模型：' + conf.model;
+      toast('连接成功！AI 老师已启用：' + conf.model, 'ok');
+      pageSettings();
     } catch (e) {
-      toast('无法连接：' + e.message.slice(0, 50), 'no');
+      if (box) box.textContent = String(e.message || e);
+      toast('连接失败：' + String(e.message || e).slice(0, 70), 'no');
     }
   };
   App.resetData = function () {
