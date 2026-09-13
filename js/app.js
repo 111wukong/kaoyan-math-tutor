@@ -128,11 +128,14 @@
             if (after === '\\' && j + 2 < n && TEX_CMD.test(s[j + 2])) { j += 2; while (j < n && TEX_CMD.test(s[j])) j++; }
             else if (after === '{') { j++; }
             else j++;
+          } else if (ch === ' ' && j + 1 < n && !/[\u4e00-\u9fff\n，。；：、！？「」【】（）《》〈〉]/.test(s[j + 1])) {
+            // 公式内空格：空格后不是中文/中文标点/换行，视为同一公式继续
+            j++;
           } else if (ch === '\\' && j + 1 < n && TEX_CMD.test(s[j + 1])) {
             j++;
             while (j < n && TEX_CMD.test(s[j])) j++;
-          } else if (ch === '\'' || ch === '′' || ch === '，' || ch === ',' || ch === '!' || ch === '!' || ch === '%') {
-            j++; // 撇号（导数）、逗号可吸收，避免 e^{x}'' 被切断
+          } else if (ch === '\'' || ch === '′' || ch === ',' || ch === '!' || ch === '%') {
+            j++; // 撇号（导数）、英文逗号可吸收，避免 e^{x}'' 被切断
           } else if (/[A-Za-z0-9\xc0-\xff\u0391-\u03c9().+\-*/=|<>·]/.test(ch)) {
             j++;
           } else {
@@ -143,17 +146,35 @@
         i = j;
         continue;
       }
-      // 分支2：独立的 ^ / _（裸上下标，如 x^{2}、X_1）→ 向左右扩展成连续碎片包裹
+      // 分支2：|expr| 绝对值表达式（内部含数学特征才包裹）
+      if (c === '|') {
+        var j = i + 1;
+        while (j < n && s[j] !== '|') j++;
+        if (j < n && j > i + 1) {
+          var inside = s.slice(i + 1, j);
+          // 内部含 \command / ^ / _ / 数字 / 字母数字组合 视为数学表达式
+          if (/[\\^_{}0-9]/.test(inside) || /[a-zA-Z]\s*[+\-*/]/.test(inside) || /\\[a-zA-Z]+/.test(inside)) {
+            out += '$' + s.slice(i, j + 1) + '$';
+            i = j + 1;
+            continue;
+          }
+        }
+      }
+      // 分支3：独立的 ^ / _（裸上下标，如 x^{2}、X_1）→ 向左右扩展成连续碎片包裹
       if (c === '^' || c === '_') {
         var st = i;
         while (st > 0 && !FRAG_STOP.test(s[st - 1])) st--;
+        // 若前面是 |，说明在绝对值内部，跳过（让分支2统一处理 |...|）
+        if (st > 0 && s[st - 1] === '|') {
+          out += c; i++; continue;
+        }
         // 回退 out 中已输出的 [st, i) 前缀字符，避免重复
         out = out.slice(0, out.length - (i - st));
         var en = i + 1;
         while (en < n && !FRAG_STOP.test(s[en])) en++;
         var frag = s.slice(st, en);
-        // 去掉尾随的孤立逗号/括号（避免把 "，" 或 ")" 包进公式影响闭合）
-        frag = frag.replace(/[,，]+$/, '');
+        // 去掉头尾孤立的 | / 逗号 / 括号（避免把边界符号包进公式）
+        frag = frag.replace(/^[|，,]+/, '').replace(/[,，|]+$/, '');
         if (frag) {
           out += '$' + frag + '$';
           i = st + frag.length;
@@ -2206,7 +2227,7 @@
         '<div class="rc-q">' + (isDeck ? md(front) : front) + '</div>' +
         '<div class="rc-prompt">' + prompt + '</div>' +
         '<button class="btn" id="rev-show" onclick="App.revShow()">' + revealLbl + '</button>' +
-        '<div class="rc-ans" id="rev-ans">' + (isDeck && !back ? '<p class="muted">这张卡没有背面内容。</p>' : back) + '</div>' +
+        '<div class="rc-ans" id="rev-ans">' + (isDeck && !back ? '<p class="muted">这张卡没有背面内容。</p>' : isDeck ? md(back) : back) + '</div>' +
         '<div class="rate-row mt20">' +
           '<button class="rate-btn r1" onclick="App.revRate(1)"><span class="rk">1</span><span class="rl">忘了</span></button>' +
           '<button class="rate-btn r2" onclick="App.revRate(2)"><span class="rk">2</span><span class="rl">困难</span></button>' +
@@ -2270,7 +2291,7 @@
       if (!q) return '';
       return '<div class="mistake-item"><span class="mi-tag">错题</span> ' + srcBadge(q) + ' <span style="font-size:12px;color:var(--ink-3)">' + esc((NODE[q.kid] || {}).title || '') + ' · ' + (a.date || '') + '</span>' +
         '<div class="mt8">' + md(q.stem) + '</div>' +
-        '<div class="q-feedback no mt8"><b>我的答案：</b>' + (a.answer || '（未作答）') + '<br><b>正确答案：</b>' + esc(q.answer) + '<br>' + esc(q.analysis) + '</div>' +
+        '<div class="q-feedback no mt8"><b>我的答案：</b>' + (a.answer || '（未作答）') + '<br><b>正确答案：</b>' + md(q.answer) + '<br>' + md(q.analysis) + '</div>' +
         '<div class="mt8">' +
         '<button class="btn small primary" onclick="location.hash=\'#/quiz/r/' + q.id + '\'">重练这题</button> ' +
         '<button class="btn small" onclick="App.similar(\'' + q.kid + '\',\'' + q.id + '\')">练同类题</button> ' +
