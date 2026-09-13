@@ -46,6 +46,7 @@ python3 -m http.server 8080
 | 错题本 | 答错自动收录，按知识点筛选，一键重练，做对后自动移出 |
 | 统计 | 热力图、14 天正确率折线、三科掌握度雷达、各章正确率条形 |
 | 设置 | 考试范围、每日新学量、目标考试日期、LLM 接入（Key 仅存内存）、数据重置 |
+| 游戏化 | XP 经验值、等级成长（11 级「封神」）、成就墙（18 项成就 + 金/银/铜三档）、连击里程碑（3/5/10/20/50 题）、知识树章节点亮、章节 BOSS 卷（5 题闯关）、卡片库一键加入复习队列 |
 
 ## 打卡规则
 
@@ -70,7 +71,8 @@ kaoyan-math-tutor/
     ├── agent.js            Agent 内核：agent loop、实时学情注入、老师人设、长对话压缩
     ├── classroom.js        多智能体课堂引擎：老师 + 三个学生各自独立调用、各有记忆、各有工具；调度器决定下一个谁说话
     ├── cards.js            卡片引擎：把课堂记录蒸馏成复习卡（本地规则抽取 + 模型精炼）、卡片样式、打印/独立 HTML 生成
-    └── app.js              状态存储、每日任务引擎、Hash 路由与 9 个页面渲染、图表、打卡与计时器
+    ├── game.js             游戏化纯函数核心：XP/等级/连击/成就/BOSS 抽题——零副作用，只认 state + world
+    └── app.js              状态存储、每日任务引擎、Hash 路由与 11 个页面渲染、图表、打卡与计时器
 tests/                      零依赖测试套件（node tests/run-all.js 一键跑全部）
 ├── run-all.js              汇总入口：逐个子进程跑、汇总绿/红
 ├── test-classroom.js       多智能体课堂：水平裁剪、结构性无知、调度规则、两条端到端流程
@@ -106,7 +108,8 @@ tests/                      零依赖测试套件（node tests/run-all.js 一键
   "notes":        { "<kid>": [ { text, date } ] },
   "classrooms":   { "<kid>": { kid, mode: lesson|debate, question, reason, steps, turns[], spoken[], userTurns[], board[], memory{}, rosterStatus{}, stage, ts } },
   "cardDeck":     { "<kid>": [ { id, type: point|pitfall|question|formula|problem, title, front, back, kid, kidTitle, src: class|ai, ts } ] },
-  "customQ":      [ { ...自建题 } ]
+  "customQ":      [ { ...自建题 } ],
+  "game":         { xp, combo, bestCombo, checkins:["YYYY-MM-DD"], achievements:{ "<id>": "YYYY-MM-DD" }, bosses:{ "<chId>": { score, total, pct, date } }, seen:{ "<key>": 1 } }
 }
 ```
 
@@ -323,7 +326,7 @@ tests/                      零依赖测试套件（node tests/run-all.js 一键
 
 ## 测试
 
-零依赖，只用 Node 内置模块。**429 项断言**：
+零依赖，只用 Node 内置模块。**561 项断言**：
 
 ```bash
 node tests/run-all.js              # 全部
@@ -339,6 +342,7 @@ node tests/run-all.js classroom    # 只跑名字含 classroom 的
 | `test-browser` | 无头 Chromium + CDP：渲染课堂页，跑通「课堂 → 卡片 → 导出 → 打印媒体」并抓 console 报错 | 50 |
 | `test-dom-wiring` | UI 里取的 id / class / `App.*` 是否都真实存在（治"改了结构忘了改取值"） | 50 |
 | `test-config` | 配置迁移不冲掉用户已有配置 | 23 |
+| `test-game` | 游戏化核心：等级曲线、XP 幂等、连击里程碑、成就判定、BOSS 抽题与成绩、连续打卡推导 | 125 |
 | `test-loop` | agent loop 端到端（工具往返） | 10 |
 | `test-fallback` | 模型不支持 `tools` 参数时的降级路径 | 7 |
 

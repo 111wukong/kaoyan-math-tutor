@@ -215,7 +215,12 @@
   var NODE = {};
   var kidOfQ = {};
   CATS.forEach(function (cat) {
-    cat.chapters.forEach(function (ch) {
+    cat.chapters.forEach(function (ch, ci) {
+      // 章节数据里原本没有 id，导致 ch.id 恒为 undefined ——
+      // 折叠状态折叠的是一个共享的 "undefined" 键，展开一章等于展开全部。
+      // 这里补一个稳定 id（跟 Game.defaultWorld() 的算法保持一致），
+      // 折叠状态和 BOSS 路由都用它。
+      if (!ch.id) ch.id = cat.id + '-' + ci;
       ch.nodes.forEach(function (n) { NODE[n.id] = n; });
     });
   });
@@ -265,6 +270,7 @@
   var sessionLLMKey = '';
   var defaults = {
     cards: {}, attempts: [], checkins: {}, daily: null, customQ: [], notes: {}, classrooms: {}, cardDeck: {},
+    game: { xp: 0, achievements: {}, combo: 0, bestCombo: 0, boss: {}, flags: {}, seen: {} },
     settings: {
       examTrack: 'math1', dailyNew: 2, examDate: '', persona: 'strict',
       llm: {
@@ -292,6 +298,8 @@
       if (!base.notes) base.notes = {};
       if (!base.classrooms) base.classrooms = {};
       if (!base.cardDeck) base.cardDeck = {};
+      // 老存档没有 game 字段 —— Game.ensure 补齐，缺什么补什么，不清空已有进度
+      if (typeof Game !== 'undefined' && Game.ensure) Game.ensure(base);
       // 旧版只有单一 base/model，这里迁移成 本地/云端 双通道
       var L = base.settings.llm;
       if (!L.localBase) L.localBase = 'http://127.0.0.1:1234/v1';
@@ -319,6 +327,47 @@
     try { localStorage.setItem(DB_KEY, JSON.stringify(state)); } catch (e) { /* 存储满等异常忽略 */ }
   }
 
+  /* ============ 游戏化：发奖与反馈 ============
+   * 埋点全都走 award()，省得每处各写一遍 toast / 存盘 / 刷侧栏。
+   * Game 模块是纯函数（只认 state + world），这里只负责把副作用接上。
+   */
+  var _gameWorld = null;
+  function gameWorld() {
+    if (!_gameWorld) _gameWorld = Game.defaultWorld();
+    return _gameWorld;
+  }
+  function gameOpts() {
+    return { track: state.settings.examTrack, today: todayStr() };
+  }
+  /* 重新判定成就并弹提示。返回新解锁的 id 数组。 */
+  function sweepAchievements() {
+    var fresh = Game.checkAchievements(state, gameWorld(), gameOpts());
+    fresh.forEach(function (id, i) {
+      var a = Game.byId(id);
+      if (!a) return;
+      // 错开一点，不然一次解锁三个成就时三个 toast 会叠在一起看不清
+      setTimeout(function () { toast('🏆 解锁成就「' + a.name + '」', 'ok'); }, 350 + i * 900);
+    });
+    return fresh;
+  }
+  function award(kind, opts) {
+    opts = opts || {};
+    var r = Game.award(state, kind, opts);
+    if (!r) return null;
+    if (r.levelUp) toast('🎉 升到 ' + r.level + ' 级 · ' + r.title + '！', 'ok');
+    sweepAchievements();
+    save();
+    refreshBadges();
+    return r;
+  }
+  /* 一次性标记（成就用）：只置位，不重复弹 */
+  function gameFlag(name) {
+    var g = Game.ensure(state);
+    if (g.flags[name]) return false;
+    g.flags[name] = 1;
+    return true;
+  }
+
   /* ============ 卡片与作答 ============ */
   function dueCards() {
     var t = todayStr();
@@ -336,7 +385,11 @@
       correct: !!correct, context: context || 'practice', date: todayStr(), ts: Date.now()
     });
     if (!correct) ensureMistakeCard(q);
+    // 连击与 XP：所有作答路径（一练 / 课堂 / BOSS / 错题重练）都过这里，一处埋点全站生效
+    var cb = Game.comboHit(state, !!correct);
+    if (cb.milestone) toast('⚡ 连对 ' + cb.milestone + ' 题！', 'ok');
     save();
+    award(correct ? 'correct' : 'wrong');
     refreshBadges();
   }
   function ensureMistakeCard(q) {
@@ -362,6 +415,8 @@
       save();
       checkDailyAllDone();
     }
+    // 幂等键保证同一个知识点只发一次奖（重复进页面不会刷分）
+    award('learn', { key: 'learn:' + kid });
     refreshBadges();
   }
   function gradeReview(cardId, rating) {
@@ -375,6 +430,7 @@
     }
     save();
     checkDailyAllDone();
+    award('review', { rating: rating });
     refreshBadges();
   }
   function nodeStatus(kid) {
@@ -447,6 +503,14 @@
       toast('今日任务全部完成，打卡成功！', 'ok');
       refreshBadges();
     }
+    tryCheckin();
+  }
+  /* 打卡发奖：完成全部任务 或 专注满 30 分钟，两条路都算。
+   * 用幂等键锁死，所以每分钟 tick 里反复调也只会发一次。 */
+  function tryCheckin() {
+    var t = todayStr();
+    if (!checkinOK(t)) return;
+    award('checkin', { key: 'checkin:' + t });
   }
   function checkinOK(date) {
     var c = state.checkins[date];
@@ -474,6 +538,7 @@
         checkDailyAllDone();
         toast('已专注 30 分钟，今日打卡达成！', 'ok');
       }
+      tryCheckin();   // 专注满 30 分钟也算打卡（幂等，不会重复发奖）
       refreshBadges();
     }
     var mm = Math.floor(timer.seconds / 60), ss = timer.seconds % 60;
@@ -492,6 +557,13 @@
     if (mb) { mb.textContent = mis; mb.hidden = mis === 0; }
     var st = $('#side-streak');
     if (st) st.textContent = calcStreak();
+    // 等级条
+    var lv = Game.levelInfo(Game.ensure(state).xp);
+    var el;
+    if ((el = $('#side-lv'))) el.textContent = lv.level;
+    if ((el = $('#side-lv-title'))) el.textContent = lv.title;
+    if ((el = $('#side-xp'))) el.textContent = lv.into + ' / ' + lv.need;
+    if ((el = $('#side-lv-fill'))) el.style.width = lv.pct + '%';
     var tip = $('#side-tip');
     if (tip) {
       var d = dailyProgress();
@@ -502,7 +574,7 @@
   function setActiveNav(h) {
     var seg = h.split('/')[1] || '';
     $$('.nav-item').forEach(function (a) { a.classList.remove('active'); });
-    var map = { '': '/', learn: '/learn', quiz: '/quiz', review: '/review', mistakes: '/mistakes', stats: '/stats', settings: '/settings', cards: '/cards' };
+    var map = { '': '/', learn: '/learn', quiz: '/quiz', review: '/review', mistakes: '/mistakes', stats: '/stats', settings: '/settings', cards: '/cards', achievements: '/achievements', boss: '/learn' };
     var target = map[seg];
     if (!target) target = seg === 'learn' ? '/learn' : '/';
     $$('.nav-item').forEach(function (a) {
@@ -692,8 +764,22 @@
         (daysLeft === 0 ? '⏰ 考试就是今天！' : '⏰ 距考试还有 <b>' + daysLeft + '</b> 天 · 还剩 ' + remainNodes + ' 个知识点 · 建议每天新学 <b>' + recNew + '</b> 个' + (behind ? ' · ⚠️ 按当前速度无法在考前学完！' : '')) +
         '</div>';
     }
+    var g = Game.ensure(state);
+    var lv = Game.levelInfo(g.xp);
+    var lvStrip = '<div class="lv-strip">' +
+      '<div class="lv-strip-badge">Lv.' + lv.level + '</div>' +
+      '<div class="lv-strip-main">' +
+        '<div class="lv-strip-name">' + esc(lv.title) +
+        (g.combo >= 2 ? ' <span class="combo-pill">⚡ 连对 ' + g.combo + '</span>' : '') + '</div>' +
+        '<div class="lv-bar"><i style="width:' + lv.pct + '%"></i></div>' +
+      '</div>' +
+      '<div class="lv-strip-xp">' + lv.into + ' / ' + lv.need + ' XP</div>' +
+      '<a class="btn small" href="#/achievements">成就</a>' +
+      '</div>';
+
     box.innerHTML = head('仪表盘', '考研数学 · ' + (state.settings.examTrack === 'math1' ? '数学一' : state.settings.examTrack === 'math2' ? '数学二' : '数学三') + (state.settings.examDate ? ' · 目标考试 ' + state.settings.examDate : '') + (daysLeft !== null ? ' · 建议每日新学 ' + recNew + ' 个' : '')) +
       examBanner +
+      lvStrip +
       (done
         ? '<div class="banner">🎉 今日已打卡：' + (c.tasksDone ? '任务全部完成' : '专注 ' + (c.minutes || 0) + ' 分钟') + '。连续学习 ' + calcStreak() + ' 天。保持节奏！</div>'
         : '<div class="banner warn">今日任务还剩 <b>' + remain + '</b> 项（复习 ' + (d.reviewIds.length - d.reviewDoneIds.length) +
@@ -733,6 +819,11 @@
     var html = head('考研数学知识树', '按考试范围过滤：' + (state.settings.examTrack === 'math1' ? '数学一（全量）' : state.settings.examTrack === 'math2' ? '数学二（不含概率、级数、三重积分等）' : '数学三（不含三重积分与曲线曲面积分）'),
       '<a class="btn small" href="#/settings">调整考试范围</a>');
     var folded = getFolded();
+    // 章节 BOSS 状态按 id 建索引，免得每章都去重算一遍进度
+    var bossByCh = {};
+    Game.chapterProgress(state, gameWorld(), gameOpts()).forEach(function (c) { bossByCh[c.id] = c; });
+    var litTotal = 0;
+
     CATS.forEach(function (cat) {
       var chapters = cat.chapters.filter(function (ch) { return ch.nodes.some(nodeInTrack); });
       if (!chapters.length) return;
@@ -742,11 +833,26 @@
         var nodes = ch.nodes.filter(nodeInTrack);
         var mastered = nodes.filter(function (n) { return nodeStatus(n.id) === 'mastered'; }).length;
         var pct = Math.round(mastered / nodes.length * 100);
+        var lit = mastered === nodes.length;
+        if (lit) litTotal++;
         var isFold = folded[ch.id];
-        if (mastered === nodes.length && folded[ch.id] === undefined) isFold = true;
-        html += '<div class="chapter mt12">' +
+        if (lit && folded[ch.id] === undefined) isFold = true;
+        var b = bossByCh[ch.id];
+        var bossHtml = '';
+        if (b) {
+          if (b.bossPassed) {
+            bossHtml = '<a class="ch-boss done" href="#/boss/' + esc(ch.id) + '" onclick="event.stopPropagation()">🏆 ' + b.bossScore + '/' + b.bossTotal + '</a>';
+          } else if (lit) {
+            bossHtml = '<a class="ch-boss ready" href="#/boss/' + esc(ch.id) + '" onclick="event.stopPropagation()">⚔️ 挑战 BOSS</a>';
+          } else {
+            bossHtml = '<span class="ch-boss locked" title="整章学完才能解锁">🔒 BOSS</span>';
+          }
+        }
+        html += '<div class="chapter mt12' + (lit ? ' lit' : '') + '">' +
           '<div class="chapter-head" onclick="App.toggleChapter(\'' + ch.id + '\')">' +
-          '<span class="fold-arrow">' + (isFold ? '▶' : '▼') + '</span>' + esc(ch.name) +
+          '<span class="fold-arrow">' + (isFold ? '▶' : '▼') + '</span>' +
+          (lit ? '<span class="ch-lit" title="本章已点亮">★</span>' : '') +
+          esc(ch.name) + bossHtml +
           '<span class="ch-progress-wrap"><span class="ch-bar"><i style="width:' + pct + '%"></i></span><span class="ch-pct">' + pct + '%</span></span>' +
           '</div>' +
           '<div class="chapter-body' + (isFold ? ' collapsed' : '') + '">';
@@ -1548,6 +1654,7 @@
 
     var actions = total
       ? '<button class="btn primary" onclick="App.exportCards()">导出 PDF</button>' +
+        '<button class="btn" onclick="App.addDeckToReview(\'' + esc(deckKid || '') + '\')">加入复习</button>' +
         '<button class="btn" onclick="App.downloadCardsHtml()">下载 HTML</button>' +
         (deckKid ? '<button class="btn" onclick="App.polishCards(\'' + esc(deckKid) + '\')">AI 精炼</button>' : '') +
         '<button class="btn danger" onclick="App.clearDeck()">清空</button>'
@@ -1597,10 +1704,38 @@
     var added = merged.length - old.length;
     toast(added ? ('整理出 ' + merged.length + ' 张卡片，新增 ' + added + ' 张')
                 : ('已有 ' + merged.length + ' 张，没有新的内容'), added ? 'ok' : 'no');
+    // 整理出卡片给点 XP。没有新增时 added=0，award 会自动忽略（不会刷分）
+    if (added) award('card', { amount: added * Game.XP.card });
     deckFilter = 'all';
     var target = '#/cards/' + kid;
     if (window.location.hash === target) pageCards(kid);
     else window.location.hash = target;
+  };
+
+  /* 把卡片库里的卡加进 SM-2 复习队列。
+   * 卡片的"到期"由 SM-2 管，卡片库只管内容 —— 两边用 deckId 关联。
+   * 已经在队列里的不重复加（按 deckId 查重）。 */
+  App.addDeckToReview = function (kid) {
+    var list = deckFlat(kid, deckFilter);
+    if (!list.length) { toast('当前筛选下没有卡片', 'no'); return; }
+    var has = {};
+    Object.keys(state.cards).forEach(function (id) {
+      var c = state.cards[id];
+      if (c.type === 'deck' && c.deckId) has[c.deckId] = 1;
+    });
+    var n = 0;
+    list.forEach(function (dc) {
+      if (has[dc.id]) return;
+      var card = SM2.newCard(dc.kid || kid, null, 'deck');
+      card.deckId = dc.id;
+      card.kid = dc.kid || kid || '';
+      state.cards[card.id] = card;
+      n++;
+    });
+    if (!n) { toast('这些卡片都已经在复习队列里了', 'no'); return; }
+    save();
+    refreshBadges();
+    toast('已把 ' + n + ' 张卡片加入复习队列，明天开始出现', 'ok');
   };
 
   /* 让模型把讨论重新整理成卡片（1 次调用，front/back 拆得更干净） */
@@ -1695,6 +1830,212 @@
       toast('下载失败，请改用「导出 PDF」', 'no');
     }
   };
+
+  /* ----- 成就墙 ----- */
+  function xrItem(label, n) {
+    return '<span class="xr-i"><b>+' + n + '</b> ' + esc(label) + '</span>';
+  }
+  function xpRules() {
+    var X = Game.XP;
+    return '<div class="xr">' +
+      xrItem('学完一个知识点', X.learn) +
+      xrItem('答对一题', X.correct) +
+      xrItem('答错一题（参与分）', X.wrong) +
+      xrItem('复习自评「记得」', X.review[3]) +
+      xrItem('每日打卡', X.checkin) +
+      xrItem('通关章节 BOSS', X.boss) +
+      '</div>';
+  }
+  function pageAchievements() {
+    var g = Game.ensure(state);
+    var lv = Game.levelInfo(g.xp);
+    var board = Game.achievementBoard(state, gameWorld(), gameOpts());
+    var got = board.filter(function (a) { return a.unlocked; });
+    var left = board.filter(function (a) { return !a.unlocked; });
+    var snap = Game.snapshot(state, gameWorld(), gameOpts());
+
+    var achCard = function (a) {
+      return '<div class="ach ' + (a.unlocked ? 'on ' + a.tier : 'off') + '">' +
+        '<div class="ach-icon">' + (a.unlocked ? a.icon : '🔒') + '</div>' +
+        '<div class="ach-body"><div class="ach-name">' + esc(a.name) + '</div>' +
+        '<div class="ach-desc">' + esc(a.desc) + '</div>' +
+        (a.unlocked ? '<div class="ach-date">' + esc(a.date || '') + ' 解锁</div>' : '') +
+        '</div></div>';
+    };
+
+    var ladder = Game.levelTable(Math.max(12, lv.level + 2)).map(function (t) {
+      var cls = t.level < lv.level ? 'past' : t.level === lv.level ? 'now' : 'future';
+      return '<div class="ladder-step ' + cls + '">' +
+        '<div class="ls-num">Lv.' + t.level + '</div>' +
+        '<div class="ls-name">' + esc(t.title) + '</div>' +
+        '<div class="ls-xp">' + t.from + ' XP</div></div>';
+    }).join('');
+
+    $('#main').innerHTML = head('成就与等级',
+      '已解锁 <b>' + got.length + '</b> / ' + board.length + ' 个成就') +
+      '<div class="card lv-card">' +
+        '<div class="lv-badge"><div class="lv-badge-num">' + lv.level + '</div><div class="lv-badge-lb">LEVEL</div></div>' +
+        '<div class="lv-main">' +
+          '<div class="lv-name">' + esc(lv.title) + '</div>' +
+          '<div class="lv-bar-wrap"><div class="lv-bar"><i style="width:' + lv.pct + '%"></i></div>' +
+          '<span class="lv-bar-txt">' + lv.into + ' / ' + lv.need + ' XP</span></div>' +
+          '<div class="lv-hint">累计 <b>' + lv.xp + '</b> XP · 距离 Lv.' + (lv.level + 1) + ' 还差 <b>' + (lv.need - lv.into) + '</b> XP</div>' +
+        '</div>' +
+        '<div class="lv-facts">' +
+          '<div class="lf"><span class="lf-k">连续打卡</span><span class="lf-v">' + snap.streak + ' 天</span></div>' +
+          '<div class="lf"><span class="lf-k">已学考点</span><span class="lf-v">' + snap.learned + ' / ' + snap.total + '</span></div>' +
+          '<div class="lf"><span class="lf-k">点亮章节</span><span class="lf-v">' + snap.chaptersDone + ' / ' + snap.chaptersTotal + '</span></div>' +
+          '<div class="lf"><span class="lf-k">最高连对</span><span class="lf-v">' + snap.bestCombo + ' 题</span></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card mt16"><div class="card-title">等级阶梯 <span class="sub">共 12 级，攒 XP 往上爬</span></div>' +
+        '<div class="ladder">' + ladder + '</div>' +
+        '<div class="xr-title">XP 怎么来</div>' + xpRules() +
+      '</div>' +
+      '<div class="card mt16"><div class="card-title">🏆 已解锁 <span class="sub">' + got.length + ' 个</span></div>' +
+        '<div class="ach-grid">' +
+        (got.length ? got.map(achCard).join('') : '<p class="muted" style="padding:8px 2px">还没有成就。去知识树学一个知识点，或者打卡一天，马上就有。</p>') +
+        '</div></div>' +
+      '<div class="card mt16"><div class="card-title">🔒 待解锁 <span class="sub">' + left.length + ' 个</span></div>' +
+        '<div class="ach-grid">' + left.map(achCard).join('') + '</div></div>';
+  }
+
+  /* ----- 章节 BOSS 卷 -----
+   * 整章知识点全部学完才解锁。抽 8 题连做，正确率 ≥ 70% 通关。
+   * 一次一题（不是列表）—— BOSS 要有压迫感，摊成一张列表就变成普通练习了。
+   */
+  var bossState = { chId: null, qids: [], idx: 0, results: [], phase: 'quiz' };
+  function bossChapter(chId) {
+    var list = Game.chapterProgress(state, gameWorld(), gameOpts());
+    return list.filter(function (c) { return c.id === chId; })[0] || null;
+  }
+  function pageBoss(chId) {
+    var ch = bossChapter(chId);
+    if (!ch) {
+      $('#main').innerHTML = head('章节不存在', '该章节不在当前考试范围内') +
+        '<p class="muted">返回 <a href="#/learn">知识树</a></p>';
+      return;
+    }
+    if (!ch.bossUnlocked) {
+      $('#main').innerHTML = head('🔒 ' + esc(ch.name), 'BOSS 还没解锁') +
+        '<div class="card result-panel"><div style="font-size:40px">🔒</div>' +
+        '<div class="result-score" style="font-size:20px;margin-top:10px">先把这一章学完</div>' +
+        '<div class="result-sub">还差 <b>' + (ch.total - ch.mastered) + '</b> 个知识点（已学 ' + ch.mastered + ' / ' + ch.total + '）。<br>' +
+        '整章知识点全部学完，BOSS 卷自动解锁。</div>' +
+        '<a class="btn primary" href="#/learn">去知识树</a></div>';
+      return;
+    }
+    // 换章或首次进入才重开，中途离开再回来能接着做
+    if (bossState.chId !== chId || !bossState.qids.length) {
+      bossState = { chId: chId, qids: Game.bossQuestions(gameWorld(), chId, 8), idx: 0, results: [], phase: 'quiz' };
+    }
+    renderBoss();
+  }
+  function renderBoss() {
+    var box = $('#main');
+    if (bossState.phase === 'result') return renderBossResult();
+    var ch = bossChapter(bossState.chId);
+    var qids = bossState.qids;
+    var i = bossState.idx;
+    var q = QDATA.filter(function (x) { return x.id === qids[i]; })[0];
+    if (!q) {
+      box.innerHTML = head('题目缺失', '这一章的题目没找到') + '<a class="btn" href="#/learn">回知识树</a>';
+      return;
+    }
+    var dots = qids.map(function (id, k) {
+      var r = bossState.results[k];
+      var cls = r ? (r.correct ? 'ok' : 'no') : (k === i ? 'now' : 'future');
+      return '<span class="boss-dot ' + cls + '"></span>';
+    }).join('');
+    box.innerHTML = head('⚔️ BOSS 卷 · ' + esc(ch.name),
+      '第 <b>' + (i + 1) + '</b> / ' + qids.length + ' 题 · 正确率 ≥ ' + Math.round(Game.BOSS_PASS_RATIO * 100) + '% 通关',
+      '<a class="btn small" href="#/learn">放弃并返回</a>') +
+      '<div class="boss-progress">' + dots + '</div>' +
+      '<div class="q-card">' +
+      '<div class="q-meta"><span class="q-type">' + (q.type === 'choice' ? '选择题' : '填空题') + '</span>' + srcBadge(q) +
+      '<span class="q-src">' + esc((NODE[q.kid] || {}).title || '') + ' · 难度 ' + q.difficulty + '</span></div>' +
+      '<div class="q-stem">' + md(q.stem) + '</div>' +
+      '<div id="boss-body"></div></div>';
+    renderBossBody(q);
+  }
+  function renderBossBody(q) {
+    var slot = $('#boss-body');
+    if (!slot) return;
+    var r = bossState.results[bossState.idx];
+    if (r) {
+      slot.innerHTML = '<div class="q-feedback ' + (r.correct ? 'ok' : 'no') + '">' +
+        (r.correct ? '✓ 答对了' : '✗ 答错了，我的答案：' + esc(r.answer)) + '<br>' +
+        '<span class="ans">' + AIEngine.Judge.answerText(q) + '</span></div>' +
+        '<div style="margin-top:14px"><button class="btn primary" onclick="App.bossNext()">' +
+        (bossState.idx + 1 >= bossState.qids.length ? '看结果 →' : '下一题 →') + '</button></div>';
+      return;
+    }
+    if (q.type === 'choice') {
+      slot.innerHTML = q.options.map(function (o) {
+        return '<div class="opt" onclick="App.bossAnswer(\'' + q.id + '\',\'' + o.k + '\')"><span class="ok">' + o.k + '</span><span>' + md(o.t) + '</span></div>';
+      }).join('');
+    } else {
+      slot.innerHTML = '<div class="fill-row"><input id="boss-fill" placeholder="输入你的答案（如 1/2、\\pi、x^2）" autocomplete="off">' +
+        '<button class="btn primary" onclick="App.bossFill(\'' + q.id + '\')">提交</button></div>';
+    }
+  }
+  function bossSubmit(qid, ans) {
+    var q = QDATA.filter(function (x) { return x.id === qid; })[0];
+    if (!q) return;
+    var correct = AIEngine.Judge.check(q, ans);
+    bossState.results[bossState.idx] = { correct: correct, answer: ans };
+    // 走 addAttempt：XP、连击、错题本、打卡一条龙都在这条路上
+    addAttempt(q, ans, correct, 'boss');
+    renderBossBody(q);
+  }
+  App.bossAnswer = function (qid, k) { bossSubmit(qid, k); };
+  App.bossFill = function (qid) {
+    var el = $('#boss-fill');
+    var v = el ? el.value.trim() : '';
+    if (!v) { toast('先输入答案', 'no'); return; }
+    bossSubmit(qid, v);
+  };
+  App.bossNext = function () {
+    bossState.idx++;
+    if (bossState.idx >= bossState.qids.length && bossState.phase !== 'result') {
+      bossState.phase = 'result';
+      finishBoss();
+    }
+    renderBoss();
+  };
+  App.bossRestart = function () {
+    var chId = bossState.chId;
+    bossState = { chId: chId, qids: Game.bossQuestions(gameWorld(), chId, 8), idx: 0, results: [], phase: 'quiz' };
+    renderBoss();
+  };
+  function finishBoss() {
+    var correct = bossState.results.filter(function (r) { return r && r.correct; }).length;
+    var total = bossState.qids.length;
+    var r = Game.recordBoss(state, bossState.chId, correct, total, todayStr());
+    save();
+    if (r.passed) award('boss', { key: 'boss:' + bossState.chId });
+    else sweepAchievements();
+  }
+  function renderBossResult() {
+    var correct = bossState.results.filter(function (r) { return r && r.correct; }).length;
+    var total = bossState.qids.length;
+    var r = Game.bossResult(correct, total);
+    var ch = bossChapter(bossState.chId);
+    var wrong = bossState.results.filter(function (x) { return x && !x.correct; }).length;
+    $('#main').innerHTML = head('⚔️ BOSS 卷 · ' + esc(ch ? ch.name : ''), '挑战结束') +
+      '<div class="card result-panel">' +
+      '<div style="font-size:44px">' + (r.passed ? '🏆' : '💪') + '</div>' +
+      '<div class="result-score">' + correct + ' / ' + total + '</div>' +
+      '<div class="result-sub">正确率 <b>' + r.pct + '%</b> · 通关线 ' + Math.round(r.passRatio * 100) + '%<br>' +
+      (r.passed
+        ? '通关！这一章收下了。' + (ch && ch.bossScore != null ? '（历史最好 ' + ch.bossScore + ' / ' + total + '）' : '')
+        : '还差一点。错的题已经进错题本了，复盘一遍再来。') + '</div>' +
+      '<div style="display:flex;gap:10px;justify-content:center;margin-top:18px">' +
+      '<button class="btn" onclick="App.bossRestart()">再挑战一次</button>' +
+      '<a class="btn" href="#/learn">回知识树</a>' +
+      (wrong ? '<a class="btn" href="#/mistakes">看错题本（' + wrong + '）</a>' : '') +
+      '</div></div>';
+  }
 
   /* ----- 做题页 ----- */
   var quizState = { qids: [], done: {}, results: [] };
@@ -1794,6 +2135,16 @@
 
   /* ----- 复习页 ----- */
   var reviewState = { list: [], idx: 0 };
+  /* 按 id 找一张卡片库的卡（cardDeck 是按考点分组的，得摊平找） */
+  function findDeckCard(id) {
+    var deck = state.cardDeck || {};
+    for (var k in deck) {
+      if (!deck.hasOwnProperty(k)) continue;
+      var hit = (deck[k] || []).filter(function (c) { return c.id === id; })[0];
+      if (hit) return hit;
+    }
+    return null;
+  }
   function pageReview() {
     reviewState.list = dueCards();
     reviewState.idx = 0;
@@ -1810,18 +2161,52 @@
       return;
     }
     var card = list[reviewState.idx];
-    var node = NODE[card.knowledgeId];
     var isMistake = card.type === 'mistake' && card.questionId;
+    var isDeck = card.type === 'deck' && card.deckId;
+    var dc = isDeck ? findDeckCard(card.deckId) : null;
+    // 卡片库的卡可能被删了 —— 兜底别让它变成一张空白卡
+    if (isDeck && !dc) {
+      reviewState.idx++;
+      if (reviewState.idx < list.length) return renderReview();
+      box.innerHTML = head('复习队列', '卡片已失效') +
+        '<div class="card result-panel"><div style="font-size:40px">🗂️</div>' +
+        '<div class="result-score" style="font-size:22px;margin-top:10px">这些卡片已被删除</div>' +
+        '<div class="result-sub">队列里剩下的卡片库条目已经清掉了。</div>' +
+        '<a class="btn primary" href="#/cards">去卡片库</a></div>';
+      return;
+    }
+    var node = NODE[card.knowledgeId];
     var q = isMistake ? QDATA.filter(function (x) { return x.id === card.questionId; })[0] : null;
+
+    var kind, front, back, prompt;
+    if (isDeck) {
+      kind = '复习卡';
+      front = dc.front || '';
+      back = dc.back || '';
+      prompt = '先自己回忆，再点「翻面」核对。';
+    } else if (isMistake) {
+      kind = '错题卡';
+      front = '回忆这道题的解法：' + truncate(md(q ? q.stem : ''), 120);
+      back = q ? md(q.stem + '\n\n**解析**：' + q.analysis) : '';
+      prompt = '先在脑中演算，再点"显示答案"核对你自己是否真的会了。';
+    } else {
+      kind = '知识点卡';
+      front = '回忆「' + esc(node ? node.title : '') + '」';
+      back = node ? md(node.content) : '';
+      prompt = '默想它的定义、结论与考法，想不起来就点"显示要点"。';
+    }
+    var revealLbl = isDeck ? '翻面看答案' : isMistake ? '显示答案与解析' : '显示知识点要点';
+
     var html = head('复习队列', '先回忆，再自评',
       '<span class="rev-stat" style="margin:0"><span class="rs">剩余 <b>' + (list.length - reviewState.idx) + '</b> 张</span>' +
       '<span class="rs">今日已评 <b>' + list.length + '</b> 张</span></span>') +
       '<div class="review-area"><div class="rev-card" id="rev-card">' +
-        '<div><span class="rc-type">' + (isMistake ? '错题卡' : '知识点卡') + '</span></div>' +
-        '<div class="rc-q">' + (isMistake ? '回忆这道题的解法：' + truncate(md(q.stem), 120) : '回忆「' + esc(node.title) + '」' ) + '</div>' +
-        '<div class="rc-prompt">' + (isMistake ? '先在脑中演算，再点"显示答案"核对你自己是否真的会了。' : '默想它的定义、结论与考法，想不起来就点"显示要点"。') + '</div>' +
-        '<button class="btn" id="rev-show" onclick="App.revShow()">' + (isMistake ? '显示答案与解析' : '显示知识点要点') + '</button>' +
-        '<div class="rc-ans" id="rev-ans">' + (isMistake ? md(q.stem + '\n\n**解析**：' + q.analysis) : md(node.content)) + '</div>' +
+        '<div><span class="rc-type">' + kind + '</span>' +
+        (isDeck && dc.kidTitle ? '<span class="rc-from">' + esc(dc.kidTitle) + '</span>' : '') + '</div>' +
+        '<div class="rc-q">' + (isDeck ? md(front) : front) + '</div>' +
+        '<div class="rc-prompt">' + prompt + '</div>' +
+        '<button class="btn" id="rev-show" onclick="App.revShow()">' + revealLbl + '</button>' +
+        '<div class="rc-ans" id="rev-ans">' + (isDeck && !back ? '<p class="muted">这张卡没有背面内容。</p>' : back) + '</div>' +
         '<div class="rate-row mt20">' +
           '<button class="rate-btn r1" onclick="App.revRate(1)"><span class="rk">1</span><span class="rl">忘了</span></button>' +
           '<button class="rate-btn r2" onclick="App.revRate(2)"><span class="rk">2</span><span class="rl">困难</span></button>' +
@@ -1848,6 +2233,12 @@
     reviewState.idx++;
     renderReview();
     if (reviewState.idx >= reviewState.list.length) {
+      // 从"有卡"走到"清空"才算清空队列（本来就没卡时不该白送成就）
+      if (reviewState.list.length > 0) {
+        gameFlag('clearedQueue');
+        sweepAchievements();
+        save();
+      }
       toast('今日复习队列已清空！', 'ok');
     }
   };
@@ -2433,6 +2824,9 @@
     m = h.match(/^\/cards\/(.+)$/);
     if (m) { window.__curKid = m[1]; return pageCards(m[1]); }
     if (h === '/cards') { window.__curKid = null; return pageCards(null); }
+    if (h === '/achievements') return pageAchievements();
+    m = h.match(/^\/boss\/(.+)$/);
+    if (m) return pageBoss(m[1]);
     m = h.match(/^\/quiz\/r\/(.+)$/);
     if (m) { quizState.qids = [m[1]]; quizState.done = {}; quizState.results = []; return renderQuizList(); }
     if (h === '/quiz') return pageQuiz('daily');
