@@ -268,10 +268,11 @@
     settings: {
       examTrack: 'math1', dailyNew: 2, examDate: '', persona: 'strict',
       llm: {
-        enabled: false, kind: 'local',
-        base: '', model: '',
+        enabled: true, kind: 'cloud',
+        base: 'https://api.deepseek.com', model: 'deepseek-chat',
         localBase: 'http://127.0.0.1:1234/v1', localModel: '', localName: '',
-        cloudBase: 'https://api.deepseek.com', cloudModel: 'deepseek-chat'
+        cloudBase: 'https://api.deepseek.com', cloudModel: 'deepseek-chat',
+        cloudKey: '', rememberKey: false
       }
     },
     chats: {}
@@ -295,10 +296,17 @@
       if (!L.localBase) L.localBase = 'http://127.0.0.1:1234/v1';
       if (!L.cloudBase) L.cloudBase = 'https://api.deepseek.com';
       if (!L.cloudModel) L.cloudModel = 'deepseek-chat';
-      if (!L.kind) L.kind = (L.base && !/127\.0\.0\.1|localhost/i.test(L.base)) ? 'cloud' : 'local';
+      if (!L.kind) L.kind = 'cloud';
+      // 一次性迁移：把从未真正配置过模型的老数据切到云端默认并打开开关
+      if (!L.defaultsV2) {
+        L.defaultsV2 = true;
+        if (!L.localModel && !L.cloudKey) { L.kind = 'cloud'; L.enabled = true; }
+      }
       if (L.kind === 'cloud' && L.base && !/127\.0\.0\.1|localhost/i.test(L.base)) L.cloudBase = L.base;
       if (L.kind === 'cloud' && L.model) L.cloudModel = L.model;
       if (!L.localModel) L.localModel = '';
+      if (!L.cloudKey) L.cloudKey = '';
+      if (L.rememberKey == null) L.rememberKey = false;
       L.base = L.kind === 'cloud' ? L.cloudBase : L.localBase;
       L.model = L.kind === 'cloud' ? L.cloudModel : L.localModel;
       if (!base.settings.examTrack) base.settings.examTrack = 'math1';
@@ -828,7 +836,13 @@
       return '<button class="' + cls + '" onclick="App.quickSend(\'' + h.replace(/'/g, '') + '\')">' + esc(h) + '</button>';
     }).join('') + '<span style="margin-left:auto;font-size:11.5px;color:var(--ink-3)" id="llm-indicator"></span>';
     var ind = $('#llm-indicator');
-    ind.textContent = llmOn() ? 'AI 老师 · ' + state.settings.llm.model : '内置引擎（未接模型）';
+    if (llmOn()) {
+      ind.textContent = 'AI 老师 · ' + state.settings.llm.model;
+    } else if (state.settings.llm && state.settings.llm.enabled) {
+      ind.innerHTML = '<a href="#/settings" style="color:var(--amber);text-decoration:none">⚠ 待填 API Key</a>';
+    } else {
+      ind.textContent = '内置引擎（未接模型）';
+    }
   }
   function appendMsg(area, role, content, opts, streamingId) {
     var div = document.createElement('div');
@@ -849,7 +863,10 @@
   }
   var llmKeyVar = { key: '' };
   function isLocalBase(base) { return /^https?:\/\/(127\.0\.0\.1|localhost)/i.test(String(base || '')); }
-  function llmKey() { return sessionLLMKey || llmKeyVar.key || ''; }
+  function llmKey() {
+    var L = state.settings.llm || {};
+    return sessionLLMKey || llmKeyVar.key || (L.rememberKey ? (L.cloudKey || '') : '') || '';
+  }
   /* 本地模型免 Key；云端必须有 Key。配置齐全即可用。 */
   function llmOn() {
     var s = state.settings.llm;
@@ -861,7 +878,7 @@
     var s = state.settings.llm || {};
     if (!s.base || !s.model) return null;
     if (!isLocalBase(s.base) && !llmKey()) return null;
-    return { base: s.base, model: s.model, key: llmKey(), kind: s.kind || 'local' };
+    return { base: s.base, model: s.model, key: llmKey(), kind: s.kind || 'cloud' };
   }
   function switchLLMKind(kind) {
     var s = state.settings.llm;
@@ -1796,7 +1813,7 @@
         '</select></div>' +
       '</div>';
 
-    var kind = s.llm.kind || 'local';
+    var kind = s.llm.kind || 'cloud';
     html += '<div class="card mt16"><div class="card-title">模型通道 <span class="sub">本地模型免 Key、离线、数据不出本机</span></div>' +
       '<div class="seg-row">' +
         '<button class="seg-btn' + (kind === 'local' ? ' on' : '') + '" onclick="App.setLLMKind(\'local\')">本地模型</button>' +
@@ -1815,8 +1832,10 @@
           '<input type="text" id="set-cloud-base" value="' + esc(s.llm.cloudBase || '') + '" style="width:280px" placeholder="https://api.deepseek.com"></div>' +
         '<div class="set-row"><div><div class="slabel">模型名称</div><div class="sdesc">如 deepseek-chat / moonshot-v1-8k / qwen-max</div></div>' +
           '<input type="text" id="set-cloud-model" value="' + esc(s.llm.cloudModel || '') + '" style="width:220px"></div>' +
-        '<div class="set-row"><div><div class="slabel">API Key</div><div class="sdesc">仅保存在内存，刷新页面后需重新输入；不会写入本地存储</div></div>' +
-          '<input type="password" id="set-llm-key" value="" style="width:280px" placeholder="sk-..."></div>';
+        '<div class="set-row"><div><div class="slabel">API Key</div><div class="sdesc">' + (s.llm.rememberKey ? '已记住，保存在本机浏览器' : '默认只存内存，刷新页面后需重新输入') + '</div></div>' +
+          '<input type="password" id="set-llm-key" value="' + esc(s.llm.rememberKey ? (s.llm.cloudKey || '') : '') + '" style="width:280px" placeholder="sk-..."></div>' +
+        '<div class="set-row"><div><div class="slabel">记住 Key</div><div class="sdesc">勾选后 Key 写入本机 localStorage（明文）。只在自己电脑上用，公共电脑别勾</div></div>' +
+          '<label class="switch"><input type="checkbox" id="set-remember-key"' + (s.llm.rememberKey ? ' checked' : '') + '><span class="sl"></span></label></div>';
     }
     html += '<div class="set-row"><div><div class="slabel"> &nbsp; </div><div class="sdesc" id="llm-test-result"></div></div><button class="btn" onclick="App.testLLM()">测试连接</button></div>' +
       '</div>';
@@ -1899,6 +1918,28 @@
     });
     var kk = $('#set-llm-key');
     if (kk) kk.addEventListener('input', function () { sessionLLMKey = this.value.trim(); });
+    var rk = $('#set-remember-key');
+    if (rk) rk.addEventListener('change', function () {
+      s.llm.rememberKey = this.checked;
+      if (this.checked) {
+        s.llm.cloudKey = llmKey();
+        if (!s.llm.cloudKey) {
+          s.llm.rememberKey = false;
+          save();
+          pageSettings();
+          toast('先在输入框填入 Key，再勾选记住', 'no');
+          return;
+        }
+        toast('已记住 Key（明文存在本机浏览器）');
+      } else {
+        s.llm.cloudKey = '';
+        sessionLLMKey = '';
+        llmKeyVar.key = '';
+        toast('已清除记住的 Key');
+      }
+      save();
+      pageSettings();
+    });
     ['f-src', 'f-year', 'f-diff'].forEach(function (id) {
       var el = $('#' + id);
       if (el) el.addEventListener('change', refreshFilterCount);

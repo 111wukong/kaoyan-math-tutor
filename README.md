@@ -14,7 +14,8 @@
 
 > 数学公式默认走 KaTeX CDN，无外网时自动降级为高亮原文显示，不影响功能。
 >
-> **想接本地大模型（LM Studio / Ollama）请用方式二** —— `file://` 协议下浏览器会拦截对 `localhost` 的请求。
+> **默认接云端 API（DeepSeek）**，`file://` 下也能用——去设置页填一个 Key 就行。
+> 想改用本地大模型（LM Studio / Ollama）请用方式二，`file://` 协议下浏览器会拦截对 `localhost` 的请求。
 
 **方式二：本地服务器**
 
@@ -74,14 +75,28 @@ kaoyan-math-tutor/
 
 ```jsonc
 {
-  "settings": { "examTrack": "math1", "dailyNew": 2, "examDate": "", "llm": { base, model, enabled } },
-  "cards":    { "<cardId>": { type: knowledge|mistake, knowledgeId, questionId?, due, interval, reps, ef, lapses } },
-  "attempts": [ { qid, kid, answer, correct, date } ],
-  "checkins": { "YYYY-MM-DD": { minutes, tasksDone } },
-  "daily":    { date, reviewIds[], newIds[], quizIds[], reviewDoneIds[], newDoneIds[], quizDoneIds[] },
-  "chats":    { "<kid>": { stage, history[], acceptQueue[], ... } }
+  "settings": {
+    "examTrack": "math1", "dailyNew": 2, "examDate": "", "persona": "strict",
+    "llm": {
+      "enabled": true, "kind": "cloud",              // 通道：cloud | local
+      "base": "...", "model": "...",                 // 当前生效（由 kind 决定取哪一组）
+      "localBase": "http://127.0.0.1:1234/v1", "localModel": "", "localName": "",
+      "cloudBase": "https://api.deepseek.com", "cloudModel": "deepseek-chat",
+      "cloudKey": "", "rememberKey": false           // cloudKey 仅在勾选记住时才写入
+    }
+  },
+  "cards":        { "<cardId>": { type: knowledge|mistake, knowledgeId, questionId?, due, interval, reps, ef, lapses } },
+  "attempts":     [ { qid, kid, answer, correct, date } ],
+  "checkins":     { "YYYY-MM-DD": { minutes, tasksDone } },
+  "daily":        { date, reviewIds[], newIds[], quizIds[], reviewDoneIds[], newDoneIds[], quizDoneIds[] },
+  "chats":        { "<kid>": { stage, history[], acceptQueue[], ... } },
+  "notes":        { "<kid>": [ { text, date } ] },
+  "discussions":  { "<kid>": { topic, messages[], summary, date } },
+  "customQ":      [ { ...自建题 } ]
 }
 ```
+
+> 老版本数据在 `load()` 里自动补齐字段，并有一次性的 `defaultsV2` 迁移标记：只有**从未真正配置过模型**（既没本地模型名、也没记住云端 Key）的用户才会被切到云端默认，已配好的配置不会被冲掉。
 
 ## AI 老师：Agent 内核
 
@@ -117,7 +132,7 @@ kaoyan-math-tutor/
 1. 模型不支持原生 `tools` 参数（本地小模型常见）时，自动降级为**文本工具协议**（` ```tool ` 代码块），不必换模型。
 2. 模型完全不可用时，静默降级回内置教学引擎，聊天不中断。
 
-> **注意**：用 `file://` 直接打开页面时，浏览器会拦截对 `localhost` 的请求。要用本地模型，请在该目录执行 `python3 -m http.server 8080` 后访问 `http://localhost:8080`；LM Studio 需在 Server 设置中开启 CORS。
+> **注意**：默认的云端通道在 `file://` 下可直接用。只有改用**本地模型**时才需要方式二——`file://` 协议会拦截对 `localhost` 的请求，请在该目录执行 `python3 -m http.server 8080` 后访问 `http://localhost:8080`；LM Studio 需在 Server 设置中开启 CORS。
 
 ## 讨论模式：老师 + 三个学生
 
