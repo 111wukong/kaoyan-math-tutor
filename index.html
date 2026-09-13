@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>研数 · 考研数学 AI 自学系统</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">∫</div>
+      <div class="brand-text">
+        <div class="brand-name">研数</div>
+        <div class="brand-sub">考研数学 AI 自学</div>
+      </div>
+    </div>
+    <nav id="nav">
+      <a href="#/" data-route="/" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg><span>仪表盘</span><i class="badge" id="nav-due-badge" hidden></i></a>
+      <a href="#/learn" data-route="/learn" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M4 4h16v2H4V4zm0 5h16v2H4V9zm0 5h10v2H4v-2zm0 5h10v2H4v-2zm14-1l3 2v-5l-3 2a1 1 0 0 1-2 0v4h2z" opacity="0" /><path d="M12 6v2H4V6h8zm8 4v2H4v-2h16zM4 14h7v2H4v-2zm14 1l3-2v6l-3-2a1.5 1.5 0 0 0-3 0v-2a3 3 0 0 1 6 0z"/></svg><span>知识树</span></a>
+      <a href="#/quiz" data-route="/quiz" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2zm13-2l5 3-5 3v-6z"/></svg><span>每日一练</span></a>
+      <a href="#/review" data-route="/review" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M12 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V3zm1 2.5V11l4.2 2.5.8-1.3-3.5-2V5.5H13z"/></svg><span>复习队列</span><i class="badge" id="nav-review-badge" hidden></i></a>
+      <a href="#/mistakes" data-route="/mistakes" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M12 2L2 7v6c0 5 4.3 8.3 10 9 5.7-.7 10-4 10-9V7l-10-5zm-1.2 12.6L7 10.8l1.4-1.4 2.4 2.4 4.8-4.8 1.4 1.4-6.2 6.2z"/></svg><span>错题本</span><i class="badge" id="nav-mistake-badge" hidden></i></a>
+      <a href="#/stats" data-route="/stats" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M4 20h16v2H4v-2zM6 16h3v4H6v-4zm5-6h3v10h-3V10zm5-4h3v14h-3V6z"/></svg><span>统计</span></a>
+      <a href="#/settings" data-route="/settings" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4l2 1.5-.8 2.6-2.7.2a8 8 0 0 1-1.2 2.1l1.4 2.3-2.2 2.2-2.3-1.4a8 8 0 0 1-2.1 1.2l-.2 2.7-2.6.8L8.5 20a8 8 0 0 1-2.1-1.2l-2.3 1.4-2.2-2.2 1.4-2.3a8 8 0 0 1-1.2-2.1l-2.7-.2-.8-2.6L3 13a8 8 0 0 1 0-2.5l-2-1.5.8-2.6 2.7-.2a8 8 0 0 1 1.2-2.1L4.3 1.8l2.2-2.2 2.3 1.4A8 8 0 0 1 11-.2l.2-2.7 2.6-.8 1.7 2.2a8 8 0 0 1 2.1 1.2l2.3-1.4 2.2 2.2-1.4 2.3a8 8 0 0 1 1.2 2.1l2.7.2.8 2.6z"/></svg><span>设置</span></a>
+    </nav>
+    <div class="side-foot">
+      <div class="streak">
+        <div class="streak-num" id="side-streak">0</div>
+        <div class="streak-label">连续学习天数</div>
+      </div>
+      <div class="side-tip" id="side-tip">每天 30 分钟，数学不掉队。</div>
+    </div>
+  </aside>
+  <main id="main"></main>
+</div>
+<div id="toast-root"></div>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="js/sm2.js"></script>
+<script src="js/data-knowledge.js"></script>
+<script src="js/data-questions.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
