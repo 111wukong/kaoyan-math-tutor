@@ -6,9 +6,10 @@
  *
  * 对外能力：
  *   LLM.detectLocal()    自动探测本机在跑的推理服务
- *   LLM.listModels(base) 拉取模型列表
+ *   LLM.probe(base, key) 结构化探测：分清「连不上 / Key 不对 / 路径不对」
+ *   LLM.listModels(base) 拉取模型列表（不带 Key，供本机探测）
  *   LLM.chat(conf, msgs, opts)  对话；支持流式增量回调与工具调用
- *   LLM.testConnection(conf)    设置页"测试连接"
+ *   LLM.testConnection(conf)    设置页"测试连接"（会带上 Key）
  *
  * 工具调用做了双通道：优先用 OpenAI 原生 tool_calls；若模型（常见于本地小模型）
  * 只在正文里吐 JSON，则用 ```tool 代码块协议兜底解析。
@@ -29,13 +30,39 @@ window.LLM = (function () {
     return typeof location !== 'undefined' && location.protocol === 'file:';
   }
 
-  /* 连接失败时给出可操作的提示，而不是干巴巴的 Failed to fetch */
-  function connHint(base) {
-    if (isFileProtocol()) {
-      return '当前页面是 file:// 打开的，浏览器会拦截对 ' + base + ' 的请求（跨域限制）。' +
-        '请在项目目录执行 `python3 -m http.server 8080`，然后用 http://localhost:8080 打开本页。';
+  /* 判断是不是本机推理服务（决定报错时该给哪套建议） */
+  function isLocalBase(base) {
+    return /^https?:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(:|\/|$)/i.test(String(base || ''));
+  }
+
+  /* 连接失败时给出可操作的提示，而不是干巴巴的 Failed to fetch。
+     reason 来自 probe()：auth / http / notjson / timeout / network */
+  function connHint(base, reason) {
+    var local = isLocalBase(base);
+
+    if (reason === 'auth') {
+      return local
+        ? '本机服务返回了「未授权」。本地推理服务通常不需要 Key，请把 API Key 清空后再试。'
+        : 'Key 被拒绝（401/403）。请检查：是否复制完整（含 sk- 前缀、无多余空格）、是否已过期、账户是否欠费。';
     }
-    return '请确认本地推理服务已启动，且允许来自本页面的跨域请求（LM Studio 需在 Server 设置里开启 CORS）。';
+    if (reason === 'notjson') {
+      return '请确认「接口地址」填的是 API 根地址（例如 https://api.deepseek.com），不要带 /chat/completions 这类路径。';
+    }
+    if (reason === 'timeout') {
+      return '请求超时。' + (local
+        ? '本机服务可能没启动，或模型正在加载中。'
+        : '请检查网络与代理设置。');
+    }
+
+    /* 网络层失败：跨域被拦 / DNS / 代理 / 服务没开，浏览器一律报 Failed to fetch，只能按通道给建议 */
+    if (local) {
+      if (isFileProtocol()) {
+        return '当前页面是 file:// 打开的，浏览器会拦截对 ' + base + ' 的请求（跨域限制）。' +
+          '请在项目目录执行 `python3 -m http.server 8080`，然后用 http://localhost:8080 打开本页。';
+      }
+      return '请确认本地推理服务已启动，且允许来自本页面的跨域请求（LM Studio 需在 Server 设置里开启 CORS）。';
+    }
+    return '浏览器没能建立到 ' + base + ' 的连接。请检查网络能否访问该地址（代理、公司网络或防火墙可能拦截），以及「接口地址」是否填错。';
   }
 
   function withTimeout(ms) {
@@ -49,22 +76,56 @@ window.LLM = (function () {
 
   /* ---------------- 探测与模型列表 ---------------- */
 
-  async function listModels(base, timeoutMs) {
-    var tm = withTimeout(timeoutMs || 2500);
+  /* 探测一个 base 是否是可用后端。返回结构化结果而不是 null，
+     这样调用方才能分清「连不上」和「Key 不对」——这两件事的处理方式完全不同。
+     key 可选：本地服务不传，云端必须传。 */
+  async function probe(base, key, timeoutMs) {
+    var b = trimBase(base);
+    if (!b) return { ok: false, reason: 'http', status: 0, base: b };
+
+    // 有的网关只认 /v1/models，有的两种都认。先试原样，404 再补 /v1。
+    var urls = [b + '/models'];
+    if (!/\/v1$/i.test(b)) urls.push(b + '/v1/models');
+
+    var last = null;
+    for (var i = 0; i < urls.length; i++) {
+      var r = await probeOne(urls[i], key, timeoutMs);
+      if (r.ok) { r.base = b; return r; }
+      last = r;
+      // 只有「路径不存在」才值得换 URL 重试；认证失败/网络不通换路径也没用
+      if (r.reason !== 'http' || (r.status !== 404 && r.status !== 405)) break;
+    }
+    last.base = b;
+    return last;
+  }
+
+  async function probeOne(url, key, timeoutMs) {
+    var tm = withTimeout(timeoutMs || 6000);
+    var headers = {};
+    if (key) headers['Authorization'] = 'Bearer ' + key;
     try {
-      var res = await fetch(trimBase(base) + '/models', { signal: tm.signal });
-      if (!res.ok) return null;
+      var res = await fetch(url, { headers: headers, signal: tm.signal });
+      if (res.status === 401 || res.status === 403) return { ok: false, reason: 'auth', status: res.status };
+      if (!res.ok) return { ok: false, reason: 'http', status: res.status };
       var ct = res.headers.get('content-type') || '';
-      if (ct.indexOf('json') < 0) return null;   // 防止把别的 HTTP 服务误判成推理后端
+      if (ct.indexOf('json') < 0) return { ok: false, reason: 'notjson', status: res.status };
       var j = await res.json();
       var raw = j.data || j.models || [];
       var ids = raw.map(function (m) { return m.id || m.name; }).filter(Boolean);
-      return ids.length ? ids : null;
+      return { ok: true, ids: ids, status: res.status };
     } catch (e) {
-      return null;
+      if (e && e.name === 'AbortError') return { ok: false, reason: 'timeout' };
+      return { ok: false, reason: 'network', detail: String((e && e.message) || e) };
     } finally {
       tm.done();
     }
+  }
+
+  /* 只问「这个地址有没有活的推理服务」，失败或空列表一律 null —— 供本机探测使用 */
+  async function listModels(base, timeoutMs) {
+    var r = await probe(base, '', timeoutMs);
+    if (!r.ok || !r.ids || !r.ids.length) return null;
+    return r.ids;
   }
 
   async function detectLocal(onProgress) {
@@ -235,23 +296,90 @@ window.LLM = (function () {
     return { content: content, toolCalls: toolCalls };
   }
 
-  async function testConnection(conf) {
-    var ids = await listModels(conf.base, 4000);
-    if (!ids) {
-      throw new Error('连不上 ' + conf.base + '。' + connHint(conf.base));
+  /* 有些兼容网关压根不实现 /models。可我们要回答的问题是「能不能对话」，
+     那就直接发一次最小请求（1 token）来验，别拿一个可选的探测接口当准绳。 */
+  async function probeChat(conf, timeoutMs) {
+    var tm = withTimeout(timeoutMs || 8000);
+    var headers = { 'Content-Type': 'application/json' };
+    if (conf.key) headers['Authorization'] = 'Bearer ' + conf.key;
+    try {
+      var res = await fetch(trimBase(conf.base) + '/chat/completions', {
+        method: 'POST',
+        headers: headers,
+        signal: tm.signal,
+        body: JSON.stringify({
+          model: conf.model,
+          messages: [{ role: 'user', content: 'hi' }],
+          max_tokens: 1,
+          stream: false
+        })
+      });
+      if (res.status === 401 || res.status === 403) return { ok: false, reason: 'auth', status: res.status };
+      if (res.ok) return { ok: true, ids: [], viaChat: true };
+      var t = '';
+      try { t = await res.text(); } catch (e) { /* ignore */ }
+      // 400 且报的是模型名问题 —— 连接其实是通的，只是模型选错了
+      if (res.status === 400 && /model/i.test(t)) {
+        return { ok: true, ids: [], viaChat: true, warn: '接口能连上，但模型名可能不对：' + String(t).slice(0, 140) };
+      }
+      return { ok: false, reason: 'http', status: res.status, detail: String(t).slice(0, 160) };
+    } catch (e) {
+      if (e && e.name === 'AbortError') return { ok: false, reason: 'timeout' };
+      return { ok: false, reason: 'network', detail: String((e && e.message) || e) };
+    } finally {
+      tm.done();
     }
-    return ids;
+  }
+
+  /* 前缀要说清「到底连上没有」——「连不上」和「连上了但 Key 不对」
+     是两件完全不同的事，混成一句用户就无从下手。 */
+  function failMessage(base, r) {
+    var b = trimBase(base);
+    var prefix;
+    if (r.reason === 'network') prefix = '连不上 ' + b + '。';
+    else if (r.reason === 'timeout') prefix = '连接 ' + b + ' 超时。';
+    else if (r.reason === 'auth') prefix = b + ' 已连通，但鉴权没过。';
+    else if (r.reason === 'notjson') prefix = b + ' 有响应，但返回的不是 OpenAI 兼容接口。';
+    else prefix = b + ' 返回 HTTP ' + (r.status || '?') + '。';
+    return prefix + connHint(base, r.reason);
+  }
+
+  /* 设置页「测试连接」。
+     注意：必须把 Key 一起带上——云端 /models 是要鉴权的，
+     不带 Key 会稳定拿到 401，从而把「Key 填对了」也误报成「连不上」。 */
+  async function testConnection(conf) {
+    var r = await probe(conf.base, conf.key, 8000);
+
+    // 该地址没有 /models（404/405）不代表不能用，改用真实对话来判定
+    if (!r.ok && r.reason === 'http' && (r.status === 404 || r.status === 405)) {
+      r = await probeChat(conf, 8000);
+    }
+    if (!r.ok) {
+      var err = new Error(failMessage(conf.base, r));
+      err.reason = r.reason;
+      err.status = r.status;
+      throw err;
+    }
+
+    // 连上了，但填的模型名不在服务端列表里 —— 不算失败，但要说清楚
+    var warn = r.warn || '';
+    if (!warn && conf.model && r.ids && r.ids.length && r.ids.indexOf(conf.model) < 0) {
+      warn = '接口能连上，但服务端模型列表里没有「' + conf.model + '」。可用：' + r.ids.slice(0, 6).join('、');
+    }
+    return { ids: r.ids || [], viaChat: !!r.viaChat, warn: warn };
   }
 
   return {
     LOCAL_CANDIDATES: LOCAL_CANDIDATES,
     detectLocal: detectLocal,
     listModels: listModels,
+    probe: probe,
     chat: chat,
     testConnection: testConnection,
     parseTextToolCalls: parseTextToolCalls,
     stripToolBlocks: stripToolBlocks,
     isFileProtocol: isFileProtocol,
+    isLocalBase: isLocalBase,
     connHint: connHint
   };
 })();

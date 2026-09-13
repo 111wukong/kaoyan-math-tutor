@@ -1833,7 +1833,7 @@
         '<div class="set-row"><div><div class="slabel">模型名称</div><div class="sdesc">如 deepseek-chat / moonshot-v1-8k / qwen-max</div></div>' +
           '<input type="text" id="set-cloud-model" value="' + esc(s.llm.cloudModel || '') + '" style="width:220px"></div>' +
         '<div class="set-row"><div><div class="slabel">API Key</div><div class="sdesc">' + (s.llm.rememberKey ? '已记住，保存在本机浏览器' : '默认只存内存，刷新页面后需重新输入') + '</div></div>' +
-          '<input type="password" id="set-llm-key" value="' + esc(s.llm.rememberKey ? (s.llm.cloudKey || '') : '') + '" style="width:280px" placeholder="sk-..."></div>' +
+          '<input type="password" id="set-llm-key" value="' + esc(s.llm.rememberKey ? (s.llm.cloudKey || '') : (sessionLLMKey || '')) + '" style="width:280px" placeholder="sk-..."></div>' +
         '<div class="set-row"><div><div class="slabel">记住 Key</div><div class="sdesc">勾选后 Key 写入本机 localStorage（明文）。只在自己电脑上用，公共电脑别勾</div></div>' +
           '<label class="switch"><input type="checkbox" id="set-remember-key"' + (s.llm.rememberKey ? ' checked' : '') + '><span class="sl"></span></label></div>';
     }
@@ -2056,20 +2056,28 @@
     if (!conf) {
       var L = state.settings.llm;
       if (!L.base || !L.model) { toast('请先选择模型', 'no'); return; }
-      toast('云端通道需要先填 API Key（仅本次会话有效）', 'no');
+      toast('云端通道需要先填 API Key', 'no');
       return;
     }
     toast('正在测试连接…');
     try {
-      await LLM.testConnection(conf);
+      var r = await LLM.testConnection(conf);
       state.settings.llm.enabled = true;
       save();
-      if (box) box.textContent = '连接正常，模型：' + conf.model;
-      toast('连接成功！AI 老师已启用：' + conf.model, 'ok');
       pageSettings();
+      // pageSettings 重建了 DOM，必须重新取节点，否则刚写的提示会被冲掉
+      var box2 = $('#llm-test-result');
+      if (r && r.warn) {
+        if (box2) { box2.textContent = '⚠ ' + r.warn; box2.style.color = 'var(--amber)'; }
+        toast('能连上，但模型名可能不对', 'no');
+      } else {
+        if (box2) { box2.textContent = '✓ 连接正常，模型：' + conf.model; box2.style.color = ''; }
+        toast('连接成功！AI 老师已启用：' + conf.model, 'ok');
+      }
     } catch (e) {
-      if (box) box.textContent = String(e.message || e);
-      toast('连接失败：' + String(e.message || e).slice(0, 70), 'no');
+      var em = String(e.message || e);
+      if (box) box.textContent = em;
+      toast('连接失败：' + em.slice(0, 70), 'no');
     }
   };
   App.resetData = function () {
