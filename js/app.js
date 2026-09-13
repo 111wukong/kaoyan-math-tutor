@@ -264,7 +264,7 @@
   var DB_KEY = 'kaoyan_math_tutor_v1';
   var sessionLLMKey = '';
   var defaults = {
-    cards: {}, attempts: [], checkins: {}, daily: null, customQ: [], notes: {},
+    cards: {}, attempts: [], checkins: {}, daily: null, customQ: [], notes: {}, discussions: {},
     settings: {
       examTrack: 'math1', dailyNew: 2, examDate: '', persona: 'strict',
       llm: {
@@ -289,6 +289,7 @@
       if (!base.settings.llm) base.settings.llm = JSON.parse(JSON.stringify(defaults.settings.llm));
       if (!base.settings.persona) base.settings.persona = 'strict';
       if (!base.notes) base.notes = {};
+      if (!base.discussions) base.discussions = {};
       // 旧版只有单一 base/model，这里迁移成 本地/云端 双通道
       var L = base.settings.llm;
       if (!L.localBase) L.localBase = 'http://127.0.0.1:1234/v1';
@@ -795,6 +796,9 @@
           '<div class="card"><div class="sub-title">阶段状态</div>' +
             '<div class="side-note">' + (sess.stage === 'quiz' ? '验收进行中：答完一道我再出下一道。' : sess.stage === 'summary' ? '本考点已验收完成，卡片已进入复习队列。' : 'AI 老师讲解中：可以追问、举例、出题，准备好了点"我学会了"。') + '</div></div>' +
           '<div class="card"><div class="sub-title">快捷指令</div><div id="quick-btns"></div></div>' +
+          '<div class="card"><div class="sub-title">讨论模式</div>' +
+            '<div class="side-note">一个老师带三个水平不同的学生，围绕一道你错过的题掰扯一轮，最后老师点名点评。你也可以插话。</div>' +
+            '<button class="btn primary" style="width:100%;margin-top:10px" onclick="App.goDiscuss(\'' + esc(kid) + '\')">开一局讨论</button></div>' +
           (related ? '<div class="card"><div class="sub-title">常一起考的知识点</div>' + related + '</div>' : '') +
           '<div class="card"><div class="sub-title">学习贴士</div><div class="side-note">公式用 $\\LaTeX$ 书写；答错的题自动进错题本并出现在明天的复习队列。</div></div>' +
         '</div>' +
@@ -1100,6 +1104,248 @@
   };
   App.sendOpt = function (kid, k) { App.quickSend(k); };
   App.learnNav = function (kid) { window.location.hash = '#/learn/' + kid; };
+
+  /* ============ 讨论模式：老师 + 三个水平不同的学生 ============ */
+  function discussOf(kid) {
+    if (!state.discussions) state.discussions = {};
+    return state.discussions[kid] || null;
+  }
+  function scrollDiscussBottom() {
+    var s = $('#d-stream');
+    if (s) s.scrollTop = s.scrollHeight;
+  }
+  function appendDiscussMsg(stream, role, text) {
+    var r = Discuss.ROLES[role] || { name: role, avatar: '?', tag: '' };
+    var el = document.createElement('div');
+    el.className = 'd-msg d-' + role;
+    el.innerHTML =
+      '<div class="d-ava">' + esc(r.avatar) + '</div>' +
+      '<div class="d-body">' +
+        '<div class="d-name">' + esc(r.name) + (r.tag ? '<span class="d-tag">' + esc(r.tag) + '</span>' : '') + '</div>' +
+        '<div class="d-bubble">' + (text ? md(text) : '') + '</div>' +
+      '</div>';
+    stream.appendChild(el);
+    scrollDiscussBottom();
+    return el;
+  }
+  /* 逐字打字，制造"正在说"的现场感 */
+  function typeInto(bubble, text) {
+    return new Promise(function (resolve) {
+      var full = String(text || '');
+      if (!full) { resolve(); return; }
+      var step = Math.max(2, Math.ceil(full.length / 70));
+      var i = 0;
+      var timer = setInterval(function () {
+        i += step;
+        if (i >= full.length) {
+          clearInterval(timer);
+          bubble.innerHTML = md(full);
+          scrollDiscussBottom();
+          resolve();
+        } else {
+          bubble.innerHTML = md(full.slice(0, i));
+          scrollDiscussBottom();
+        }
+      }, 24);
+    });
+  }
+  function discussRosterHtml() {
+    return ['teacher', 'smart', 'average', 'weak'].map(function (k) {
+      var r = Discuss.ROLES[k];
+      return '<div class="d-roster-item">' +
+        '<span class="d-roster-ava d-' + k + '">' + esc(r.avatar) + '</span>' +
+        '<div><div class="d-roster-name">' + esc(r.name) + '</div>' +
+        '<div class="d-roster-tag">' + esc(r.tag || '主讲') + '</div></div></div>';
+    }).join('');
+  }
+  function pageDiscuss(kid) {
+    var n = NODE[kid];
+    if (!n) {
+      $('#main').innerHTML = head('未找到知识点', '该知识点不存在或不在当前考试范围内') + '<p class="muted">返回 <a href="#/learn">知识树</a></p>';
+      return;
+    }
+    var session = discussOf(kid);
+    var chap = chapOf(n) || { cat: { name: '' } };
+    var live = !!(session && session.turns && session.turns.length);
+    var statusText = !session ? '未开始' : session.stage === 'done' ? '已结束' : '进行中';
+
+    var html = head('讨论室', esc(n.title) + ' · 老师带三个学生掰扯一轮') +
+      '<div class="discuss-layout">' +
+        '<div class="discuss-main">' +
+          '<div class="d-panel">' +
+            '<div class="d-topbar">' +
+              '<span class="kh-tag">' + esc(chap.cat.name || '') + '</span>' +
+              '<span class="d-status" id="d-status">' + statusText + '</span>' +
+            '</div>' +
+            '<div class="d-stream" id="d-stream"></div>' +
+            '<div class="d-input-row">' +
+              '<input id="d-input" placeholder="你也可以插话 —— 讨论会停下来等你" autocomplete="off"' + (live ? '' : ' disabled') + '>' +
+              '<button id="d-send" onclick="App.discussInterject()"' + (live ? '' : ' disabled') + '>插话</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="discuss-side">' +
+          '<div class="card"><div class="sub-title">参与的人</div><div class="d-roster">' + discussRosterHtml() + '</div></div>' +
+          '<div class="card"><div class="sub-title">这一局</div>' +
+            '<div class="side-note" id="d-meta">' + (session && session.reason ? esc(session.reason) : '点下面的按钮开始') + '</div>' +
+            '<button class="btn primary" style="width:100%;margin-top:10px" onclick="App.startDiscuss()">' + (session ? '重开一局' : '开一局讨论') + '</button>' +
+            (session ? '<button class="btn" style="width:100%;margin-top:8px" onclick="App.clearDiscuss()">清空本考点讨论</button>' : '') +
+          '</div>' +
+          '<div class="card"><div class="sub-title">为什么他们会吵起来</div><div class="side-note">' +
+            '甲看得到完整正文和例题，乙只学过正文，丙只记得第一句定义 —— 三个人掌握的信息不一样，所以必然有分歧。' +
+            '丙犯的错是从你的错题本和题目干扰项里挖出来的，不是随便编的。' +
+          '</div></div>' +
+        '</div>' +
+      '</div>';
+    $('#main').innerHTML = html;
+
+    if (live) {
+      var stream = $('#d-stream');
+      if (session.topic) appendDiscussMsg(stream, 'teacher', '我们来看这道题：' + session.topic);
+      session.turns.forEach(function (t) { appendDiscussMsg(stream, t.role, t.text); });
+      if (session.userTurns && session.userTurns.length) {
+        session.userTurns.forEach(function (u) {
+          appendDiscussMsg(stream, 'me', u.text);
+          if (u.reply) appendDiscussMsg(stream, 'teacher', u.reply);
+        });
+      }
+      if (session.summary) {
+        appendDiscussMsg(stream, 'teacher', session.summary).classList.add('d-summary');
+      }
+      var inp = $('#d-input');
+      if (inp && !inp.disabled) {
+        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') App.discussInterject(); });
+      }
+    }
+  }
+  function setDiscussStatus(t) {
+    var el = $('#d-status');
+    if (el) el.textContent = t;
+  }
+  App.goDiscuss = function (kid) { window.location.hash = '#/discuss/' + kid; };
+
+  App.startDiscuss = async function () {
+    var kid = window.__curKid;
+    if (!kid) return;
+    if (!llmOn()) {
+      toast('讨论模式需要真实 AI，请先在设置里接入模型', 'no');
+      window.location.hash = '#/settings';
+      return;
+    }
+    var ctx = createToolContext();
+    var topic = Discuss.pickTopic(ctx, kid);
+    if (!topic) { toast('这个考点还没有可讨论的题目', 'no'); return; }
+
+    var session = {
+      kid: topic.kid, topic: '', question: topic.question,
+      reason: topic.reason, turns: [], userTurns: [],
+      summary: '', stage: 'discussing', ts: Date.now()
+    };
+    if (!state.discussions) state.discussions = {};
+    state.discussions[kid] = session;
+    save();
+    pageDiscuss(kid);
+
+    var stream = $('#d-stream');
+    var loading = appendDiscussMsg(stream, 'teacher', '');
+    loading.querySelector('.d-bubble').innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+    loading.querySelector('.d-name').textContent = '正在组织讨论…';
+    setDiscussStatus('生成中');
+
+    var gen;
+    try {
+      gen = await Discuss.generate(topic, ctx);
+    } catch (e) {
+      loading.querySelector('.d-bubble').innerHTML = '<span class="d-err">讨论生成失败：' + esc(String(e.message || e)) + '</span>';
+      loading.querySelector('.d-name').textContent = '老师';
+      session.stage = 'failed';
+      save();
+      setDiscussStatus('失败');
+      toast('讨论生成失败', 'no');
+      return;
+    }
+
+    session.topic = gen.topic;
+    session.turns = gen.turns;
+    save();
+    loading.remove();
+
+    setDiscussStatus('进行中');
+    var tEl = appendDiscussMsg(stream, 'teacher', '');
+    await typeInto(tEl.querySelector('.d-bubble'), '我们来看这道题：' + session.topic);
+    await Discuss.sleep(420);
+
+    for (var i = 0; i < session.turns.length; i++) {
+      var t = session.turns[i];
+      var el = appendDiscussMsg(stream, t.role, '');
+      await typeInto(el.querySelector('.d-bubble'), t.text);
+      await Discuss.sleep(360);
+    }
+
+    // 老师点评
+    var sEl = appendDiscussMsg(stream, 'teacher', '');
+    var sBubble = sEl.querySelector('.d-bubble');
+    sBubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+    setDiscussStatus('点评中');
+    try {
+      var summary = await Discuss.summarize(session, ctx, function (full) {
+        sBubble.innerHTML = md(full);
+        scrollDiscussBottom();
+      });
+      sBubble.innerHTML = md(summary);
+      sEl.classList.add('d-summary');
+      session.summary = summary;
+      session.stage = 'done';
+      save();
+      setDiscussStatus('已结束');
+      refreshBadges();
+    } catch (e) {
+      sBubble.innerHTML = '<span class="d-err">点评生成失败：' + esc(String(e.message || e).slice(0, 90)) + '</span>';
+      session.stage = 'done';
+      save();
+      setDiscussStatus('已结束');
+    }
+  };
+
+  App.discussInterject = async function () {
+    var kid = window.__curKid;
+    var session = discussOf(kid);
+    if (!session || !session.turns.length) return;
+    var inp = $('#d-input');
+    var text = inp.value.trim();
+    if (!text) return;
+    inp.value = '';
+    var stream = $('#d-stream');
+    appendDiscussMsg(stream, 'me', text);
+    session.userTurns.push({ text: text, ts: Date.now() });
+    save();
+
+    var el = appendDiscussMsg(stream, 'teacher', '');
+    var bubble = el.querySelector('.d-bubble');
+    bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+    var ctx = createToolContext();
+    try {
+      var reply = await Discuss.replyToUser(session, text, ctx, function (full) {
+        bubble.innerHTML = md(full);
+        scrollDiscussBottom();
+      });
+      bubble.innerHTML = md(reply);
+      session.userTurns[session.userTurns.length - 1].reply = reply;
+      save();
+    } catch (e) {
+      bubble.innerHTML = '<span class="d-err">回应失败：' + esc(String(e.message || e).slice(0, 90)) + '</span>';
+    }
+  };
+
+  App.clearDiscuss = function () {
+    var kid = window.__curKid;
+    if (!state.discussions || !state.discussions[kid]) return;
+    if (!confirmDialog('清空这个考点的讨论记录？')) return;
+    delete state.discussions[kid];
+    save();
+    pageDiscuss(kid);
+    toast('已清空');
+  };
 
   /* ----- 做题页 ----- */
   var quizState = { qids: [], done: {}, results: [] };
@@ -1801,6 +2047,8 @@
     if (h === '/learn') return pageTree();
     var m = h.match(/^\/learn\/(.+)$/);
     if (m) { window.__curKid = m[1]; return pageLearn(m[1]); }
+    m = h.match(/^\/discuss\/(.+)$/);
+    if (m) { window.__curKid = m[1]; return pageDiscuss(m[1]); }
     m = h.match(/^\/quiz\/r\/(.+)$/);
     if (m) { quizState.qids = [m[1]]; quizState.done = {}; quizState.results = []; return renderQuizList(); }
     if (h === '/quiz') return pageQuiz('daily');
