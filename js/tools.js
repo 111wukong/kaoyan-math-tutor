@@ -499,11 +499,63 @@ window.Tools = (function () {
         ctx.markLearned(a.kid);
         return { ok: true, data: { marked: true, kid: a.kid, title: n.title, note: '已生成复习卡片，明天会出现在复习队列' } };
       }
+    },
+
+    /* ---------- 以下四个只给"学生 agent"用，老师不持有 ---------- */
+
+    look_up: {
+      description: '翻书查当前这个考点的资料。你只能看到与你水平相符的那部分——基础薄弱的同学查到的内容本来就少。想确认定义、公式或看例题时调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          what: { type: 'string', description: '你想查什么，例如「定义」「公式」「例题」' }
+        }
+      },
+      run: function (a, ctx) {
+        var m = ctx.levelMaterial ? ctx.levelMaterial() : null;
+        if (!m) return { ok: true, data: { note: '手边没有这个考点的资料。' } };
+        return { ok: true, data: m };
+      }
+    },
+
+    recall_mistake: {
+      description: '回忆你自己在这个考点上做错过的题，看看当时是怎么错的。想说"我好像在哪错过"之前先调它。',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', description: '回忆几道，默认 3' }
+        }
+      },
+      run: function (a, ctx) {
+        var ms = ctx.ownMistakes ? ctx.ownMistakes(clamp(parseInt(a.limit, 10) || 3, 1, 8)) : [];
+        if (!ms.length) return { ok: true, data: { count: 0, note: '想不起来在这个考点上错过题。' } };
+        return { ok: true, data: { count: ms.length, mistakes: ms } };
+      }
+    },
+
+    raise_hand: {
+      description: '举手。当你有一个自己实在绕不过去、必须问老师的问题时调用。调用后你这一轮就结束，老师会来回答你。',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: '你想问老师的问题，一句话' }
+        },
+        required: ['question']
+      },
+      run: function (a) {
+        return { ok: true, data: { raised: true, question: String(a.question || '').trim() } };
+      }
+    },
+
+    pass: {
+      description: '这一轮你没什么想说的，跳过。别滥用——只有确实没有新想法时才用，一直弃权等于没参与。',
+      parameters: { type: 'object', properties: {} },
+      run: function () { return { ok: true, data: { passed: true } }; }
     }
   };
 
   /* 转成 OpenAI tools schema */
-  var SCHEMA = Object.keys(TABLE).map(function (name) {
+  function toSchema(name) {
     var t = TABLE[name];
     return {
       type: 'function',
@@ -513,7 +565,20 @@ window.Tools = (function () {
         parameters: t.parameters
       }
     };
-  });
+  }
+
+  /* 老师的工具集。注意不含「举手 / 弃权」——那是学生专属动作，
+     发给老师只会让模型有机会做荒唐的事。 */
+  var TEACHER_TOOLS = [
+    'query_weakness', 'get_mistakes', 'pick_question', 'get_node', 'search_nodes',
+    'get_progress', 'draw_graph', 'save_note', 'mark_mastered'
+  ];
+  var SCHEMA = TEACHER_TOOLS.map(toSchema);
+
+  /* 学生 agent 的工具白名单：能翻书、能回忆错题、能在黑板上画图、
+     能举手、能弃权 —— 但改不了学生的学情数据（不能标掌握、不能记笔记）。 */
+  var STUDENT_TOOLS = ['look_up', 'recall_mistake', 'draw_graph', 'raise_hand', 'pass'];
+  var STUDENT_SCHEMA = STUDENT_TOOLS.map(toSchema);
 
   function execute(name, args, ctx) {
     var t = TABLE[name];
@@ -538,11 +603,18 @@ window.Tools = (function () {
     get_progress: '看学习进度',
     draw_graph: '画函数图像',
     save_note: '记笔记',
-    mark_mastered: '标记已掌握'
+    mark_mastered: '标记已掌握',
+    look_up: '翻书',
+    recall_mistake: '回忆错题',
+    raise_hand: '举手',
+    pass: '这轮不说了'
   };
 
   return {
     SCHEMA: SCHEMA,
+    TEACHER_TOOLS: TEACHER_TOOLS,
+    STUDENT_SCHEMA: STUDENT_SCHEMA,
+    STUDENT_TOOLS: STUDENT_TOOLS,
     TABLE: TABLE,
     LABELS: LABELS,
     names: Object.keys(TABLE),

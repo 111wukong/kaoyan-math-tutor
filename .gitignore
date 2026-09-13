@@ -32,6 +32,8 @@ tmp/
 # Test artifacts
 coverage/
 .nyc_output/
+tests/.smoke.html
+tests/.probe.html
 
 # Environment
 .env

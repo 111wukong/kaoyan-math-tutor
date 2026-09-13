@@ -264,7 +264,7 @@
   var DB_KEY = 'kaoyan_math_tutor_v1';
   var sessionLLMKey = '';
   var defaults = {
-    cards: {}, attempts: [], checkins: {}, daily: null, customQ: [], notes: {}, discussions: {},
+    cards: {}, attempts: [], checkins: {}, daily: null, customQ: [], notes: {}, classrooms: {},
     settings: {
       examTrack: 'math1', dailyNew: 2, examDate: '', persona: 'strict',
       llm: {
@@ -290,7 +290,7 @@
       if (!base.settings.llm) base.settings.llm = JSON.parse(JSON.stringify(defaults.settings.llm));
       if (!base.settings.persona) base.settings.persona = 'strict';
       if (!base.notes) base.notes = {};
-      if (!base.discussions) base.discussions = {};
+      if (!base.classrooms) base.classrooms = {};
       // 旧版只有单一 base/model，这里迁移成 本地/云端 双通道
       var L = base.settings.llm;
       if (!L.localBase) L.localBase = 'http://127.0.0.1:1234/v1';
@@ -804,9 +804,12 @@
           '<div class="card"><div class="sub-title">阶段状态</div>' +
             '<div class="side-note">' + (sess.stage === 'quiz' ? '验收进行中：答完一道我再出下一道。' : sess.stage === 'summary' ? '本考点已验收完成，卡片已进入复习队列。' : 'AI 老师讲解中：可以追问、举例、出题，准备好了点"我学会了"。') + '</div></div>' +
           '<div class="card"><div class="sub-title">快捷指令</div><div id="quick-btns"></div></div>' +
-          '<div class="card"><div class="sub-title">讨论模式</div>' +
-            '<div class="side-note">一个老师带三个水平不同的学生，围绕一道你错过的题掰扯一轮，最后老师点名点评。你也可以插话。</div>' +
-            '<button class="btn primary" style="width:100%;margin-top:10px" onclick="App.goDiscuss(\'' + esc(kid) + '\')">开一局讨论</button></div>' +
+          '<div class="card"><div class="sub-title">课堂</div>' +
+            '<div class="side-note">老师和三个学生，四个都是独立调用的真 agent，各自有记忆和工具。<br><br>' +
+              '<b>课堂模式</b>：老师分步讲这个考点，讲一步停下来让学生提问讨论，再答疑。<br>' +
+              '<b>讨论模式</b>：老师抛一道你错过的题，三个学生互相掰扯，最后老师点名点评。<br><br>' +
+              '你随时可以插话。</div>' +
+            '<button class="btn primary" style="width:100%;margin-top:10px" onclick="App.goClass(\'' + esc(kid) + '\')">进课堂</button></div>' +
           (related ? '<div class="card"><div class="sub-title">常一起考的知识点</div>' + related + '</div>' : '') +
           '<div class="card"><div class="sub-title">学习贴士</div><div class="side-note">公式用 $\\LaTeX$ 书写；答错的题自动进错题本并出现在明天的复习队列。</div></div>' +
         '</div>' +
@@ -1122,29 +1125,69 @@
   App.sendOpt = function (kid, k) { App.quickSend(k); };
   App.learnNav = function (kid) { window.location.hash = '#/learn/' + kid; };
 
-  /* ============ 讨论模式：老师 + 三个水平不同的学生 ============ */
-  function discussOf(kid) {
-    if (!state.discussions) state.discussions = {};
-    return state.discussions[kid] || null;
+  /* ============ 课堂：老师 + 三个真 agent 学生 ============ */
+  function classOf(kid) {
+    if (!state.classrooms) state.classrooms = {};
+    return state.classrooms[kid] || null;
   }
-  function scrollDiscussBottom() {
-    var s = $('#d-stream');
+  function scrollStream() {
+    var s = $('#c-stream');
     if (s) s.scrollTop = s.scrollHeight;
   }
-  function appendDiscussMsg(stream, role, text) {
-    var r = Discuss.ROLES[role] || { name: role, avatar: '?', tag: '' };
+  function setClassStatus(t) {
+    var el = $('#c-status');
+    if (el) el.textContent = t;
+  }
+  function setRosterStatus(role, t) {
+    var el = $('#c-st-' + role);
+    if (el) el.textContent = t;
+  }
+  function resetRoster(session) {
+    ['teacher'].concat(Classroom.STUDENT_KEYS).forEach(function (k) {
+      var a = Classroom.AGENTS[k];
+      setRosterStatus(k, k === 'teacher' ? '主讲' : a.tag);
+    });
+    var meta = $('#c-meta');
+    if (meta && session && session.reason) meta.textContent = session.reason;
+  }
+  function statusTextOf(s) {
+    if (!s) return '未开始';
+    if (s.stage === 'running') return '进行中';
+    if (s.stage === 'failed') return '中断了';
+    return '已结束';
+  }
+  function modeName(m) { return m === 'lesson' ? '课堂模式' : '讨论模式'; }
+
+  function appendClassMsg(stream, role, text, opts) {
+    opts = opts || {};
+    var r = Classroom.AGENTS[role] || { name: role, avatar: '?', tag: '' };
     var el = document.createElement('div');
-    el.className = 'd-msg d-' + role;
+    el.className = 'c-msg c-role-' + role + (opts.cls ? ' ' + opts.cls : '');
+    var tags = '';
+    if (r.tag && role !== 'me') tags += '<span class="c-tag">' + esc(r.tag) + '</span>';
+    if (opts.note) tags += '<span class="c-tag c-tag-act">' + esc(opts.note) + '</span>';
     el.innerHTML =
-      '<div class="d-ava">' + esc(r.avatar) + '</div>' +
-      '<div class="d-body">' +
-        '<div class="d-name">' + esc(r.name) + (r.tag ? '<span class="d-tag">' + esc(r.tag) + '</span>' : '') + '</div>' +
-        '<div class="d-bubble">' + (text ? md(text) : '') + '</div>' +
+      '<div class="c-ava c-ava-' + role + '">' + esc(r.avatar) + '</div>' +
+      '<div class="c-body">' +
+        '<div class="c-name">' + esc(r.name) + tags + '</div>' +
+        '<div class="c-bubble">' + (text ? md(text) : '') + '</div>' +
+        '<div class="c-tools"></div>' +
       '</div>';
     stream.appendChild(el);
-    scrollDiscussBottom();
+    scrollStream();
     return el;
   }
+  function toolChips(el, tools) {
+    if (!el || !tools || !tools.length) return;
+    var box = el.querySelector('.c-tools');
+    if (!box) return;
+    box.innerHTML = tools.map(function (t) {
+      return '<span class="c-chip' + (t.ok ? '' : ' c-chip-no') + '">' +
+        esc(Tools.LABELS[t.name] || t.name) + '</span>';
+    }).join('');
+  }
+  function typingHtml() { return '<span class="typing"><i></i><i></i><i></i></span>'; }
+
   /* 逐字打字，制造"正在说"的现场感 */
   function typeInto(bubble, text) {
     return new Promise(function (resolve) {
@@ -1157,210 +1200,266 @@
         if (i >= full.length) {
           clearInterval(timer);
           bubble.innerHTML = md(full);
-          scrollDiscussBottom();
+          scrollStream();
           resolve();
         } else {
           bubble.innerHTML = md(full.slice(0, i));
-          scrollDiscussBottom();
+          scrollStream();
         }
       }, 24);
     });
   }
-  function discussRosterHtml() {
-    return ['teacher', 'smart', 'average', 'weak'].map(function (k) {
-      var r = Discuss.ROLES[k];
-      return '<div class="d-roster-item">' +
-        '<span class="d-roster-ava d-' + k + '">' + esc(r.avatar) + '</span>' +
-        '<div><div class="d-roster-name">' + esc(r.name) + '</div>' +
-        '<div class="d-roster-tag">' + esc(r.tag || '主讲') + '</div></div></div>';
+
+  function rosterHtml(session) {
+    var st = (session && session.rosterStatus) || {};
+    return ['teacher'].concat(Classroom.STUDENT_KEYS).map(function (k) {
+      var a = Classroom.AGENTS[k];
+      return '<div class="c-roster-item">' +
+        '<span class="c-roster-ava c-ava-' + k + '">' + esc(a.avatar) + '</span>' +
+        '<div class="c-roster-txt">' +
+          '<div class="c-roster-name">' + esc(a.name) + '</div>' +
+          '<div class="c-roster-st" id="c-st-' + k + '">' + esc(st[k] || (k === 'teacher' ? '主讲' : a.tag)) + '</div>' +
+        '</div></div>';
     }).join('');
   }
-  function pageDiscuss(kid) {
+
+  function boardHtml(session) {
+    var items = (session && session.board) || [];
+    if (!items.length) return '<div class="c-board-empty">还没人在黑板上写东西。<br>学生讲不清时会自己画图。</div>';
+    return items.map(function (b) {
+      var who = (Classroom.AGENTS[b.by] || {}).name || b.by;
+      return '<div class="c-board-item">' +
+        '<div class="c-board-who">' + esc(who) + ' 画的</div>' +
+        '<div class="c-board-graph">' + (b.svg || '') + '</div>' +
+        (b.expr ? '<div class="c-board-expr">$y = ' + esc(b.expr) + '$</div>' : '') +
+        '</div>';
+    }).join('');
+  }
+
+  function renderBoard(session) {
+    var box = $('#c-board');
+    if (box) box.innerHTML = boardHtml(session);
+  }
+
+  function pageClass(kid) {
     var n = NODE[kid];
     if (!n) {
       $('#main').innerHTML = head('未找到知识点', '该知识点不存在或不在当前考试范围内') + '<p class="muted">返回 <a href="#/learn">知识树</a></p>';
       return;
     }
-    var session = discussOf(kid);
-    var chap = chapOf(n) || { cat: { name: '' } };
+    var session = classOf(kid);
     var live = !!(session && session.turns && session.turns.length);
-    var statusText = !session ? '未开始' : session.stage === 'done' ? '已结束' : '进行中';
+    var mode = (session && session.mode) || 'debate';
+    var chap = chapOf(n) || { cat: { name: '' } };
 
-    var html = head('讨论室', esc(n.title) + ' · 老师带三个学生掰扯一轮') +
-      '<div class="discuss-layout">' +
-        '<div class="discuss-main">' +
-          '<div class="d-panel">' +
-            '<div class="d-topbar">' +
-              '<span class="kh-tag">' + esc(chap.cat.name || '') + '</span>' +
-              '<span class="d-status" id="d-status">' + statusText + '</span>' +
+    $('#main').innerHTML = head('课堂', esc(n.title) + ' · 老师和三个学生，四个都是真 agent') +
+      '<div class="class-layout">' +
+        '<div class="class-side">' +
+          '<div class="card"><div class="sub-title">花名册</div><div class="c-roster">' + rosterHtml(session) + '</div></div>' +
+          '<div class="card"><div class="sub-title">这一节</div>' +
+            '<div class="side-note" id="c-meta">' + (session && session.reason ? esc(session.reason) : '选个模式开始') + '</div>' +
+            '<div class="seg-row" style="margin-top:10px">' +
+              '<button class="seg-btn' + (mode === 'lesson' ? ' on' : '') + '" onclick="App.startClass(\'lesson\')">课堂模式</button>' +
+              '<button class="seg-btn' + (mode === 'debate' ? ' on' : '') + '" onclick="App.startClass(\'debate\')">讨论模式</button>' +
             '</div>' +
-            '<div class="d-stream" id="d-stream"></div>' +
-            '<div class="d-input-row">' +
-              '<input id="d-input" placeholder="你也可以插话 —— 讨论会停下来等你" autocomplete="off"' + (live ? '' : ' disabled') + '>' +
-              '<button id="d-send" onclick="App.discussInterject()"' + (live ? '' : ' disabled') + '>插话</button>' +
-            '</div>' +
+            '<button class="btn primary" style="width:100%;margin-top:10px" onclick="App.startClass(\'' + mode + '\')">' + (session ? '重开一节' : '开始') + '</button>' +
+            (session ? '<button class="btn" style="width:100%;margin-top:8px" onclick="App.clearClass()">清空记录</button>' : '') +
           '</div>' +
-        '</div>' +
-        '<div class="discuss-side">' +
-          '<div class="card"><div class="sub-title">参与的人</div><div class="d-roster">' + discussRosterHtml() + '</div></div>' +
-          '<div class="card"><div class="sub-title">这一局</div>' +
-            '<div class="side-note" id="d-meta">' + (session && session.reason ? esc(session.reason) : '点下面的按钮开始') + '</div>' +
-            '<button class="btn primary" style="width:100%;margin-top:10px" onclick="App.startDiscuss()">' + (session ? '重开一局' : '开一局讨论') + '</button>' +
-            (session ? '<button class="btn" style="width:100%;margin-top:8px" onclick="App.clearDiscuss()">清空本考点讨论</button>' : '') +
-          '</div>' +
-          '<div class="card"><div class="sub-title">为什么他们会吵起来</div><div class="side-note">' +
-            '甲看得到完整正文和例题，乙只学过正文，丙只记得第一句定义 —— 三个人掌握的信息不一样，所以必然有分歧。' +
-            '丙犯的错是从你的错题本和题目干扰项里挖出来的，不是随便编的。' +
+          '<div class="card"><div class="sub-title">他们为什么不一样</div><div class="side-note">' +
+            '甲掌握完整正文 + 例题 + 关联考点；乙只有正文 + 例题；丙只记得第一句定义 —— ' +
+            '而且丙调工具去查，也只能查到那一句。<br><br>' +
+            '四个人各自独立调用模型、各自有记忆。丙犯的错是从你的错题本和题目干扰项里挖的。' +
           '</div></div>' +
         '</div>' +
+        '<div class="class-main">' +
+          '<div class="c-panel">' +
+            '<div class="c-topbar">' +
+              '<span class="kh-tag">' + esc(chap.cat.name || '') + '</span>' +
+              '<span class="c-status" id="c-status">' + statusTextOf(session) + '</span>' +
+              '<span class="c-round" id="c-round">' + (session ? modeName(session.mode) : '') + '</span>' +
+            '</div>' +
+            '<div class="c-stream" id="c-stream"></div>' +
+            '<div class="c-input-row">' +
+              '<input id="c-input" placeholder="插话 —— 老师会当场回应你" autocomplete="off"' + (live ? '' : ' disabled') + '>' +
+              '<button id="c-send" onclick="App.classInterject()"' + (live ? '' : ' disabled') + '>插话</button>' +
+              '<button id="c-hand" onclick="App.raiseMyHand()"' + (live ? '' : ' disabled') + ' title="抢话筒：预填一句话，你可以改">举手</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="class-board">' +
+          '<div class="card"><div class="sub-title">黑板</div><div class="c-board" id="c-board">' + boardHtml(session) + '</div></div>' +
+        '</div>' +
       '</div>';
-    $('#main').innerHTML = html;
 
     if (live) {
-      var stream = $('#d-stream');
-      if (session.topic) appendDiscussMsg(stream, 'teacher', '我们来看这道题：' + session.topic);
-      session.turns.forEach(function (t) { appendDiscussMsg(stream, t.role, t.text); });
-      if (session.userTurns && session.userTurns.length) {
-        session.userTurns.forEach(function (u) {
-          appendDiscussMsg(stream, 'me', u.text);
-          if (u.reply) appendDiscussMsg(stream, 'teacher', u.reply);
-        });
+      var stream = $('#c-stream');
+      session.turns.forEach(function (t) {
+        appendClassMsg(stream, t.role, t.text, { note: t.note });
+      });
+      if (session.stage === 'done') {
+        var el = document.createElement('div');
+        el.className = 'c-endnote';
+        el.textContent = '这一节结束了。换个模式再来一次？';
+        stream.appendChild(el);
       }
-      if (session.summary) {
-        appendDiscussMsg(stream, 'teacher', session.summary).classList.add('d-summary');
-      }
-      var inp = $('#d-input');
+      var inp = $('#c-input');
       if (inp && !inp.disabled) {
-        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') App.discussInterject(); });
+        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') App.classInterject(); });
       }
+      resetRoster(session);
+      scrollStream();
     }
   }
-  function setDiscussStatus(t) {
-    var el = $('#d-status');
-    if (el) el.textContent = t;
-  }
-  App.goDiscuss = function (kid) { window.location.hash = '#/discuss/' + kid; };
 
-  App.startDiscuss = async function () {
+  App.goClass = function (kid) { window.location.hash = '#/class/' + kid; };
+
+  App.startClass = async function (mode) {
     var kid = window.__curKid;
     if (!kid) return;
     if (!llmOn()) {
-      toast('讨论模式需要真实 AI，请先在设置里接入模型', 'no');
+      toast('课堂模式需要真实 AI，请先在设置里接入模型', 'no');
       window.location.hash = '#/settings';
       return;
     }
     var ctx = createToolContext();
-    var topic = Discuss.pickTopic(ctx, kid);
+    var topic = Classroom.pickTopic(ctx, kid);
     if (!topic) { toast('这个考点还没有可讨论的题目', 'no'); return; }
 
     var session = {
-      kid: topic.kid, topic: '', question: topic.question,
-      reason: topic.reason, turns: [], userTurns: [],
-      summary: '', stage: 'discussing', ts: Date.now()
+      kid: topic.kid, mode: mode === 'lesson' ? 'lesson' : 'debate',
+      question: topic.question, reason: topic.reason,
+      steps: 2,
+      turns: [], spoken: [], userTurns: [], board: [], memory: {},
+      profile: Agent.learningProfile(ctx, topic.kid),
+      rosterStatus: {}, stage: 'running', ts: Date.now()
     };
-    if (!state.discussions) state.discussions = {};
-    state.discussions[kid] = session;
+    if (!state.classrooms) state.classrooms = {};
+    state.classrooms[kid] = session;
     save();
-    pageDiscuss(kid);
+    pageClass(kid);
 
-    var stream = $('#d-stream');
-    var loading = appendDiscussMsg(stream, 'teacher', '');
-    loading.querySelector('.d-bubble').innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
-    loading.querySelector('.d-name').textContent = '正在组织讨论…';
-    setDiscussStatus('生成中');
+    var stream = $('#c-stream');
+    var pending = {};
+    setClassStatus('准备中');
 
-    var gen;
-    try {
-      gen = await Discuss.generate(topic, ctx);
-    } catch (e) {
-      loading.querySelector('.d-bubble').innerHTML = '<span class="d-err">讨论生成失败：' + esc(String(e.message || e)) + '</span>';
-      loading.querySelector('.d-name').textContent = '老师';
-      session.stage = 'failed';
-      save();
-      setDiscussStatus('失败');
-      toast('讨论生成失败', 'no');
-      return;
+    function turnStart(role) {
+      if (role === 'me') return;
+      var el = appendClassMsg(stream, role, '');
+      el.querySelector('.c-bubble').innerHTML = typingHtml();
+      pending[role] = el;
     }
 
-    session.topic = gen.topic;
-    session.turns = gen.turns;
-    save();
-    loading.remove();
+    var hooks = {
+      onStatus: function (t) { setClassStatus(t); },
+      onTurnStart: turnStart,
+      onDelta: function (role, full) {
+        var el = pending[role];
+        if (el) { el.querySelector('.c-bubble').innerHTML = md(full); scrollStream(); }
+      },
+      onEvent: async function (ev) {
+        if (ev.type === 'thinking') {
+          setClassStatus('三个学生同时在读题…');
+          Classroom.STUDENT_KEYS.forEach(function (k) {
+            turnStart(k);
+            setRosterStatus(k, '正在想…');
+          });
+          return;
+        }
+        if (ev.type === 'thinking-done') return;
 
-    setDiscussStatus('进行中');
-    var tEl = appendDiscussMsg(stream, 'teacher', '');
-    await typeInto(tEl.querySelector('.d-bubble'), '我们来看这道题：' + session.topic);
-    await Discuss.sleep(420);
+        if (ev.type === 'say') {
+          var item = ev.item;
+          var role = item.role;
+          var el = pending[role];
+          if (!el) { turnStart(role); el = pending[role]; }
+          if (!el) return;
+          if (item.note) {
+            var nameBox = el.querySelector('.c-name');
+            if (nameBox) nameBox.insertAdjacentHTML('beforeend', '<span class="c-tag c-tag-act">' + esc(item.note) + '</span>');
+          }
+          toolChips(el, ev.tools);
+          delete pending[role];
+          await typeInto(el.querySelector('.c-bubble'), item.text);
+          setRosterStatus(role, role === 'teacher' ? '主讲' : (Classroom.AGENTS[role].tag));
+          return;
+        }
+        if (ev.type === 'pass') {
+          var p = pending[ev.role];
+          if (p) { p.querySelector('.c-bubble').innerHTML = '<span class="c-muted">（这轮没说话）</span>'; delete pending[ev.role]; }
+          setRosterStatus(ev.role, '这轮弃权');
+          return;
+        }
+        if (ev.type === 'board') {
+          renderBoard(session);
+          return;
+        }
+        if (ev.type === 'error') {
+          var e2 = pending[ev.role || 'teacher'];
+          if (e2) { e2.querySelector('.c-bubble').innerHTML = '<span class="c-err">' + esc(ev.message) + '</span>'; delete pending[ev.role]; }
+          else { toast('出错了：' + String(ev.message).slice(0, 60), 'no'); }
+          return;
+        }
+      }
+    };
 
-    for (var i = 0; i < session.turns.length; i++) {
-      var t = session.turns[i];
-      var el = appendDiscussMsg(stream, t.role, '');
-      await typeInto(el.querySelector('.d-bubble'), t.text);
-      await Discuss.sleep(360);
-    }
-
-    // 老师点评
-    var sEl = appendDiscussMsg(stream, 'teacher', '');
-    var sBubble = sEl.querySelector('.d-bubble');
-    sBubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
-    setDiscussStatus('点评中');
     try {
-      var summary = await Discuss.summarize(session, ctx, function (full) {
-        sBubble.innerHTML = md(full);
-        scrollDiscussBottom();
-      });
-      sBubble.innerHTML = md(summary);
-      sEl.classList.add('d-summary');
-      session.summary = summary;
-      session.stage = 'done';
+      await Classroom.run(session, ctx, hooks);
       save();
-      setDiscussStatus('已结束');
+      setClassStatus('已结束');
+      resetRoster(session);
+      var end = document.createElement('div');
+      end.className = 'c-endnote';
+      end.textContent = '这一节结束了。';
+      stream.appendChild(end);
+      scrollStream();
       refreshBadges();
     } catch (e) {
-      sBubble.innerHTML = '<span class="d-err">点评生成失败：' + esc(String(e.message || e).slice(0, 90)) + '</span>';
-      session.stage = 'done';
+      setClassStatus('中断了');
+      toast('课堂中断：' + String(e.message || e).slice(0, 70), 'no');
       save();
-      setDiscussStatus('已结束');
     }
   };
 
-  App.discussInterject = async function () {
+  App.classInterject = async function () {
     var kid = window.__curKid;
-    var session = discussOf(kid);
-    if (!session || !session.turns.length) return;
-    var inp = $('#d-input');
+    var session = classOf(kid);
+    if (!session || session.stage !== 'running') { toast('这一节已经结束了', 'no'); return; }
+    var inp = $('#c-input');
     var text = inp.value.trim();
     if (!text) return;
     inp.value = '';
-    var stream = $('#d-stream');
-    appendDiscussMsg(stream, 'me', text);
-    session.userTurns.push({ text: text, ts: Date.now() });
-    save();
-
-    var el = appendDiscussMsg(stream, 'teacher', '');
-    var bubble = el.querySelector('.d-bubble');
-    bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+    var stream = $('#c-stream');
+    appendClassMsg(stream, 'me', text);
     var ctx = createToolContext();
+    var el = appendClassMsg(stream, 'teacher', '');
+    var bubble = el.querySelector('.c-bubble');
+    bubble.innerHTML = typingHtml();
     try {
-      var reply = await Discuss.replyToUser(session, text, ctx, function (full) {
-        bubble.innerHTML = md(full);
-        scrollDiscussBottom();
+      var reply = await Classroom.replyToUser(session, text, ctx, {
+        onDelta: function (role, full) { bubble.innerHTML = md(full); scrollStream(); }
       });
       bubble.innerHTML = md(reply);
-      session.userTurns[session.userTurns.length - 1].reply = reply;
       save();
     } catch (e) {
-      bubble.innerHTML = '<span class="d-err">回应失败：' + esc(String(e.message || e).slice(0, 90)) + '</span>';
+      bubble.innerHTML = '<span class="c-err">回应失败：' + esc(String(e.message || e).slice(0, 90)) + '</span>';
     }
   };
 
-  App.clearDiscuss = function () {
+  App.raiseMyHand = function () {
+    var inp = $('#c-input');
+    if (!inp) return;
+    inp.value = '我有点没跟上，能停一下单独讲讲这一步吗？';
+    inp.focus();
+    toast('已填好，你可以改，回车发送');
+  };
+
+  App.clearClass = function () {
     var kid = window.__curKid;
-    if (!state.discussions || !state.discussions[kid]) return;
-    if (!confirmDialog('清空这个考点的讨论记录？')) return;
-    delete state.discussions[kid];
+    if (!state.classrooms || !state.classrooms[kid]) return;
+    if (!confirmDialog('清空这个考点的课堂记录？')) return;
+    delete state.classrooms[kid];
     save();
-    pageDiscuss(kid);
+    pageClass(kid);
     toast('已清空');
   };
 
@@ -2096,8 +2195,8 @@
     if (h === '/learn') return pageTree();
     var m = h.match(/^\/learn\/(.+)$/);
     if (m) { window.__curKid = m[1]; return pageLearn(m[1]); }
-    m = h.match(/^\/discuss\/(.+)$/);
-    if (m) { window.__curKid = m[1]; return pageDiscuss(m[1]); }
+    m = h.match(/^\/class\/(.+)$/);
+    if (m) { window.__curKid = m[1]; return pageClass(m[1]); }
     m = h.match(/^\/quiz\/r\/(.+)$/);
     if (m) { quizState.qids = [m[1]]; quizState.done = {}; quizState.results = []; return renderQuizList(); }
     if (h === '/quiz') return pageQuiz('daily');
