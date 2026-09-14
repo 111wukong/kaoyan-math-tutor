@@ -5,7 +5,7 @@
 window.KDATA = {
   categories: [
     {
-      id: 'calculus', name: '高等数学', color: '#3b5bdb',
+      id: 'calculus', name: '高等数学', color: '#1b4d8f',
       chapters: [
         {
           name: '第一章 函数、极限与连续', nodes: [
@@ -174,7 +174,7 @@ window.KDATA = {
       ]
     },
     {
-      id: 'linear', name: '线性代数', color: '#0ca678',
+      id: 'linear', name: '线性代数', color: '#2f6b4f',
       chapters: [
         {
           name: '第八章 行列式', nodes: [
@@ -267,7 +267,7 @@ window.KDATA = {
       ]
     },
     {
-      id: 'prob', name: '概率论与数理统计', color: '#f08c00',
+      id: 'prob', name: '概率论与数理统计', color: '#8a5f17',
       chapters: [
         {
           name: '第十四章 随机事件与概率', nodes: [

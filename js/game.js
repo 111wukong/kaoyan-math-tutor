@@ -289,38 +289,38 @@ window.Game = (function () {
    * tier 只影响卡片配色：bronze / silver / gold。
    */
   var ACHIEVEMENTS = [
-    { id: 'first-step', name: '万里长征第一步', desc: '完成第一次打卡', icon: '👣', tier: 'bronze', check: function (c) { return c.streak >= 1 || c.bestStreak >= 1; } },
-    { id: 'streak-7', name: '一周不辍', desc: '连续打卡 7 天', icon: '🔥', tier: 'bronze', check: function (c) { return c.bestStreak >= 7; } },
-    { id: 'streak-30', name: '月度铁人', desc: '连续打卡 30 天', icon: '🏔️', tier: 'silver', check: function (c) { return c.bestStreak >= 30; } },
-    { id: 'streak-100', name: '百日筑基', desc: '连续打卡 100 天', icon: '💎', tier: 'gold', check: function (c) { return c.bestStreak >= 100; } },
+    { id: 'first-step', name: '万里长征第一步', desc: '完成第一次打卡', icon: '始', tier: 'bronze', check: function (c) { return c.streak >= 1 || c.bestStreak >= 1; } },
+    { id: 'streak-7', name: '一周不辍', desc: '连续打卡 7 天', icon: '七', tier: 'bronze', check: function (c) { return c.bestStreak >= 7; } },
+    { id: 'streak-30', name: '月度铁人', desc: '连续打卡 30 天', icon: '月', tier: 'silver', check: function (c) { return c.bestStreak >= 30; } },
+    { id: 'streak-100', name: '百日筑基', desc: '连续打卡 100 天', icon: '百', tier: 'gold', check: function (c) { return c.bestStreak >= 100; } },
 
-    { id: 'learn-10', name: '开卷有益', desc: '学完 10 个知识点', icon: '📖', tier: 'bronze', check: function (c) { return c.learned >= 10; } },
-    { id: 'learn-30', name: '半壁江山', desc: '学完 30 个知识点', icon: '📚', tier: 'silver', check: function (c) { return c.learned >= 30; } },
-    { id: 'learn-half', name: '过半', desc: '学完当前考纲一半的知识点', icon: '🌗', tier: 'silver', check: function (c) { return c.total > 0 && c.learned * 2 >= c.total; } },
-    { id: 'learn-all', name: '全树点亮', desc: '学完全部知识点', icon: '🌳', tier: 'gold', check: function (c) { return c.total > 0 && c.learned >= c.total; } },
+    { id: 'learn-10', name: '开卷有益', desc: '学完 10 个知识点', icon: '书', tier: 'bronze', check: function (c) { return c.learned >= 10; } },
+    { id: 'learn-30', name: '半壁江山', desc: '学完 30 个知识点', icon: '半', tier: 'silver', check: function (c) { return c.learned >= 30; } },
+    { id: 'learn-half', name: '过半', desc: '学完当前考纲一半的知识点', icon: '越', tier: 'silver', check: function (c) { return c.total > 0 && c.learned * 2 >= c.total; } },
+    { id: 'learn-all', name: '全树点亮', desc: '学完全部知识点', icon: '全', tier: 'gold', check: function (c) { return c.total > 0 && c.learned >= c.total; } },
 
-    { id: 'correct-50', name: '五十题', desc: '累计答对 50 题', icon: '✅', tier: 'bronze', check: function (c) { return c.correct >= 50; } },
-    { id: 'correct-200', name: '题海遨游', desc: '累计答对 200 题', icon: '🌊', tier: 'silver', check: function (c) { return c.correct >= 200; } },
-    { id: 'correct-500', name: '千锤百炼', desc: '累计答对 500 题', icon: '⚒️', tier: 'gold', check: function (c) { return c.correct >= 500; } },
+    { id: 'correct-50', name: '五十题', desc: '累计答对 50 题', icon: '五', tier: 'bronze', check: function (c) { return c.correct >= 50; } },
+    { id: 'correct-200', name: '题海遨游', desc: '累计答对 200 题', icon: '海', tier: 'silver', check: function (c) { return c.correct >= 200; } },
+    { id: 'correct-500', name: '千锤百炼', desc: '累计答对 500 题', icon: '千', tier: 'gold', check: function (c) { return c.correct >= 500; } },
 
-    { id: 'combo-10', name: '十连对', desc: '单日连续答对 10 题', icon: '⚡', tier: 'bronze', check: function (c) { return c.bestCombo >= 10; } },
-    { id: 'combo-25', name: '势不可挡', desc: '单日连续答对 25 题', icon: '🌩️', tier: 'silver', check: function (c) { return c.bestCombo >= 25; } },
-    { id: 'combo-50', name: '无人能挡', desc: '单日连续答对 50 题', icon: '☄️', tier: 'gold', check: function (c) { return c.bestCombo >= 50; } },
+    { id: 'combo-10', name: '十连对', desc: '单日连续答对 10 题', icon: '十', tier: 'bronze', check: function (c) { return c.bestCombo >= 10; } },
+    { id: 'combo-25', name: '势不可挡', desc: '单日连续答对 25 题', icon: '势', tier: 'silver', check: function (c) { return c.bestCombo >= 25; } },
+    { id: 'combo-50', name: '无人能挡', desc: '单日连续答对 50 题', icon: '极', tier: 'gold', check: function (c) { return c.bestCombo >= 50; } },
 
-    { id: 'queue-clear', name: '队列清零', desc: '清空一次到期的复习队列', icon: '🧹', tier: 'bronze', check: function (c) { return !!c.flags.clearedQueue; } },
-    { id: 'mistake-zero', name: '错题清仓', desc: '答对过至少 5 题，且错题本已经清空', icon: '🛡️', tier: 'silver', check: function (c) { return c.correct >= 5 && c.mistakes === 0; } },
-    { id: 'focus-120', name: '深度专注', desc: '单日专注满 120 分钟', icon: '🧘', tier: 'silver', check: function (c) { return c.maxMinutes >= 120; } },
-    { id: 'deck-20', name: '卡片收藏家', desc: '卡片库攒够 20 张', icon: '🗂️', tier: 'bronze', check: function (c) { return c.deckCards >= 20; } },
+    { id: 'queue-clear', name: '队列清零', desc: '清空一次到期的复习队列', icon: '清', tier: 'bronze', check: function (c) { return !!c.flags.clearedQueue; } },
+    { id: 'mistake-zero', name: '错题清仓', desc: '答对过至少 5 题，且错题本已经清空', icon: '仓', tier: 'silver', check: function (c) { return c.correct >= 5 && c.mistakes === 0; } },
+    { id: 'focus-120', name: '深度专注', desc: '单日专注满 120 分钟', icon: '专', tier: 'silver', check: function (c) { return c.maxMinutes >= 120; } },
+    { id: 'deck-20', name: '卡片收藏家', desc: '卡片库攒够 20 张', icon: '卡', tier: 'bronze', check: function (c) { return c.deckCards >= 20; } },
 
-    { id: 'chapter-1', name: '首章通关', desc: '点亮第一个章节', icon: '🚩', tier: 'bronze', check: function (c) { return c.chaptersDone >= 1; } },
-    { id: 'chapter-5', name: '攻城略地', desc: '点亮 5 个章节', icon: '🏰', tier: 'silver', check: function (c) { return c.chaptersDone >= 5; } },
-    { id: 'chapter-all', name: '一统天下', desc: '点亮全部章节', icon: '👑', tier: 'gold', check: function (c) { return c.chaptersTotal > 0 && c.chaptersDone >= c.chaptersTotal; } },
+    { id: 'chapter-1', name: '首章通关', desc: '点亮第一个章节', icon: '首', tier: 'bronze', check: function (c) { return c.chaptersDone >= 1; } },
+    { id: 'chapter-5', name: '攻城略地', desc: '点亮 5 个章节', icon: '攻', tier: 'silver', check: function (c) { return c.chaptersDone >= 5; } },
+    { id: 'chapter-all', name: '一统天下', desc: '点亮全部章节', icon: '统', tier: 'gold', check: function (c) { return c.chaptersTotal > 0 && c.chaptersDone >= c.chaptersTotal; } },
 
-    { id: 'boss-1', name: '初战告捷', desc: '通关第一个章节 BOSS', icon: '⚔️', tier: 'silver', check: function (c) { return c.bossPassed >= 1; } },
-    { id: 'boss-3', name: '屠龙者', desc: '通关 3 个章节 BOSS', icon: '🐉', tier: 'gold', check: function (c) { return c.bossPassed >= 3; } },
+    { id: 'boss-1', name: '初战告捷', desc: '通关第一个章节 BOSS', icon: '捷', tier: 'silver', check: function (c) { return c.bossPassed >= 1; } },
+    { id: 'boss-3', name: '屠龙者', desc: '通关 3 个章节 BOSS', icon: '屠', tier: 'gold', check: function (c) { return c.bossPassed >= 3; } },
 
-    { id: 'level-5', name: '登堂入室', desc: '升到 5 级', icon: '🎖️', tier: 'bronze', check: function (c) { return c.level >= 5; } },
-    { id: 'level-10', name: '渐入佳境', desc: '升到 10 级', icon: '🏅', tier: 'gold', check: function (c) { return c.level >= 10; } }
+    { id: 'level-5', name: '登堂入室', desc: '升到 5 级', icon: '堂', tier: 'bronze', check: function (c) { return c.level >= 5; } },
+    { id: 'level-10', name: '渐入佳境', desc: '升到 10 级', icon: '境', tier: 'gold', check: function (c) { return c.level >= 10; } }
   ];
 
   /* 判定所有成就，把新解锁的写进 state.game.achievements，返回新解锁的 id 列表。

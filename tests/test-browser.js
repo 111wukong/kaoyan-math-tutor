@@ -235,7 +235,11 @@ async function waitPort(file, ms) {
         chk(!!lay && getComputedStyle(lay).display === 'flex', '三栏布局样式生效');
         var side = document.querySelector('.class-side');
         var sw = side ? getComputedStyle(side).width : '无';
-        chk(sw === '214px', '样式表确实加载了（左栏 ' + sw + '，窗口 ' + innerWidth + 'px）');
+        // 判据从「左栏正好 214px」换成「body 底色等于设计 token」：
+        // 前者是魔法数字，改一次版就误报一次；后者直接证明样式表生效。
+        chk(getComputedStyle(document.body).backgroundColor === 'rgb(246, 246, 243)',
+          '样式表确实加载了（body 底色 ' + getComputedStyle(document.body).backgroundColor + '）');
+        chk(!!side && parseInt(sw, 10) > 100, '三栏布局的左栏有宽度（' + sw + '）');
         var weak = document.getElementById('c-st-weak');
         chk(!!weak && weak.textContent.length > 0, '丙的状态位有内容（' + (weak ? weak.textContent : '无') + '）');
         chk(!!document.querySelector('.c-ava-weak'), '丙的头像配色类存在');
@@ -334,8 +338,14 @@ async function waitPort(file, ms) {
         chk(!!document.querySelector('#main .pk-card.pk-question'), '★ 有疑问卡（学生问句 + 老师回应）');
         chk(!document.querySelector('#main .pk-cover'), '屏幕上不显示封面（封面只在打印时出现）');
         var pit = document.querySelector('#main .pk-card.pk-pitfall');
-        chk(pit && getComputedStyle(pit).borderLeftColor === 'rgb(185, 28, 28)',
-            '★ 易错卡的类型色条真的生效了（' + (pit ? getComputedStyle(pit).borderLeftColor : '无') + '）');
+        // 期望色从 Cards.TYPES 现算，避免改配色就要回来改测试
+        var wantPit = (function () {
+          var h = (window.Cards && window.Cards.TYPES && window.Cards.TYPES.pitfall.color) || '#a33a2e';
+          var n = parseInt(h.slice(1), 16);
+          return 'rgb(' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(', ') + ')';
+        })();
+        chk(pit && getComputedStyle(pit).borderLeftColor === wantPit,
+            '★ 易错卡的类型色条真的生效了（期望 ' + wantPit + '，实际 ' + (pit ? getComputedStyle(pit).borderLeftColor : '无') + '）');
         var del = document.querySelector('#main .pk-del');
         chk(!!del && getComputedStyle(del).display !== 'none', '屏幕上有删除按钮');
         var c0 = document.querySelector('#main .pk-card');

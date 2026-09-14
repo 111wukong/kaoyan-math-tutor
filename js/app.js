@@ -15,6 +15,27 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
   function pad2(n) { return ('0' + n).slice(-2); }
+
+  /* ---------- 内联线性图标 ----------
+   * 全站图标只此一处：24×24 viewBox、1.5px 描边、fill:none。
+   * 不引图标库（项目承诺零依赖），也不再用 emoji 当图标——
+   * emoji 的尺寸/颜色/基线都由系统决定，跟排版层级打架，是「AI 生成感」最明显的来源之一。 */
+  var ICONS = {
+    speak: '<path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>',
+    puzzle: '<path d="M12 3.5 13.9 9l5.6 1.6-4.1 4 1 5.9L12 17.6 7.6 20.5l1-5.9-4.1-4L10.1 9Z"/>',
+    lock: '<rect x="4.5" y="10" width="15" height="10.5" rx="1.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/>',
+    upload: '<path d="M12 16V4"/><path d="m7.5 8.5 4.5-4.5 4.5 4.5"/><path d="M4 16.5V19a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-2.5"/>',
+    check: '<path d="m4.5 12.5 5 5L19.5 7"/>',
+    x: '<path d="M6 6 18 18"/><path d="M18 6 6 18"/>',
+    warn: '<path d="M12 3.5 21.5 20H2.5Z"/><path d="M12 10v4"/><path d="M12 17h.01"/>'
+  };
+  function icon(name, size) {
+    var s = size || 14;
+    return '<svg viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor"'
+      + ' stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + (ICONS[name] || '') + '</svg>';
+  }
+
   function todayStr() {
     var d = new Date();
     return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
@@ -270,11 +291,12 @@
     return QDATA.filter(function (q) { var n = NODE[q.kid]; return n && nodeInTrack(n); });
   }
   /* 来源徽章：经典例题 / 真题改编 / 模拟题（自定义导入题无 source 则不显示） */
+  /* 来源徽章：经典例题 / 真题改编 / 模拟题（自定义导入题无 source 则不显示）
+   * 只用文字，不用 emoji —— 徽章本身已经按来源分了三种颜色，再叠一个图标是冗余。 */
   function srcBadge(q) {
     if (!q || !q.sourceType) return '';
-    var icon = q.sourceType === '经典例题' ? '📘' : q.sourceType === '真题改编' ? '🎯' : '✍️';
     var year = q.sourceYear ? ' ' + q.sourceYear : '';
-    return '<span class="src-badge st-' + (q.sourceType === '经典例题' ? 'classic' : q.sourceType === '真题改编' ? 'real' : 'mock') + '" title="' + esc(q.sourceType + (q.sourceYear ? '（' + q.sourceYear + '）' : '')) + '">' + icon + ' ' + esc(q.sourceType) + year + '</span>';
+    return '<span class="src-badge st-' + (q.sourceType === '经典例题' ? 'classic' : q.sourceType === '真题改编' ? 'real' : 'mock') + '" title="' + esc(q.sourceType + (q.sourceYear ? '（' + q.sourceYear + '）' : '')) + '">' + esc(q.sourceType) + year + '</span>';
   }
   function chapOf(node) {
     for (var i = 0; i < CATS.length; i++) {
@@ -367,7 +389,7 @@
       var a = Game.byId(id);
       if (!a) return;
       // 错开一点，不然一次解锁三个成就时三个 toast 会叠在一起看不清
-      setTimeout(function () { toast('🏆 解锁成就「' + a.name + '」', 'ok'); }, 350 + i * 900);
+      setTimeout(function () { toast('解锁成就 · ' + a.name, 'ok'); }, 350 + i * 900);
     });
     return fresh;
   }
@@ -375,7 +397,7 @@
     opts = opts || {};
     var r = Game.award(state, kind, opts);
     if (!r) return null;
-    if (r.levelUp) toast('🎉 升到 ' + r.level + ' 级 · ' + r.title + '！', 'ok');
+    if (r.levelUp) toast('升到 ' + r.level + ' 级 · ' + r.title, 'ok');
     sweepAchievements();
     save();
     refreshBadges();
@@ -408,7 +430,7 @@
     if (!correct) ensureMistakeCard(q);
     // 连击与 XP：所有作答路径（一练 / 课堂 / BOSS / 错题重练）都过这里，一处埋点全站生效
     var cb = Game.comboHit(state, !!correct);
-    if (cb.milestone) toast('⚡ 连对 ' + cb.milestone + ' 题！', 'ok');
+    if (cb.milestone) toast('连对 ' + cb.milestone + ' 题', 'ok');
     save();
     award(correct ? 'correct' : 'wrong');
     refreshBadges();
@@ -589,7 +611,7 @@
     if (tip) {
       var d = dailyProgress();
       var remain = (d.reviewIds.length - d.reviewDoneIds.length) + (d.quizIds.length - d.quizDoneIds.length) + (d.newIds.length - d.newDoneIds.length);
-      tip.textContent = remain > 0 ? '今日还有 ' + remain + ' 项任务待完成。' : '今日任务已清空，明天见！';
+      tip.textContent = remain > 0 ? '今日还有 ' + remain + ' 项待完成' : '今日任务已清空';
     }
   }
   function setActiveNav(h) {
@@ -616,28 +638,39 @@
 
   /* ============ 图表 ============ */
   function svgHeatmap() {
-    var cells = [];
     var end = new Date();
     var start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 181);
     var day = new Date(start);
-    var weeks = [];
-    var cur = [];
+    var cells = [];
+    // 开头补空格，让第一列的「星期几」对齐（起始日未必是周日）
+    for (var p = 0; p < start.getDay(); p++) cells.push(null);
     for (;;) {
       var ds = day.getFullYear() + '-' + pad2(day.getMonth() + 1) + '-' + pad2(day.getDate());
       var c = state.checkins[ds];
       var min = c ? (c.minutes || 0) : 0;
       var lv = min <= 0 ? 0 : min < 15 ? 1 : min < 30 ? 2 : min < 60 ? 3 : 4;
-      cur.push({ ds: ds, lv: lv });
-      if (day.getDay() === 6 || ds === todayStr()) { weeks.push(cur); cur = []; }
+      cells.push({ ds: ds, lv: lv });
       if (ds === todayStr()) break;
       day.setDate(day.getDate() + 1);
     }
-    var table = weeks.map(function (w, wi) {
-      return '<div class="heat-row">' + w.map(function (cell) {
-        return '<div class="heat-cell heat-l' + cell.lv + '" title="' + cell.ds + ' 学习 ' + (cell.lv ? state.checkins[cell.ds].minutes + ' 分钟' : '未学习') + '"></div>';
-      }).join('') + '</div>';
-    }).join('');
-    return '<div class="heat">' + table + '</div><div class="heat-meta">最近 26 周 <span class="legend" style="float:right">少 <span class="heat-cell heat-l0" style="display:inline-block"></span><span class="heat-cell heat-l1" style="display:inline-block"></span><span class="heat-cell heat-l2" style="display:inline-block"></span><span class="heat-cell heat-l3" style="display:inline-block"></span><span class="heat-cell heat-l4" style="display:inline-block"></span> 多</span></div>';
+    while (cells.length % 7 !== 0) cells.push(null);
+
+    /* 转置成贡献图的样子：一列 = 一周，一行 = 星期几。
+     * 原来「一周一行、26 周往下堆」，画出来是 7 宽 × 26 高的窄条 ——
+     * 既看不出周的节奏，又在宽卡片里把横向空间全浪费掉。 */
+    var cols = cells.length / 7;
+    var rows = '';
+    for (var dow = 0; dow < 7; dow++) {
+      var line = '';
+      for (var w = 0; w < cols; w++) {
+        var cell = cells[w * 7 + dow];
+        line += cell
+          ? '<div class="heat-cell heat-l' + cell.lv + '" title="' + cell.ds + ' 学习 ' + (cell.lv ? state.checkins[cell.ds].minutes + ' 分钟' : '未学习') + '"></div>'
+          : '<div class="heat-cell heat-empty"></div>';
+      }
+      rows += '<div class="heat-row">' + line + '</div>';
+    }
+    return '<div class="heat">' + rows + '</div><div class="heat-meta">最近 26 周 <span class="legend" style="float:right">少 <span class="heat-cell heat-l0" style="display:inline-block"></span><span class="heat-cell heat-l1" style="display:inline-block"></span><span class="heat-cell heat-l2" style="display:inline-block"></span><span class="heat-cell heat-l3" style="display:inline-block"></span><span class="heat-cell heat-l4" style="display:inline-block"></span> 多</span></div>';
   }
   function svgTrend() {
     var days = [], d = new Date();
@@ -655,19 +688,19 @@
     var poly = '', dots = '', labels = '';
     pts.forEach(function (p, i) {
       var x = P + (W - 2 * P) * i / maxX;
-      if (p === null) { labels += '<text x="' + x + '" y="' + (H - 8) + '" font-size="9" fill="#8b93a7" text-anchor="middle">' + days[i].slice(5) + '</text>'; return; }
+      if (p === null) { labels += '<text x="' + x + '" y="' + (H - 8) + '" font-size="9" fill="#8b8b81" text-anchor="middle">' + days[i].slice(5) + '</text>'; return; }
       var y = H - P - (H - 2 * P) * p;
       poly += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
-      dots += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="3" fill="#3b5bdb"/>';
-      labels += '<text x="' + x + '" y="' + (H - 8) + '" font-size="9" fill="#8b93a7" text-anchor="middle">' + days[i].slice(5) + '</text>';
+      dots += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="2.5" fill="#1b4d8f"/>';
+      labels += '<text x="' + x + '" y="' + (H - 8) + '" font-size="9" fill="#8b8b81" text-anchor="middle">' + days[i].slice(5) + '</text>';
     });
     var grid = '';
     for (var g = 0; g <= 4; g++) {
       var gy = P + (H - 2 * P) * g / 4;
-      grid += '<line x1="' + P + '" y1="' + gy + '" x2="' + (W - P) + '" y2="' + gy + '" stroke="#eef0f6" stroke-width="1"/>';
+      grid += '<line x1="' + P + '" y1="' + gy + '" x2="' + (W - P) + '" y2="' + gy + '" stroke="#e4e4dd" stroke-width="1"/>';
     }
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%">' + grid +
-      '<path d="' + poly + '" fill="none" stroke="#3b5bdb" stroke-width="2.5" stroke-linecap="round"/>' +
+      '<path d="' + poly + '" fill="none" stroke="#1b4d8f" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>' +
       dots + labels + '</svg>';
   }
   function svgRadar() {
@@ -690,18 +723,18 @@
       var rr = R * g / 4;
       var p = [];
       for (var i = 0; i < n; i++) p.push(pt(i, rr));
-      gridSvg += '<polygon points="' + p.join(' ') + '" fill="none" stroke="#e6e9f2" stroke-width="1"/>';
+      gridSvg += '<polygon points="' + p.join(' ') + '" fill="none" stroke="#e4e4dd" stroke-width="1"/>';
     }
     var pp = [];
     cats.forEach(function (c, i) {
       pp.push(pt(i, R * c.v));
       var xy = pt(i, R + 22);
-      labels += '<text x="' + xy.split(',')[0] + '" y="' + xy.split(',')[1] + '" font-size="12" fill="#5a6478" text-anchor="middle">' + c.name + '</text>';
+      labels += '<text x="' + xy.split(',')[0] + '" y="' + xy.split(',')[1] + '" font-size="12" fill="#57574f" text-anchor="middle">' + c.name + '</text>';
       var pv = pt(i, R * c.v);
-      labels += '<text x="' + pv.split(',')[0] + '" y="' + (+pv.split(',')[1] - 6) + '" font-size="11" fill="#3b5bdb" font-weight="700" text-anchor="middle">' + Math.round(c.v * 100) + '%</text>';
+      labels += '<text x="' + pv.split(',')[0] + '" y="' + (+pv.split(',')[1] - 6) + '" font-size="11" fill="#1b4d8f" font-weight="600" text-anchor="middle">' + Math.round(c.v * 100) + '%</text>';
     });
-    return '<svg viewBox="0 0 260 240" style="width:100%;max-width:300px">' + gridSvg +
-      '<polygon points="' + pp.join(' ') + '" fill="rgba(59,91,219,.18)" stroke="#3b5bdb" stroke-width="2"/>' + labels + '</svg>';
+    return '<svg viewBox="0 0 260 240" style="width:100%;max-width:340px">' + gridSvg +
+      '<polygon points="' + pp.join(' ') + '" fill="rgba(27,77,143,.14)" stroke="#1b4d8f" stroke-width="1.75"/>' + labels + '</svg>';
   }
   function chapterBars() {
     var html = '';
@@ -751,7 +784,7 @@
       return '<div class="task-item' + (isDone ? ' done' : '') + '"><span class="tick">✓</span>' +
         '<span class="tt"><span class="tag review">复习</span> ' + esc(label) + '</span>' +
         (isDone ? '<span class="go">已完成</span>' : '<a class="go" href="#/review">去复习 →</a>') + '</div>';
-    }).join('') : '<div style="color:var(--ink-3);font-size:13px;padding:6px 2px">今天没有到期的复习卡，休息一下或学点新的。</div>';
+    }).join('') : '<div style="color:var(--ink-3);font-size:12.5px;padding:6px 2px">今天没有到期的复习卡。</div>';
 
     var newHtml = d.newIds.length ? d.newIds.map(function (kid, i) {
       var n = NODE[kid];
@@ -759,7 +792,7 @@
       return '<div class="task-item' + (isDone ? ' done' : '') + '"><span class="tick">✓</span>' +
         '<span class="tt"><span class="tag new">新学</span> ' + esc(n.title) + '<div class="tt-sub">' + esc((chapOf(n) || {}).ch.name || '') + '</div></span>' +
         (isDone ? '<span class="go">已学会</span>' : '<a class="go" href="#/learn/' + kid + '">开始学习 →</a>') + '</div>';
-    }).join('') : '<div style="color:var(--ink-3);font-size:13px;padding:6px 2px">知识树的内容都学完啦！去统计页看看战绩。</div>';
+    }).join('') : '<div style="color:var(--ink-3);font-size:12.5px;padding:6px 2px">当前考试范围内的知识点已全部学过。</div>';
 
     var quizHtml = d.quizIds.length ? d.quizIds.map(function (qid, i) {
       var q = QDATA.filter(function (x) { return x.id === qid; })[0];
@@ -767,7 +800,7 @@
       return '<div class="task-item' + (isDone ? ' done' : '') + '"><span class="tick">✓</span>' +
         '<span class="tt"><span class="tag quiz">一练</span> <span class="stem-preview">' + md(q.stem || '') + '</span></span>' +
         (isDone ? '<span class="go">已作答</span>' : '<a class="go" href="#/quiz">去做题 →</a>') + '</div>';
-    }).join('') : '<div style="color:var(--ink-3);font-size:13px;padding:6px 2px">题库为空，稍后再来看看。</div>';
+    }).join('') : '<div style="color:var(--ink-3);font-size:12.5px;padding:6px 2px">题库为空。</div>';
 
     var remain = (d.reviewIds.length - d.reviewDoneIds.length) + (d.quizIds.length - d.quizDoneIds.length) + (d.newIds.length - d.newDoneIds.length);
     var learnedCount = flatNodes().filter(function (n) { return state.cards[n.id]; }).length;
@@ -782,7 +815,7 @@
       var needDays = Math.ceil(remainNodes / Math.max(1, recNew));
       var behind = needDays > daysLeft;
       examBanner = '<div class="banner exam' + (behind ? ' warn' : '') + '">' +
-        (daysLeft === 0 ? '⏰ 考试就是今天！' : '⏰ 距考试还有 <b>' + daysLeft + '</b> 天 · 还剩 ' + remainNodes + ' 个知识点 · 建议每天新学 <b>' + recNew + '</b> 个' + (behind ? ' · ⚠️ 按当前速度无法在考前学完！' : '')) +
+        (daysLeft === 0 ? '考试就是今天。' : '距考试还有 <b>' + daysLeft + '</b> 天 · 还剩 ' + remainNodes + ' 个知识点 · 建议每天新学 <b>' + recNew + '</b> 个' + (behind ? ' · 按当前速度无法在考前学完' : '')) +
         '</div>';
     }
     var g = Game.ensure(state);
@@ -791,7 +824,7 @@
       '<div class="lv-strip-badge">Lv.' + lv.level + '</div>' +
       '<div class="lv-strip-main">' +
         '<div class="lv-strip-name">' + esc(lv.title) +
-        (g.combo >= 2 ? ' <span class="combo-pill">⚡ 连对 ' + g.combo + '</span>' : '') + '</div>' +
+        (g.combo >= 2 ? ' <span class="combo-pill">连对 ' + g.combo + '</span>' : '') + '</div>' +
         '<div class="lv-bar"><i style="width:' + lv.pct + '%"></i></div>' +
       '</div>' +
       '<div class="lv-strip-xp">' + lv.into + ' / ' + lv.need + ' XP</div>' +
@@ -802,7 +835,7 @@
       examBanner +
       lvStrip +
       (done
-        ? '<div class="banner">🎉 今日已打卡：' + (c.tasksDone ? '任务全部完成' : '专注 ' + (c.minutes || 0) + ' 分钟') + '。连续学习 ' + calcStreak() + ' 天。保持节奏！</div>'
+        ? '<div class="banner">今日已打卡：' + (c.tasksDone ? '任务全部完成' : '专注 ' + (c.minutes || 0) + ' 分钟') + '。连续学习 ' + calcStreak() + ' 天。</div>'
         : '<div class="banner warn">今日任务还剩 <b>' + remain + '</b> 项（复习 ' + (d.reviewIds.length - d.reviewDoneIds.length) +
         ' · 新学 ' + (d.newIds.length - d.newDoneIds.length) + ' · 一练 ' + (d.quizIds.length - d.quizDoneIds.length) + '）。完成任务或专注 30 分钟即可打卡。</div>') +
       '<div class="grid-4">' +
@@ -812,18 +845,18 @@
       statBox('今日正确率', tc === null ? '—' : tc + '%', tc === null ? '今日暂未答题' : '已答 ' + state.attempts.filter(function (a) { return a.date === t; }).length + ' 题', '') +
       '</div>' +
       '<div class="grid-2 mt16">' +
-      '<div class="card"><div class="card-title">今日任务单 <span class="sub">' + (remain > 0 ? '还剩 ' + remain + ' 项' : '全部完成 ✓') + '</span></div>' +
-        '<div class="task-group"><div class="task-group-label">📥 到期复习（' + d.reviewIds.length + '）</div>' + reviewHtml + '</div>' +
-        '<div class="task-group"><div class="task-group-label">📚 新知识点（' + d.newIds.length + '）</div>' + newHtml + '</div>' +
-        '<div class="task-group"><div class="task-group-label">✍️ 每日一练（' + d.quizIds.length + ' 题）</div>' + quizHtml + '</div>' +
+      '<div class="card"><div class="card-title">今日任务单 <span class="sub">' + (remain > 0 ? '还剩 ' + remain + ' 项' : '全部完成') + '</span></div>' +
+        '<div class="task-group"><div class="task-group-label">到期复习（' + d.reviewIds.length + '）</div>' + reviewHtml + '</div>' +
+        '<div class="task-group"><div class="task-group-label">新知识点（' + d.newIds.length + '）</div>' + newHtml + '</div>' +
+        '<div class="task-group"><div class="task-group-label">每日一练（' + d.quizIds.length + ' 题）</div>' + quizHtml + '</div>' +
       '</div>' +
       '<div>' +
         '<div class="card"><div class="card-title">专注计时 <span class="sub">今日 ' + (c.minutes || 0) + ' 分钟</span></div>' +
           '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">' +
-          '<div id="timer-display" style="font-size:38px;font-weight:800;font-family:var(--mono);color:var(--brand);letter-spacing:1px">00:00</div>' +
+          '<div id="timer-display" style="font-size:32px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink);letter-spacing:.01em">00:00</div>' +
           '<div style="display:flex;gap:8px"><button class="btn primary" onclick="App.toggleTimer()" id="timer-btn">开始专注</button>' +
           '<button class="btn" onclick="App.resetTimer()">清零</button></div>' +
-          '<div style="font-size:12.5px;color:var(--ink-3)">专注累计 30 分钟自动完成今日打卡；切走页面计时不停，关掉标签页才停止。</div>' +
+          '<div style="font-size:11.5px;color:var(--ink-3);max-width:340px;line-height:1.6">专注累计 30 分钟自动完成今日打卡；切走页面计时不停，关掉标签页才停止。</div>' +
           '</div></div>' +
         '<div class="card mt16"><div class="card-title">学习热力图 <span class="sub">近 26 周活跃度</span></div>' + svgHeatmap() + '</div>' +
       '</div>' +
@@ -845,35 +878,44 @@
     Game.chapterProgress(state, gameWorld(), gameOpts()).forEach(function (c) { bossByCh[c.id] = c; });
     var litTotal = 0;
 
+    /* 章节卡片放进多列网格：68 个考点原来竖着排成一条 3000px 的长柱，
+     * 扫读成本极高。改成按科目分块 + 章节卡片自适应列宽，一屏能看完整章结构。
+     * 折叠仍然可用，但默认展开 —— 网格里默认折叠会让卡片高低参差。 */
     CATS.forEach(function (cat) {
       var chapters = cat.chapters.filter(function (ch) { return ch.nodes.some(nodeInTrack); });
       if (!chapters.length) return;
-      html += '<div class="card mt16"><div class="card-title" style="color:' + cat.color + '">' + esc(cat.name) +
-        ' <span class="sub">' + chapters.length + ' 章 · ' + chapters.reduce(function (a, c) { return a + c.nodes.filter(nodeInTrack).length; }, 0) + ' 个考点' + '</span></div>';
+      var nodeCount = chapters.reduce(function (a, c) { return a + c.nodes.filter(nodeInTrack).length; }, 0);
+      html += '<div class="cat-block">' +
+        '<div class="cat-head">' +
+          '<span class="cat-dot" style="background:' + cat.color + '"></span>' +
+          '<span class="cat-name">' + esc(cat.name) + '</span>' +
+          '<span class="cat-meta">' + chapters.length + ' 章 · ' + nodeCount + ' 个考点</span>' +
+        '</div>' +
+        '<div class="ch-grid">';
+
       chapters.forEach(function (ch) {
         var nodes = ch.nodes.filter(nodeInTrack);
         var mastered = nodes.filter(function (n) { return nodeStatus(n.id) === 'mastered'; }).length;
         var pct = Math.round(mastered / nodes.length * 100);
         var lit = mastered === nodes.length;
         if (lit) litTotal++;
-        var isFold = folded[ch.id];
-        if (lit && folded[ch.id] === undefined) isFold = true;
+        var isFold = !!folded[ch.id];
         var b = bossByCh[ch.id];
         var bossHtml = '';
+        // 只在「可挑战 / 已通关」时出现。给十几个没解锁的章节各挂一个「未解锁」，
+        // 是纯噪音 —— 没有入口本身就说明还没解锁。
         if (b) {
           if (b.bossPassed) {
-            bossHtml = '<a class="ch-boss done" href="#/boss/' + esc(ch.id) + '" onclick="event.stopPropagation()">🏆 ' + b.bossScore + '/' + b.bossTotal + '</a>';
+            bossHtml = '<a class="ch-boss done" href="#/boss/' + esc(ch.id) + '" onclick="event.stopPropagation()" title="已通关，点击重挑战">BOSS ' + b.bossScore + '/' + b.bossTotal + '</a>';
           } else if (lit) {
-            bossHtml = '<a class="ch-boss ready" href="#/boss/' + esc(ch.id) + '" onclick="event.stopPropagation()">⚔️ 挑战 BOSS</a>';
-          } else {
-            bossHtml = '<span class="ch-boss locked" title="整章学完才能解锁">🔒 BOSS</span>';
+            bossHtml = '<a class="ch-boss ready" href="#/boss/' + esc(ch.id) + '" onclick="event.stopPropagation()" title="整章已学完，可挑战">挑战</a>';
           }
         }
-        html += '<div class="chapter mt12' + (lit ? ' lit' : '') + '">' +
-          '<div class="chapter-head" onclick="App.toggleChapter(\'' + ch.id + '\')">' +
-          '<span class="fold-arrow">' + (isFold ? '▶' : '▼') + '</span>' +
-          (lit ? '<span class="ch-lit" title="本章已点亮">★</span>' : '') +
-          esc(ch.name) + bossHtml +
+        html += '<div class="chapter' + (lit ? ' lit' : '') + '">' +
+          '<div class="chapter-head' + (isFold ? '' : ' open') + '" onclick="App.toggleChapter(\'' + ch.id + '\')">' +
+          '<span class="fold-arrow"></span>' +
+          (lit ? '<span class="ch-lit" title="本章已点亮"></span>' : '') +
+          '<span class="ch-name">' + esc(ch.name.replace(/^第[一二三四五六七八九十]+章\s*/, '')) + '</span>' + bossHtml +
           '<span class="ch-progress-wrap"><span class="ch-bar"><i style="width:' + pct + '%"></i></span><span class="ch-pct">' + pct + '%</span></span>' +
           '</div>' +
           '<div class="chapter-body' + (isFold ? ' collapsed' : '') + '">';
@@ -888,7 +930,7 @@
         });
         html += '</div></div>';
       });
-      html += '</div>';
+      html += '</div></div>';
     });
     $('#main').innerHTML = html;
   }
@@ -970,7 +1012,7 @@
     if (llmOn()) {
       ind.textContent = 'AI 老师 · ' + state.settings.llm.model;
     } else if (state.settings.llm && state.settings.llm.enabled) {
-      ind.innerHTML = '<a href="#/settings" style="color:var(--amber);text-decoration:none">⚠ 待填 API Key</a>';
+      ind.innerHTML = '<a href="#/settings" style="color:var(--amber);text-decoration:none">待填 API Key</a>';
     } else {
       ind.textContent = '内置引擎（未接模型）';
     }
@@ -1856,6 +1898,7 @@
   function xrItem(label, n) {
     return '<span class="xr-i"><b>+' + n + '</b> ' + esc(label) + '</span>';
   }
+  function tierLabel(t) { return t === 'gold' ? '金' : t === 'silver' ? '银' : '铜'; }
   function xpRules() {
     var X = Game.XP;
     return '<div class="xr">' +
@@ -1875,10 +1918,13 @@
     var left = board.filter(function (a) { return !a.unlocked; });
     var snap = Game.snapshot(state, gameWorld(), gameOpts());
 
+    /* 成就图标 = 名称首字做成的「印章」式单字块。
+     * 原来每项配一个 emoji，25 个成就就是 25 种系统字体渲染出来的彩色小图，
+     * 尺寸和基线都不受控。单字块统一、克制，也更像出版物。 */
     var achCard = function (a) {
       return '<div class="ach ' + (a.unlocked ? 'on ' + a.tier : 'off') + '">' +
-        '<div class="ach-icon">' + (a.unlocked ? a.icon : '🔒') + '</div>' +
-        '<div class="ach-body"><div class="ach-name">' + esc(a.name) + '</div>' +
+        '<div class="ach-icon">' + (a.unlocked ? esc(String(a.name || '').slice(0, 1)) : icon('lock', 13)) + '</div>' +
+        '<div class="ach-body"><div class="ach-name">' + esc(a.name) + '<span class="tier tier-' + a.tier + '">' + tierLabel(a.tier) + '</span></div>' +
         '<div class="ach-desc">' + esc(a.desc) + '</div>' +
         (a.unlocked ? '<div class="ach-date">' + esc(a.date || '') + ' 解锁</div>' : '') +
         '</div></div>';
@@ -1891,7 +1937,6 @@
         '<div class="ls-name">' + esc(t.title) + '</div>' +
         '<div class="ls-xp">' + t.from + ' XP</div></div>';
     }).join('');
-
     $('#main').innerHTML = head('成就与等级',
       '已解锁 <b>' + got.length + '</b> / ' + board.length + ' 个成就') +
       '<div class="card lv-card">' +
@@ -1913,11 +1958,11 @@
         '<div class="ladder">' + ladder + '</div>' +
         '<div class="xr-title">XP 怎么来</div>' + xpRules() +
       '</div>' +
-      '<div class="card mt16"><div class="card-title">🏆 已解锁 <span class="sub">' + got.length + ' 个</span></div>' +
+      '<div class="card mt16"><div class="card-title">已解锁 <span class="sub">' + got.length + ' 个</span></div>' +
         '<div class="ach-grid">' +
         (got.length ? got.map(achCard).join('') : '<p class="muted" style="padding:8px 2px">还没有成就。去知识树学一个知识点，或者打卡一天，马上就有。</p>') +
         '</div></div>' +
-      '<div class="card mt16"><div class="card-title">🔒 待解锁 <span class="sub">' + left.length + ' 个</span></div>' +
+      '<div class="card mt16"><div class="card-title">待解锁 <span class="sub">' + left.length + ' 个</span></div>' +
         '<div class="ach-grid">' + left.map(achCard).join('') + '</div></div>';
   }
 
@@ -1938,9 +1983,9 @@
       return;
     }
     if (!ch.bossUnlocked) {
-      $('#main').innerHTML = head('🔒 ' + esc(ch.name), 'BOSS 还没解锁') +
-        '<div class="card result-panel"><div style="font-size:40px">🔒</div>' +
-        '<div class="result-score" style="font-size:20px;margin-top:10px">先把这一章学完</div>' +
+      $('#main').innerHTML = head(esc(ch.name), 'BOSS 卷尚未解锁') +
+        '<div class="card result-panel"><div class="lock-mark">' + icon('lock', 26) + '</div>' +
+        '<div class="result-score" style="font-size:19px;margin-top:12px">先把这一章学完</div>' +
         '<div class="result-sub">还差 <b>' + (ch.total - ch.mastered) + '</b> 个知识点（已学 ' + ch.mastered + ' / ' + ch.total + '）。<br>' +
         '整章知识点全部学完，BOSS 卷自动解锁。</div>' +
         '<a class="btn primary" href="#/learn">去知识树</a></div>';
@@ -1965,10 +2010,10 @@
     }
     var dots = qids.map(function (id, k) {
       var r = bossState.results[k];
-      var cls = r ? (r.correct ? 'ok' : 'no') : (k === i ? 'now' : 'future');
+      var cls = r ? (r.correct ? 'on' : 'off') : (k === i ? 'now' : '');
       return '<span class="boss-dot ' + cls + '"></span>';
     }).join('');
-    box.innerHTML = head('⚔️ BOSS 卷 · ' + esc(ch.name),
+    box.innerHTML = head('BOSS 卷 · ' + esc(ch.name),
       '第 <b>' + (i + 1) + '</b> / ' + qids.length + ' 题 · 正确率 ≥ ' + Math.round(Game.BOSS_PASS_RATIO * 100) + '% 通关',
       '<a class="btn small" href="#/learn">放弃并返回</a>') +
       '<div class="boss-progress">' + dots + '</div>' +
@@ -1985,7 +2030,7 @@
     var r = bossState.results[bossState.idx];
     if (r) {
       slot.innerHTML = '<div class="q-feedback ' + (r.correct ? 'ok' : 'no') + '">' +
-        (r.correct ? '✓ 答对了' : '✗ 答错了，我的答案：' + esc(r.answer)) + '<br>' +
+        (r.correct ? icon('check') + ' 答对了' : icon('x') + ' 答错了，我的答案：' + esc(r.answer)) + '<br>' +
         '<span class="ans">' + AIEngine.Judge.answerText(q) + '</span></div>' +
         '<div style="margin-top:14px"><button class="btn primary" onclick="App.bossNext()">' +
         (bossState.idx + 1 >= bossState.qids.length ? '看结果 →' : '下一题 →') + '</button></div>';
@@ -2043,15 +2088,15 @@
     var r = Game.bossResult(correct, total);
     var ch = bossChapter(bossState.chId);
     var wrong = bossState.results.filter(function (x) { return x && !x.correct; }).length;
-    $('#main').innerHTML = head('⚔️ BOSS 卷 · ' + esc(ch ? ch.name : ''), '挑战结束') +
+    $('#main').innerHTML = head('BOSS 卷 · ' + esc(ch ? ch.name : ''), '挑战结束') +
       '<div class="card result-panel">' +
-      '<div style="font-size:44px">' + (r.passed ? '🏆' : '💪') + '</div>' +
+      '<div class="result-verdict ' + (r.passed ? 'ok' : 'no') + '">' + (r.passed ? '通关' : '未通关') + '</div>' +
       '<div class="result-score">' + correct + ' / ' + total + '</div>' +
       '<div class="result-sub">正确率 <b>' + r.pct + '%</b> · 通关线 ' + Math.round(r.passRatio * 100) + '%<br>' +
       (r.passed
-        ? '通关！这一章收下了。' + (ch && ch.bossScore != null ? '（历史最好 ' + ch.bossScore + ' / ' + total + '）' : '')
-        : '还差一点。错的题已经进错题本了，复盘一遍再来。') + '</div>' +
-      '<div style="display:flex;gap:10px;justify-content:center;margin-top:18px">' +
+        ? '这一章已收下。' + (ch && ch.bossScore != null ? '历史最好 ' + ch.bossScore + ' / ' + total + '。' : '')
+        : '错的题已进错题本，复盘一遍再来。') + '</div>' +
+      '<div style="display:flex;gap:8px;justify-content:center;margin-top:18px">' +
       '<button class="btn" onclick="App.bossRestart()">再挑战一次</button>' +
       '<a class="btn" href="#/learn">回知识树</a>' +
       (wrong ? '<a class="btn" href="#/mistakes">看错题本（' + wrong + '）</a>' : '') +
@@ -2092,8 +2137,8 @@
       box.innerHTML = '<div class="q-meta"><span class="q-type">' + (q.type === 'choice' ? '选择题' : '填空题') + '</span>' +
         srcBadge(q) +
         '<span class="q-src">' + esc((NODE[q.kid] || {}).title || '') + ' · 难度 ' + q.difficulty + '</span>' +
-        '<span class="q-tools"><button class="speak-btn" onclick="App.speakById(\'' + q.id + '\')" title="朗读题干">🔊</button>' +
-        '<button class="speak-btn" onclick="App.similar(\'' + q.kid + '\',\'' + q.id + '\')" title="同类型题推荐">🧩</button></span></div>' +
+        '<span class="q-tools"><button class="speak-btn" onclick="App.speakById(\'' + q.id + '\')" title="朗读题干">' + icon('speak', 13) + '</button>' +
+        '<button class="speak-btn" onclick="App.similar(\'' + q.kid + '\',\'' + q.id + '\')" title="同类型题推荐">' + icon('puzzle', 13) + '</button></span></div>' +
         '<div class="q-stem">' + md(q.stem) + '</div>' +
         '<div id="qbody-' + qid + '"></div>';
       list.appendChild(box);
@@ -2107,7 +2152,7 @@
     if (quizState.done[q.id]) {
       var r = quizState.done[q.id];
       slot.innerHTML = '<div class="q-feedback ' + (r.correct ? 'ok' : 'no') + '">' +
-        (r.correct ? '✓ 回答正确' : '✗ 回答错误，我的答案：' + esc(r.answer)) + '<br>' +
+        (r.correct ? icon('check') + ' 回答正确' : icon('x') + ' 回答错误，我的答案：' + esc(r.answer)) + '<br>' +
         '<span class="ans">' + AIEngine.Judge.answerText(q) + '</span></div>';
       return;
     }
@@ -2176,8 +2221,8 @@
     var box = $('#main');
     if (!list.length) {
       box.innerHTML = head('复习队列', '今天没有到期的卡片') +
-        '<div class="card result-panel"><div style="font-size:40px">🎓</div><div class="result-score" style="font-size:22px;margin-top:10px">队列已清空</div>' +
-        '<div class="result-sub">到期复习卡已全部搞定。学新知识让队列保持转动。</div>' +
+        '<div class="card result-panel"><div class="result-score" style="margin-top:6px">队列已清空</div>' +
+        '<div class="result-sub">今天到期的卡片都复习完了。</div>' +
         '<a class="btn primary" href="#/learn">去知识树学新内容</a></div>';
       return;
     }
@@ -2190,8 +2235,7 @@
       reviewState.idx++;
       if (reviewState.idx < list.length) return renderReview();
       box.innerHTML = head('复习队列', '卡片已失效') +
-        '<div class="card result-panel"><div style="font-size:40px">🗂️</div>' +
-        '<div class="result-score" style="font-size:22px;margin-top:10px">这些卡片已被删除</div>' +
+        '<div class="card result-panel"><div class="result-score" style="margin-top:6px">这些卡片已被删除</div>' +
         '<div class="result-sub">队列里剩下的卡片库条目已经清掉了。</div>' +
         '<a class="btn primary" href="#/cards">去卡片库</a></div>';
       return;
@@ -2207,7 +2251,11 @@
       prompt = '先自己回忆，再点「翻面」核对。';
     } else if (isMistake) {
       kind = '错题卡';
-      front = '回忆这道题的解法：' + truncate(md(q ? q.stem : ''), 120);
+      // 截断要在「原始文本」上做，再交给 md() 渲染。
+      // 反过来（先 md() 渲染、再剥 HTML 标签）会把 KaTeX 输出的
+      // MathML 无障碍层和视觉层一起剥成纯文本拼起来 ——
+      // 屏幕上就是一段「limx→o3x2x|\lim_{x\to 0}\frac{...}」式的重复乱码。
+      front = '回忆这道题的解法：' + md(clipSrc(q ? q.stem : '', 120));
       back = q ? md(q.stem + '\n\n**解析**：' + q.analysis) : '';
       prompt = '先在脑中演算，再点"显示答案"核对你自己是否真的会了。';
     } else {
@@ -2220,7 +2268,8 @@
 
     var html = head('复习队列', '先回忆，再自评',
       '<span class="rev-stat" style="margin:0"><span class="rs">剩余 <b>' + (list.length - reviewState.idx) + '</b> 张</span>' +
-      '<span class="rs">今日已评 <b>' + list.length + '</b> 张</span></span>') +
+      // 已评数原来是 list.length（队列总数），不是已评数 —— 第 1 张就显示「已评 8 张」
+      '<span class="rs">已评 <b>' + reviewState.idx + '</b> / ' + list.length + '</span></span>') +
       '<div class="review-area"><div class="rev-card" id="rev-card">' +
         '<div><span class="rc-type">' + kind + '</span>' +
         (isDeck && dc.kidTitle ? '<span class="rc-from">' + esc(dc.kidTitle) + '</span>' : '') + '</div>' +
@@ -2237,9 +2286,15 @@
       '</div></div>';
     box.innerHTML = html;
   }
-  function truncate(html, n) {
-    var t = html.replace(/<[^>]+>/g, '');
-    return esc(t.length > n ? t.slice(0, n) + '…' : t);
+  /* 按原始文本截断（不碰 HTML），交给 md() 之前用。
+   * 唯一要小心的是别把 $...$ 切成半个 —— 公式定界符落单会让整段渲染错乱，
+   * 所以奇数个 $ 时退回最后一个 $ 之前。 */
+  function clipSrc(s, n) {
+    var t = String(s == null ? '' : s);
+    if (t.length <= n) return t;
+    var cut = t.slice(0, n);
+    if ((cut.match(/\$/g) || []).length % 2 === 1) cut = cut.slice(0, cut.lastIndexOf('$'));
+    return cut.replace(/\s+$/, '') + '…';
   }
   App.revShow = function () {
     var c = $('#rev-card'); c.classList.add('show');
@@ -2271,7 +2326,7 @@
     var kids = [];
     list.forEach(function (a) { if (kids.indexOf(a.kid) < 0) kids.push(a.kid); });
     if (!list.length) {
-      html += '<div class="card result-panel"><div style="font-size:40px">🎉</div><div class="result-sub">暂无错题，继续保持！</div><a class="btn primary" href="#/quiz">去每日一练</a></div>';
+      html += '<div class="card result-panel"><div class="result-sub" style="margin-top:6px">错题本是空的。</div><a class="btn primary" href="#/quiz">去每日一练</a></div>';
       $('#main').innerHTML = html;
       return;
     }
@@ -2295,7 +2350,7 @@
         '<div class="mt8">' +
         '<button class="btn small primary" onclick="location.hash=\'#/quiz/r/' + q.id + '\'">重练这题</button> ' +
         '<button class="btn small" onclick="App.similar(\'' + q.kid + '\',\'' + q.id + '\')">练同类题</button> ' +
-        '<button class="speak-btn" onclick="App.speakById(\'' + q.id + '\')" title="朗读题干">🔊</button>' +
+        '<button class="speak-btn" onclick="App.speakById(\'' + q.id + '\')" title="朗读题干">' + icon('speak', 13) + '</button>' +
         '</div></div>';
     }).join('');
     holder.innerHTML = html;
@@ -2360,8 +2415,8 @@
         var cls = 'opt';
         var tail = '';
         if (done) {
-          if (o.k === q.answer) { cls += ' opt-correct'; tail = ' <span class="sim-flag">✓</span>'; }
-          else if (o.k === s.ans) { cls += ' opt-wrong'; tail = ' <span class="sim-flag">✗</span>'; }
+          if (o.k === q.answer) { cls += ' opt-correct'; tail = ' <span class="sim-flag">' + icon('check', 12) + '</span>'; }
+          else if (o.k === s.ans) { cls += ' opt-wrong'; tail = ' <span class="sim-flag sim-flag-no">' + icon('x', 12) + '</span>'; }
         }
         return '<div class="' + cls + '"' + (done ? '' : ' onclick="App.simPick(\'' + o.k + '\')"') + '><span class="ok">' + o.k + '</span><span>' + md(o.t) + '</span>' + tail + '</div>';
       }).join('');
@@ -2369,7 +2424,7 @@
       html += '<div class="fill-row"><input id="sim-fill" placeholder="输入你的答案（如 1/2、\\pi、x^2）"' + (done ? ' disabled value="' + esc(s.ans) + '"' : '') + '><button class="btn primary" onclick="App.simFill()">' + (done ? '已提交' : '提交') + '</button></div>';
     }
     if (done) {
-      html += '<div class="q-feedback ' + (s.win ? 'ok' : 'no') + ' mt8"><b>' + (s.win ? '✓ 答对了！' : '✗ 这道题答错了') + '</b><br><span class="ans">' + AIEngine.Judge.answerText(q) + '</span></div>';
+      html += '<div class="q-feedback ' + (s.win ? 'ok' : 'no') + ' mt8"><b>' + (s.win ? icon('check') + ' 答对了' : icon('x') + ' 这道题答错了') + '</b><br><span class="ans">' + AIEngine.Judge.answerText(q) + '</span></div>';
     }
     html += '</div>';
     $('#sim-body').innerHTML = html;
@@ -2407,7 +2462,7 @@
     if (!s.ans) return;
     if (s.idx + 1 < s.total) { s.idx++; s.ans = null; renderSimItem(); return; }
     // 结束
-    var html = '<div class="sim-done"><div style="font-size:44px">' + (s.correct === s.total ? '🎉' : '💪') + '</div><div class="sim-done-score">' + s.correct + ' / ' + s.total + '</div><div class="sim-done-tip">' +
+    var html = '<div class="sim-done"><div class="sim-done-score">' + s.correct + ' / ' + s.total + '</div><div class="sim-done-tip">' +
       (s.correct === s.total ? '全部答对，掌握不错！' : '做错的题已收录到错题本，可去"错题本"重练。') + '</div>';
     $('#sim-body').innerHTML = html;
     var btn = $('#sim-next');
@@ -2516,13 +2571,13 @@
   function pageStats() {
     var all = state.attempts;
     var doneCount = flatNodes().filter(function (n) { return state.cards[n.id]; }).length;
-    var html = head('学习统计', '数据都在本地，越练越懂你');
-    html += '<div class="grid-2">' +
+    var html = head('学习统计', '数据都存在本机浏览器里');
+    html += '<div class="grid-2 grid-top">' +
       '<div class="card"><div class="card-title">学习热力图 <span class="sub">近 26 周</span></div>' + svgHeatmap() + '</div>' +
       '<div class="card"><div class="card-title">最近 14 天正确率</div>' + svgTrend() +
         '<div style="font-size:12px;color:var(--ink-3);margin-top:8px">共完成 ' + all.length + ' 次作答，累计打卡 ' + Object.keys(state.checkins).filter(function (d) { return checkinOK(d); }).length + ' 天</div></div>' +
       '</div>';
-    html += '<div class="grid-2 mt16">' +
+    html += '<div class="grid-2 grid-top mt16">' +
       '<div class="card"><div class="card-title">科目掌握度（雷达）</div>' + svgRadar() + '</div>' +
       '<div class="card"><div class="card-title">各章节正确率</div>' + chapterBars() + '</div>' +
       '</div>';
@@ -2585,7 +2640,7 @@
       '</div>';
     html += '<div class="card mt16"><div class="card-title">自定义题库导入</div>' +
       '<div class="sdesc" style="margin-bottom:10px">支持从 JSON 文件或文本导入题目（纯前端解析，不上传）。每条题目字段：<code>stem</code>、<code>kid</code>（知识点 id）、<code>type</code>（choice/blank）、<code>answer</code>，选择题还需 <code>options</code>（数组，可为字符串或 {k,t} 对象）；<code>analysis</code>/<code>difficulty</code>/<code>optionKeys</code> 可选。已导入 <b id="import-count">' + (state.customQ ? state.customQ.length : 0) + '</b> 题。</div>' +
-      '<div class="import-zone" id="import-zone" onclick="document.getElementById(\'import-file\').click()">📂 点击选择 JSON 文件<br><span class="sub">或把 JSON 文本粘贴到下方</span><input type="file" id="import-file" accept=".json,application/json" style="display:none"></div>' +
+      '<div class="import-zone" id="import-zone" onclick="document.getElementById(\'import-file\').click()">' + icon('upload', 18) + '<br>点击选择 JSON 文件<br><span class="sub">或把 JSON 文本粘贴到下方</span><input type="file" id="import-file" accept=".json,application/json" style="display:none"></div>' +
       '<textarea id="import-text" rows="6" style="width:100%;box-sizing:border-box;margin-top:10px;font-family:ui-monospace,Menlo,monospace;font-size:12px" placeholder="[{\n  &quot;stem&quot;: &quot;计算 \\\\int_0^1 x\\\\,\\\\mathrm{d}x&quot;,\n  &quot;kid&quot;: &quot;c1n2&quot;,\n  &quot;type&quot;: &quot;blank&quot;,\n  &quot;answer&quot;: &quot;1/2&quot;\n}]"></textarea>' +
       '<div class="mt8"><button class="btn primary" onclick="App.doImport()">开始导入</button> <button class="btn" onclick="App.importSample()">填充示例</button> <button class="btn danger" onclick="App.clearCustomQ()">清空导入题</button></div>' +
       '</div>';
@@ -2812,10 +2867,10 @@
       // pageSettings 重建了 DOM，必须重新取节点，否则刚写的提示会被冲掉
       var box2 = $('#llm-test-result');
       if (r && r.warn) {
-        if (box2) { box2.textContent = '⚠ ' + r.warn; box2.style.color = 'var(--amber)'; }
+        if (box2) { box2.textContent = r.warn; box2.style.color = 'var(--amber)'; }
         toast('能连上，但模型名可能不对', 'no');
       } else {
-        if (box2) { box2.textContent = '✓ 连接正常，模型：' + conf.model; box2.style.color = ''; }
+        if (box2) { box2.textContent = '连接正常 · 模型 ' + conf.model; box2.style.color = 'var(--green)'; }
         toast('连接成功！AI 老师已启用：' + conf.model, 'ok');
       }
     } catch (e) {

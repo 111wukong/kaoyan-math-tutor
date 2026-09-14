@@ -269,7 +269,7 @@ const html = Cards.deckHtml(cards, { meta: { title: '课堂复习卡片', sub: '
 has(html, 'pk-cover', '有封面块');
 has(html, '无穷小与等价代换', '封面有考点名');
 has(html, 'pk-card', '有卡片');
-has(html, '--pk:#b91c1c', '★ 易错卡带上了自己的颜色变量');
+has(html, '--pk:' + Cards.TYPES.pitfall.color, '★ 易错卡带上了自己的类型色变量（' + Cards.TYPES.pitfall.color + '）');
 eq((html.match(/class="pk-card/g) || []).length, cards.length, '卡片数量对得上');
 
 const escaped = Cards.deckHtml([{ type: 'point', title: '<script>x</script>', front: 'a & b', back: '' }], {});

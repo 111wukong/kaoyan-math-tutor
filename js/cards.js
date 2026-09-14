@@ -14,11 +14,11 @@ window.Cards = (function () {
 
   /* ---------- 卡片类型 ---------- */
   var TYPES = {
-    point:    { key: 'point',    name: '必记结论', short: '结论', color: '#1d4ed8' },
-    pitfall:  { key: 'pitfall',  name: '易错点',   short: '易错', color: '#b91c1c' },
-    question: { key: 'question', name: '疑问解答', short: '疑问', color: '#6d28d9' },
-    formula:  { key: 'formula',  name: '必记公式', short: '公式', color: '#047857' },
-    problem:  { key: 'problem',  name: '题目回顾', short: '题目', color: '#b45309' }
+    point:    { key: 'point',    name: '必记结论', short: '结论', color: '#1b4d8f' },
+    pitfall:  { key: 'pitfall',  name: '易错点',   short: '易错', color: '#a33a2e' },
+    question: { key: 'question', name: '疑问解答', short: '疑问', color: '#2f6b4f' },
+    formula:  { key: 'formula',  name: '必记公式', short: '公式', color: '#8a5f17' },
+    problem:  { key: 'problem',  name: '题目回顾', short: '题目', color: '#57574f' }
   };
   /* 打印时的排列顺序：先题后理，易错夹在结论后面 */
   var TYPE_ORDER = ['problem', 'point', 'pitfall', 'question', 'formula'];
@@ -481,29 +481,29 @@ window.Cards = (function () {
    */
   var CARD_CSS = [
     '.pk-deck{display:grid;gap:.85em;grid-template-columns:repeat(auto-fill,minmax(15em,1fr));align-items:start}',
-    '.pk-cover{grid-column:1/-1;border-bottom:2px solid #0f172a;padding-bottom:.7em;margin-bottom:.15em}',
-    '.pk-cover-brand{font-size:.78em;letter-spacing:.32em;color:#7c879b}',
-    '.pk-cover-title{font-size:1.42em;font-weight:800;margin-top:.15em;color:#0f172a}',
-    '.pk-cover-sub{font-size:.9em;color:#475569;margin-top:.15em}',
-    '.pk-cover-meta{font-size:.78em;color:#94a3b8;margin-top:.5em}',
-    '.pk-card{break-inside:avoid;page-break-inside:avoid;border:1px solid #dbe2ec;' +
-      'border-left:3px solid var(--pk,#1d4ed8);border-radius:.42em;padding:.9em 1em;' +
+    '.pk-cover{grid-column:1/-1;border-bottom:2px solid #1a1a17;padding-bottom:.7em;margin-bottom:.15em}',
+    '.pk-cover-brand{font-size:.78em;letter-spacing:.32em;color:#8b8b81}',
+    '.pk-cover-title{font-size:1.42em;font-weight:600;margin-top:.15em;color:#1a1a17}',
+    '.pk-cover-sub{font-size:.9em;color:#57574f;margin-top:.15em}',
+    '.pk-cover-meta{font-size:.78em;color:#8b8b81;margin-top:.5em}',
+    '.pk-card{break-inside:avoid;page-break-inside:avoid;border:1px solid #e4e4dd;' +
+      'border-left:3px solid var(--pk,#1b4d8f);border-radius:.3em;padding:.9em 1em;' +
       'background:#fff;display:flex;flex-direction:column;overflow:hidden}',
     '.pk-head{display:flex;justify-content:space-between;align-items:baseline;gap:.6em;margin-bottom:.35em}',
-    '.pk-type{font-size:.78em;font-weight:800;color:var(--pk,#1d4ed8);letter-spacing:.1em;white-space:nowrap}',
-    '.pk-kid{font-size:.7em;color:#a8b3c2;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-    '.pk-title{font-size:1.02em;font-weight:700;line-height:1.4;margin-bottom:.3em;color:#0f172a}',
-    '.pk-front{font-size:.95em;line-height:1.62;color:#1e293b;word-break:break-word}',
-    '.pk-back{margin-top:.6em;padding-top:.6em;border-top:1px dashed #dde3ec;font-size:.87em;line-height:1.55;color:#475569}',
-    '.pk-back::before{content:"补充 / 解答";display:block;font-size:.82em;color:#a8b3c2;letter-spacing:.06em;margin-bottom:.15em}',
-    '.pk-tex-raw{font-family:ui-monospace,Menlo,Consolas,monospace;background:#f1f5f9;padding:0 .25em;border-radius:.2em}',
+    '.pk-type{font-size:.78em;font-weight:600;color:var(--pk,#1b4d8f);letter-spacing:.08em;white-space:nowrap}',
+    '.pk-kid{font-size:.7em;color:#8b8b81;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.pk-title{font-size:1.02em;font-weight:600;line-height:1.4;margin-bottom:.3em;color:#1a1a17}',
+    '.pk-front{font-size:.95em;line-height:1.62;color:#1a1a17;word-break:break-word;font-family:Georgia,"Songti SC","Noto Serif SC",serif}',
+    '.pk-back{margin-top:.6em;padding-top:.6em;border-top:1px solid #e4e4dd;font-size:.87em;line-height:1.55;color:#57574f}',
+    '.pk-back::before{content:"补充 / 解答";display:block;font-size:.82em;color:#8b8b81;letter-spacing:.06em;margin-bottom:.15em}',
+    '.pk-tex-raw{font-family:ui-monospace,Menlo,Consolas,monospace;background:#efefea;padding:0 .25em;border-radius:.2em}',
     '.pk-card .katex-display{margin:.3em 0}'
   ].join('\n');
 
   /* 独立 HTML 还需要的页面级设置 */
   var PAGE_CSS = [
     'body.pk-standalone{margin:0;padding:14mm 12mm;background:#fff;font-size:10pt;',
-    'font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:#0f172a}',
+    'font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:#1a1a17}',
     '@page{size:A4;margin:13mm 11mm}',
     '.pk-standalone .pk-deck{grid-template-columns:1fr 1fr;gap:5mm}'
   ].join('\n');
