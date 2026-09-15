@@ -251,6 +251,14 @@
     }
     return o;
   }
+  /* 行内文本（答案解析、题干结论这类）专用的渲染：
+     过一遍自动 LaTeX 包裹 + 行内公式渲染，但**不加 <p> 段落包装**。
+     直接用 md() 会塞进一堆块级 <p>，用在 .ans 这种行内位置会把行高撑开。
+     204 条解析里有 132 条带 LaTeX —— 不走这一步，用户答完题看到的就是
+     "\frac{3}{2} \cdot \frac{\sin 3x}{3x}" 这样的反斜杠源码。 */
+  function inlineMd(text) {
+    return inlineBlock(autoLatex(String(text == null ? '' : text)));
+  }
 
   /* ============ 数据索引 ============ */
   var CATS = KDATA.categories;
@@ -397,7 +405,11 @@
     opts = opts || {};
     var r = Game.award(state, kind, opts);
     if (!r) return null;
-    if (r.levelUp) toast('升到 ' + r.level + ' 级 · ' + r.title, 'ok');
+    if (r.levelUp) {
+      toast('升到 ' + r.level + ' 级 · ' + r.title, 'ok');
+      if (window.SFX) SFX.levelUp();
+    }
+    if (kind === 'checkin' && window.SFX) SFX.checkin();
     sweepAchievements();
     save();
     refreshBadges();
@@ -422,6 +434,13 @@
       });
   }
   function addAttempt(q, userAns, correct, context) {
+    /* XP 必须在写入之前算：answerXp 的「今天第几次答这道题」口径依赖这个顺序。
+       倍率 = 掌握度（学习中 1 / 熟练 .5 / 精通 .2）× 当日重复（1 / .7 / .3），
+       防止反复刷同一道简单题刷分。 */
+    var xpInfo = (correct && typeof Game.answerXp === 'function')
+      ? Game.answerXp(state, q.id, q.kid, { today: todayStr(), world: gameWorld() })
+      : null;
+
     state.attempts.push({
       id: 'a' + Date.now().toString(36) + rand(1e6).toString(36),
       qid: q.id, kid: q.kid, answer: String(userAns == null ? '' : userAns),
@@ -430,10 +449,16 @@
     if (!correct) ensureMistakeCard(q);
     // 连击与 XP：所有作答路径（一练 / 课堂 / BOSS / 错题重练）都过这里，一处埋点全站生效
     var cb = Game.comboHit(state, !!correct);
-    if (cb.milestone) toast('连对 ' + cb.milestone + ' 题', 'ok');
+    if (cb.milestone) {
+      toast('连对 ' + cb.milestone + ' 题', 'ok');
+      if (window.SFX) SFX.combo(cb.milestone);
+    } else if (window.SFX) {
+      if (correct) SFX.correct(cb.combo); else SFX.wrong();
+    }
     save();
-    award(correct ? 'correct' : 'wrong');
+    award(correct ? 'correct' : 'wrong', xpInfo ? { amount: xpInfo.amount } : null);
     refreshBadges();
+    return xpInfo;
   }
   function ensureMistakeCard(q) {
     var found = Object.keys(state.cards).some(function (id) { return state.cards[id].questionId === q.id; });
@@ -560,10 +585,40 @@
     return !!c && (c.tasksDone || (c.minutes || 0) >= 30);
   }
   function calcStreak() {
+    /* 走 Game.effectiveStreak：它会把「补签日」也算进连续链，
+       否则界面显示"连续 0 天"而实际上补签券已经兜住了，用户会觉得程序坏了。 */
+    if (typeof Game !== 'undefined' && Game.effectiveStreak) {
+      return Game.effectiveStreak(state, todayStr()).current;
+    }
     var t = todayStr(), s = 0;
     if (!checkinOK(t)) t = addDaysStr(t, -1);
     while (checkinOK(t)) { s++; t = addDaysStr(t, -1); if (s > 9999) break; }
     return s;
+  }
+
+  /* ============ 补签券 ============
+   * 借鉴 Duolingo / HabitTrove：连续打卡最怕"断一天就归零"。
+   * 每周 2 张券，漏打卡时自动补上（只补昨天，且前天必须真打过卡）。
+   */
+  function runAutoMakeup() {
+    if (typeof Game === 'undefined' || !Game.autoMakeup) return null;
+    var made = Game.autoMakeup(state, todayStr());
+    if (made) {
+      save();
+      toast('昨天漏了打卡 —— 已用一张补签券接上连续记录', 'ok');
+      if (window.SFX) SFX.checkin();
+    }
+    return made;
+  }
+  function freezeInfo() {
+    if (typeof Game === 'undefined' || !Game.freezesLeft) return { left: 0, per: 0, used: 0 };
+    var t = todayStr();
+    return {
+      left: Game.freezesLeft(state, t),
+      per: Game.FREEZE_PER_WEEK,
+      used: Game.freezesUsedThisWeek(state, t),
+      makeupDays: Object.keys((Game.ensure(state).makeups) || {}).sort()
+    };
   }
 
   /* ============ 专注计时器 ============ */
@@ -617,7 +672,7 @@
   function setActiveNav(h) {
     var seg = h.split('/')[1] || '';
     $$('.nav-item').forEach(function (a) { a.classList.remove('active'); });
-    var map = { '': '/', learn: '/learn', quiz: '/quiz', review: '/review', mistakes: '/mistakes', stats: '/stats', settings: '/settings', cards: '/cards', achievements: '/achievements', boss: '/learn' };
+    var map = { '': '/', learn: '/learn', quiz: '/quiz', review: '/review', mistakes: '/mistakes', stats: '/stats', settings: '/settings', cards: '/cards', achievements: '/achievements', boss: '/learn', lab: '/lab', blitz: '/blitz' };
     var target = map[seg];
     if (!target) target = seg === 'learn' ? '/learn' : '/';
     $$('.nav-item').forEach(function (a) {
@@ -809,56 +864,116 @@
     var box = $('#main');
     var daysLeft = daysUntilExam();
     var recNew = recommendedDailyNew();
-    var examBanner = '';
-    if (daysLeft !== null) {
-      var remainNodes = flatNodes().filter(function (n) { return !state.cards[n.id]; }).length;
-      var needDays = Math.ceil(remainNodes / Math.max(1, recNew));
-      var behind = needDays > daysLeft;
-      examBanner = '<div class="banner exam' + (behind ? ' warn' : '') + '">' +
-        (daysLeft === 0 ? '考试就是今天。' : '距考试还有 <b>' + daysLeft + '</b> 天 · 还剩 ' + remainNodes + ' 个知识点 · 建议每天新学 <b>' + recNew + '</b> 个' + (behind ? ' · 按当前速度无法在考前学完' : '')) +
+
+    /* 备考节奏投影：把"按你最近的速度，考前能覆盖多少"提前摆出来。
+       只报"还剩多少个知识点"没有用 —— 人会一直拖到考前才慌。 */
+    var pace = Game.paceProjection(state, gameWorld(), {
+      track: state.settings.examTrack, today: t, examDate: state.settings.examDate
+    });
+    var pctNow = pace.total ? Math.round(pace.learned / pace.total * 100) : 0;
+    var pctProj = pace.projectedPct == null ? pctNow : pace.projectedPct;
+    var paceCard = '';
+    if (pace.daysLeft !== null) {
+      paceCard = '<div class="card">' +
+        '<div class="card-title">备考进度 <span class="sub">距 ' + esc(state.settings.examDate) + ' 还有 ' + pace.daysLeft + ' 天</span></div>' +
+        '<div class="pace-bar">' +
+        '<i class="now" style="width:' + pctNow + '%"></i>' +
+        '<i class="proj" style="width:' + Math.max(0, pctProj - pctNow) + '%"></i>' +
+        '</div>' +
+        '<div class="pace-legend">' +
+        '<span><i class="sw now"></i>已学 <b>' + pace.learned + '</b> / ' + pace.total + '</span>' +
+        '<span><i class="sw proj"></i>按当前速度考前到 <b>' + pace.projected + '</b> / ' + pace.total + '</span>' +
+        '</div>' +
+        '<div class="pace-note ' + (pace.onTrack ? 'ok' : 'warn') + '">' +
+        (pace.remaining === 0
+          ? '知识点已经全部过了一遍 —— 剩下的时间留给复习和错题。'
+          : '近 ' + pace.windowDays + ' 天日均新学 <b>' + (Math.round(pace.perDay * 10) / 10) + '</b> 个，建议每天 <b>' + pace.suggestedPerDay + '</b> 个。' +
+          (pace.onTrack ? '按当前速度来得及。' : '照这个速度考前还差 <b>' + pace.gap + '</b> 个，得提速。')) +
+        '</div>' +
         '</div>';
     }
+
+    /* 「现在只做这一件事」——借鉴 Orbit 的可编程注意力：
+       打开应用最大的摩擦不是难，是"我该干嘛"。只给一个答案。 */
+    var na = Game.nextAction(state, gameWorld(), {
+      dueReview: d.reviewIds.length - d.reviewDoneIds.length,
+      mistakes: mistakeList().length,
+      quizLeft: d.quizIds.length - d.quizDoneIds.length,
+      newLeft: d.newIds.length - d.newDoneIds.length,
+      learned: learnedCount,
+      onTrack: pace.onTrack
+    });
+    var focusCard = '<div class="focus-card">' +
+      '<div class="focus-body">' +
+      '<div class="focus-k">现在只做这一件事</div>' +
+      '<div class="focus-label">' + esc(na.label) + '</div>' +
+      '<div class="focus-reason">' + esc(na.reason) + '</div>' +
+      '</div>' +
+      '<a class="btn primary" href="' + na.href + '">开始 →</a>' +
+      '</div>';
+
     var g = Game.ensure(state);
     var lv = Game.levelInfo(g.xp);
     var lvStrip = '<div class="lv-strip">' +
       '<div class="lv-strip-badge">Lv.' + lv.level + '</div>' +
       '<div class="lv-strip-main">' +
-        '<div class="lv-strip-name">' + esc(lv.title) +
-        (g.combo >= 2 ? ' <span class="combo-pill">连对 ' + g.combo + '</span>' : '') + '</div>' +
-        '<div class="lv-bar"><i style="width:' + lv.pct + '%"></i></div>' +
+      '<div class="lv-strip-name">' + esc(lv.title) +
+      (g.combo >= 2 ? ' <span class="combo-pill">连对 ' + g.combo + '</span>' : '') + '</div>' +
+      '<div class="lv-bar"><i style="width:' + lv.pct + '%"></i></div>' +
       '</div>' +
       '<div class="lv-strip-xp">' + lv.into + ' / ' + lv.need + ' XP</div>' +
       '<a class="btn small" href="#/achievements">成就</a>' +
       '</div>';
 
+    /* 补签券：本周还剩几张。用掉过就在连续打卡的说明里点出来，
+       免得用户以为"我明明断了一天怎么还是连续"。 */
+    var fi = freezeInfo();
+    var madeN = fi.makeupDays.length;
+    var streakSub = '今天' + (checkinOK(t) ? '已' : '未') + '打卡' +
+      (fi.left < fi.per ? ' · 补签券剩 ' + fi.left + ' / ' + fi.per + ' 张' : '') +
+      (madeN ? ' · 已补签 ' + madeN + ' 天' : '');
+
     box.innerHTML = head('仪表盘', '考研数学 · ' + (state.settings.examTrack === 'math1' ? '数学一' : state.settings.examTrack === 'math2' ? '数学二' : '数学三') + (state.settings.examDate ? ' · 目标考试 ' + state.settings.examDate : '') + (daysLeft !== null ? ' · 建议每日新学 ' + recNew + ' 个' : '')) +
-      examBanner +
+      focusCard +
       lvStrip +
       (done
         ? '<div class="banner">今日已打卡：' + (c.tasksDone ? '任务全部完成' : '专注 ' + (c.minutes || 0) + ' 分钟') + '。连续学习 ' + calcStreak() + ' 天。</div>'
         : '<div class="banner warn">今日任务还剩 <b>' + remain + '</b> 项（复习 ' + (d.reviewIds.length - d.reviewDoneIds.length) +
         ' · 新学 ' + (d.newIds.length - d.newDoneIds.length) + ' · 一练 ' + (d.quizIds.length - d.quizDoneIds.length) + '）。完成任务或专注 30 分钟即可打卡。</div>') +
       '<div class="grid-4">' +
-      statBox('连续打卡', calcStreak() + ' 天', '今天' + (checkinOK(t) ? '已' : '未') + '打卡', 'accent') +
+      statBox('连续打卡', calcStreak() + ' 天', streakSub, 'accent') +
       statBox('已学知识点', learnedCount + ' / ' + totalInTrack, '按当前考试范围' + (totalInTrack ? ' · ' + Math.round(learnedCount / totalInTrack * 100) + '%' : ''), '') +
       statBox('待复习卡', dueCards().length + ' 张', '到期卡片与错题', '') +
       statBox('今日正确率', tc === null ? '—' : tc + '%', tc === null ? '今日暂未答题' : '已答 ' + state.attempts.filter(function (a) { return a.date === t; }).length + ' 题', '') +
       '</div>' +
+      '<div class="grid-2 mt16 grid-top">' +
+      paceCard +
+      '<div class="card blitz-teaser">' +
+      '<div class="card-title">闪电战 <span class="sub">60 秒 · 3 条命 · 连击最高 ×' + Game.BLITZ_MAX_MULT + '</span></div>' +
+      '<div class="blitz-teaser-body">' + (function () {
+        var b = blitzBest();
+        return '<div class="blitz-teaser-score">' + (b ? b.score : '—') + '</div>' +
+          '<div class="blitz-teaser-sub">' + (b ? '最高分 · 最长 ' + (b.bestCombo || 0) + ' 连' : '还没打过，第一局就是纪录') + '</div>';
+      })() + '</div>' +
+      '<div class="blitz-cta"><a class="btn primary" href="#/blitz">开一局</a>' +
+      '<a class="btn" href="#/lab">公式实验室</a></div>' +
+      '</div>' +
+      '</div>' +
       '<div class="grid-2 mt16">' +
       '<div class="card"><div class="card-title">今日任务单 <span class="sub">' + (remain > 0 ? '还剩 ' + remain + ' 项' : '全部完成') + '</span></div>' +
-        '<div class="task-group"><div class="task-group-label">到期复习（' + d.reviewIds.length + '）</div>' + reviewHtml + '</div>' +
-        '<div class="task-group"><div class="task-group-label">新知识点（' + d.newIds.length + '）</div>' + newHtml + '</div>' +
-        '<div class="task-group"><div class="task-group-label">每日一练（' + d.quizIds.length + ' 题）</div>' + quizHtml + '</div>' +
+      '<div class="task-group"><div class="task-group-label">到期复习（' + d.reviewIds.length + '）</div>' + reviewHtml + '</div>' +
+      '<div class="task-group"><div class="task-group-label">新知识点（' + d.newIds.length + '）</div>' + newHtml + '</div>' +
+      '<div class="task-group"><div class="task-group-label">每日一练（' + d.quizIds.length + ' 题）</div>' + quizHtml + '</div>' +
       '</div>' +
       '<div>' +
-        '<div class="card"><div class="card-title">专注计时 <span class="sub">今日 ' + (c.minutes || 0) + ' 分钟</span></div>' +
-          '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">' +
-          '<div id="timer-display" style="font-size:32px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink);letter-spacing:.01em">00:00</div>' +
-          '<div style="display:flex;gap:8px"><button class="btn primary" onclick="App.toggleTimer()" id="timer-btn">开始专注</button>' +
-          '<button class="btn" onclick="App.resetTimer()">清零</button></div>' +
-          '<div style="font-size:11.5px;color:var(--ink-3);max-width:340px;line-height:1.6">专注累计 30 分钟自动完成今日打卡；切走页面计时不停，关掉标签页才停止。</div>' +
-          '</div></div>' +
-        '<div class="card mt16"><div class="card-title">学习热力图 <span class="sub">近 26 周活跃度</span></div>' + svgHeatmap() + '</div>' +
+      '<div class="card"><div class="card-title">专注计时 <span class="sub">今日 ' + (c.minutes || 0) + ' 分钟</span></div>' +
+      '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">' +
+      '<div id="timer-display" style="font-size:32px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink);letter-spacing:.01em">00:00</div>' +
+      '<div style="display:flex;gap:8px"><button class="btn primary" onclick="App.toggleTimer()" id="timer-btn">开始专注</button>' +
+      '<button class="btn" onclick="App.resetTimer()">清零</button></div>' +
+      '<div style="font-size:11.5px;color:var(--ink-3);max-width:340px;line-height:1.6">专注累计 30 分钟自动完成今日打卡；切走页面计时不停，关掉标签页才停止。</div>' +
+      '</div></div>' +
+      '<div class="card mt16"><div class="card-title">学习热力图 <span class="sub">近 26 周活跃度</span></div>' + svgHeatmap() + '</div>' +
       '</div>' +
       '</div>';
     timerEl = $('#timer-display');
@@ -2031,7 +2146,7 @@
     if (r) {
       slot.innerHTML = '<div class="q-feedback ' + (r.correct ? 'ok' : 'no') + '">' +
         (r.correct ? icon('check') + ' 答对了' : icon('x') + ' 答错了，我的答案：' + esc(r.answer)) + '<br>' +
-        '<span class="ans">' + AIEngine.Judge.answerText(q) + '</span></div>' +
+        '<span class="ans">' + inlineMd(AIEngine.Judge.answerText(q)) + '</span></div>' +
         '<div style="margin-top:14px"><button class="btn primary" onclick="App.bossNext()">' +
         (bossState.idx + 1 >= bossState.qids.length ? '看结果 →' : '下一题 →') + '</button></div>';
       return;
@@ -2151,9 +2266,14 @@
   function renderQBody(q, slot) {
     if (quizState.done[q.id]) {
       var r = quizState.done[q.id];
+      /* XP 递减时把原因写出来 —— 只看到 "+3" 会以为程序算错了 */
+      var xpLine = r.xp
+        ? '<div class="xp-note">' + (r.xp.reduced ? '↓ ' : '') + '+' + r.xp.amount + ' XP' +
+        (r.xp.note ? '<span class="xp-why">' + esc(r.xp.note) + '</span>' : '') + '</div>'
+        : '';
       slot.innerHTML = '<div class="q-feedback ' + (r.correct ? 'ok' : 'no') + '">' +
         (r.correct ? icon('check') + ' 回答正确' : icon('x') + ' 回答错误，我的答案：' + esc(r.answer)) + '<br>' +
-        '<span class="ans">' + AIEngine.Judge.answerText(q) + '</span></div>';
+        '<span class="ans">' + inlineMd(AIEngine.Judge.answerText(q)) + '</span>' + xpLine + '</div>';
       return;
     }
     if (q.type === 'choice') {
@@ -2167,8 +2287,8 @@
   }
   function submitAnswer(q, userAns) {
     var correct = AIEngine.Judge.check(q, userAns);
-    quizState.done[q.id] = { correct: correct, answer: userAns };
-    addAttempt(q, userAns, correct, 'daily');
+    var xpInfo = addAttempt(q, userAns, correct, 'daily');
+    quizState.done[q.id] = { correct: correct, answer: userAns, xp: xpInfo };
     var d = state.daily;
     if (d && d.date === todayStr() && d.quizIds.indexOf(q.id) >= 0 && d.quizDoneIds.indexOf(q.id) < 0) {
       d.quizDoneIds.push(q.id);
@@ -2424,7 +2544,7 @@
       html += '<div class="fill-row"><input id="sim-fill" placeholder="输入你的答案（如 1/2、\\pi、x^2）"' + (done ? ' disabled value="' + esc(s.ans) + '"' : '') + '><button class="btn primary" onclick="App.simFill()">' + (done ? '已提交' : '提交') + '</button></div>';
     }
     if (done) {
-      html += '<div class="q-feedback ' + (s.win ? 'ok' : 'no') + ' mt8"><b>' + (s.win ? icon('check') + ' 答对了' : icon('x') + ' 这道题答错了') + '</b><br><span class="ans">' + AIEngine.Judge.answerText(q) + '</span></div>';
+      html += '<div class="q-feedback ' + (s.win ? 'ok' : 'no') + ' mt8"><b>' + (s.win ? icon('check') + ' 答对了' : icon('x') + ' 这道题答错了') + '</b><br><span class="ans">' + inlineMd(AIEngine.Judge.answerText(q)) + '</span></div>';
     }
     html += '</div>';
     $('#sim-body').innerHTML = html;
@@ -2565,6 +2685,326 @@
       });
       if (added) rebuildKidOfQ();
     }
+  }
+
+  /* ============ 公式实验室 ============
+   * 借鉴 mathlearn 的 Explorable Explanations：
+   * 每个模块 = 场景钩子 + KaTeX 公式 + 可拖滑块 + Canvas 实时反馈 + 大白话讲解。
+   * 纯数学在 js/lab.js 里（可单测），这里只负责建 DOM、绑事件、画布。
+   */
+  var labState = {};                       // modId -> 参数对象
+  function labParams(id) {
+    if (!labState[id]) labState[id] = Lab.defaultsFor(id);
+    return labState[id];
+  }
+  function labControlHtml(modId, c) {
+    var v = labParams(modId)[c.k];
+    if (c.type === 'range') {
+      return '<div class="lab-ctrl"><div class="lab-ctrl-head"><span>' + esc(c.label) + '</span>' +
+        '<b id="labv-' + c.k + '">' + fmtNum(v) + '</b></div>' +
+        '<input type="range" min="' + c.min + '" max="' + c.max + '" step="' + c.step + '" value="' + v + '"' +
+        ' oninput="App.labSet(\'' + modId + '\',\'' + c.k + '\',this.value)"></div>';
+    }
+    return '<div class="lab-ctrl"><div class="lab-ctrl-head"><span>' + esc(c.label) + '</span></div>' +
+      '<select onchange="App.labSet(\'' + modId + '\',\'' + c.k + '\',this.value)">' +
+      c.options.map(function (o) {
+        return '<option value="' + esc(o[0]) + '"' + (String(v) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+      }).join('') + '</select></div>';
+  }
+  function fmtNum(v) {
+    var n = Number(v);
+    if (!isFinite(n)) return String(v);
+    return Math.abs(n) >= 1 ? String(Math.round(n * 100) / 100) : String(n);
+  }
+  function pageLab(modId) {
+    var mod = Lab.moduleById(modId);
+    var nav = Lab.MODULES.map(function (m) {
+      return '<a class="lab-tab' + (m.id === mod.id ? ' on' : '') + '" href="#/lab/' + m.id + '">' + esc(m.nav) + '</a>';
+    }).join('');
+    var ctrls = (Lab.CONTROLS[mod.id] || []).map(function (c) { return labControlHtml(mod.id, c); }).join('');
+
+    $('#main').innerHTML = head('公式实验室', '把公式拖出来看 —— 参数可动，结果即时可见',
+      '<a class="btn small" href="#/learn">回知识树</a>') +
+      '<div class="lab-tabs">' + nav + '</div>' +
+      '<div class="lab-grid">' +
+      '<div class="card lab-main">' +
+      '<div class="lab-title">' + esc(mod.title) + '</div>' +
+      '<div class="lab-hook">' + md(mod.hook) + '</div>' +
+      '<div class="lab-formula">' + md('$$' + mod.tex + '$$') + '</div>' +
+      '<canvas id="lab-canvas" class="lab-canvas"></canvas>' +
+      '<div class="lab-note">' + md(mod.note) + '</div>' +
+      '</div>' +
+      '<div class="card lab-side">' +
+      '<div class="card-title">动手调一调</div>' +
+      ctrls +
+      '<div class="lab-btns">' +
+      '<button class="btn small" onclick="App.labRandom(\'' + mod.id + '\')">随机一组</button>' +
+      '<button class="btn small" onclick="App.labReset(\'' + mod.id + '\')">重置</button>' +
+      '</div>' +
+      '<div class="lab-readout" id="lab-readout"></div>' +
+      '<div class="lab-verdict" id="lab-verdict"></div>' +
+      '</div>' +
+      '</div>';
+    labMount(mod.id);
+  }
+  function labMount(modId) {
+    var cv = $('#lab-canvas');
+    if (!cv) return;
+    var rng = Lab.rangeFor(modId);
+    var p = Lab.plotter(cv, rng[0], rng[1]);
+    var out = Lab.DRAW[modId](p, labParams(modId));
+    var ro = $('#lab-readout');
+    if (ro) {
+      ro.innerHTML = out.rows.map(function (r) {
+        return '<div class="lab-row"><span>' + esc(r[0]) + '</span><b>' + esc(r[1]) + '</b></div>';
+      }).join('');
+    }
+    var vd = $('#lab-verdict');
+    if (vd) vd.textContent = out.verdict;
+  }
+  App.labSet = function (modId, key, val) {
+    var ps = labParams(modId);
+    var def = (Lab.CONTROLS[modId] || []).filter(function (c) { return c.k === key; })[0];
+    ps[key] = def && def.type === 'range' ? Number(val) : val;
+    var el = $('#labv-' + key);
+    if (el) el.textContent = fmtNum(ps[key]);
+    labMount(modId);
+  };
+  App.labReset = function (modId) { labState[modId] = Lab.defaultsFor(modId); pageLab(modId); };
+  App.labRandom = function (modId) {
+    var ps = labParams(modId);
+    (Lab.CONTROLS[modId] || []).forEach(function (c) {
+      if (c.type === 'range') {
+        var steps = Math.round((c.max - c.min) / c.step);
+        ps[c.k] = Math.round((c.min + Math.random() * steps * c.step) / c.step) * c.step;
+      } else {
+        ps[c.k] = c.options[Math.floor(Math.random() * c.options.length)][0];
+      }
+    });
+    pageLab(modId);
+  };
+
+  /* ============ 闪电战 ============
+   * 借鉴 helix-trainer 的 Arcade 模式：60 秒限时 + 3 条命 + 连击倍率。
+   * 抽题优先推薄弱知识点 —— 和街机游戏"推你该练的"是同一个思路。
+   */
+  var blitz = null;
+  var BLITZ_POOL = 80;
+
+  function shuffleArr(a) {
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+  /* 薄弱优先：未学 / 学习中的知识点排前面，已精通排最后 */
+  function blitzPool() {
+    var w = gameWorld();
+    var byKid = {};
+    QDATA.forEach(function (q) { (byKid[q.kid] = byKid[q.kid] || []).push(q); });
+    var weak = [], mid = [], strong = [];
+    Object.keys(byKid).forEach(function (kid) {
+      var lv = Game.nodeMastery(state, w, kid).level;
+      var bucket = (lv === 'new' || lv === 'learning') ? weak : lv === 'proficient' ? mid : strong;
+      byKid[kid].forEach(function (q) { bucket.push(q); });
+    });
+    return shuffleArr(weak).concat(shuffleArr(mid), shuffleArr(strong)).slice(0, BLITZ_POOL);
+  }
+  function blitzBest() {
+    var g = Game.ensure(state);
+    return g.blitz || null;
+  }
+  App.blitzStart = function () {
+    var pool = blitzPool();
+    if (!pool.length) { toast('题库为空，先去学几个知识点', 'no'); return; }
+    blitz = {
+      pool: pool, idx: 0, score: 0, combo: 0, bestCombo: 0,
+      correct: 0, wrong: 0, lives: Game.BLITZ_LIVES,
+      left: Game.BLITZ_SECONDS, over: false, lastAt: 0
+    };
+    if (window.SFX) SFX.tick();
+    renderBlitzPlay();
+    if (blitz.timer) clearInterval(blitz.timer);
+    blitz.timer = setInterval(blitzTick, 1000);
+  };
+  function blitzStop() {
+    if (blitz && blitz.timer) { clearInterval(blitz.timer); blitz.timer = null; }
+  }
+  function blitzTick() {
+    if (!blitz || blitz.over) { blitzStop(); return; }
+    blitz.left--;
+    var cd = $('#blitz-clock');
+    if (cd) cd.textContent = blitz.left + 's';
+    var bar = $('#blitz-bar');
+    if (bar) bar.style.width = (blitz.left / Game.BLITZ_SECONDS * 100) + '%';
+    if (blitz.left <= 5 && blitz.left > 0 && window.SFX) SFX.tick();
+    if (blitz.left <= 0) blitzEnd('时间到');
+  }
+  App.blitzQuit = function () { blitzStop(); blitz = null; location.hash = '#/blitz'; };
+  function renderBlitzIntro() {
+    var best = blitzBest();
+    var learned = flatNodes().filter(function (n) { return state.cards[n.id]; }).length;
+    $('#main').innerHTML = head('闪电战', '60 秒，3 条命，连击越高分越高') +
+      '<div class="grid-2 grid-top">' +
+      '<div class="card">' +
+      '<div class="card-title">规则</div>' +
+      '<ul class="blitz-rules">' +
+      '<li><b>60 秒</b>限时，答对得分、答错扣命。</li>' +
+      '<li><b>' + Game.BLITZ_LIVES + ' 条命</b>，扣完立刻结束。</li>' +
+      '<li><b>连击倍率</b>：每连对 3 题 +1 倍，最高 ' + Game.BLITZ_MAX_MULT + ' 倍。</li>' +
+      '<li>题目<b>优先抽你薄弱的知识点</b>，不是随机。</li>' +
+      '</ul>' +
+      '<div class="blitz-cta">' +
+      '<button class="btn primary" onclick="App.blitzStart()">开始挑战</button>' +
+      '<a class="btn" href="#/lab">先去做两道实验题</a>' +
+      '</div>' +
+      '</div>' +
+      '<div class="card">' +
+      '<div class="card-title">战绩</div>' +
+      (best
+        ? '<div class="blitz-best"><div class="blitz-best-score">' + best.score + '</div>' +
+        '<div class="blitz-best-sub">最高分 · ' + esc(best.date || '') + '</div></div>' +
+        '<div class="lab-readout">' +
+        '<div class="lab-row"><span>最佳单局答对</span><b>' + (best.correct || 0) + ' 题</b></div>' +
+        '<div class="lab-row"><span>最长连击</span><b>' + (best.bestCombo || 0) + ' 连</b></div>' +
+        '</div>'
+        : '<div class="blitz-empty">还没打过。第一局就是你的纪录。</div>') +
+      '<div class="blitz-hint">已学 ' + learned + ' / ' + flatNodes().length + ' 个知识点。薄弱点越多，闪电战越有用。</div>' +
+      '</div>' +
+      '</div>';
+  }
+  function blitzLivesHtml() {
+    var s = '';
+    for (var i = 0; i < Game.BLITZ_LIVES; i++) s += '<i class="life' + (i < blitz.lives ? ' on' : '') + '"></i>';
+    return s;
+  }
+  function renderBlitzPlay() {
+    if (!blitz) return renderBlitzIntro();
+    var q = blitz.pool[blitz.idx % blitz.pool.length];
+    if (!q) return blitzEnd('题目用完了');
+    var mult = Game.blitzMultiplier(blitz.combo);
+
+    var body = q.type === 'choice'
+      ? q.options.map(function (o) {
+        return '<div class="opt" onclick="App.blitzAnswer(\'' + o.k + '\')"><span class="ok">' + o.k + '</span><span>' + md(o.t) + '</span></div>';
+      }).join('')
+      : '<div class="fill-row"><input id="blitz-fill" placeholder="输入答案后回车（如 1/2、\\pi、x^2）" autocomplete="off"' +
+      ' onkeydown="if(event.key===\'Enter\')App.blitzFill()">' +
+      '<button class="btn primary" onclick="App.blitzFill()">提交</button></div>';
+
+    $('#main').innerHTML =
+      '<div class="blitz-hud">' +
+      '<div class="blitz-hud-l"><span class="blitz-clock" id="blitz-clock">' + blitz.left + 's</span>' +
+      '<span class="blitz-lives" id="blitz-lives">' + blitzLivesHtml() + '</span></div>' +
+      '<div class="blitz-hud-r"><span class="blitz-score">' + blitz.score + '</span>' +
+      '<span class="blitz-mult' + (mult > 1 ? ' hot' : '') + '">×' + mult + '</span>' +
+      '<button class="btn small" onclick="App.blitzQuit()">退出</button></div>' +
+      '</div>' +
+      '<div class="blitz-track"><i id="blitz-bar" style="width:' + (blitz.left / Game.BLITZ_SECONDS * 100) + '%"></i></div>' +
+      '<div class="card mt16">' +
+      '<div class="blitz-qmeta"><span class="tag">' + esc((NODE[q.kid] || {}).title || '') + '</span>' +
+      '<span class="blitz-combo">' + (blitz.combo >= 3 ? '连对 ' + blitz.combo : '') + '</span></div>' +
+      '<div class="q-stem">' + md(q.stem) + '</div>' +
+      '<div id="blitz-body">' + body + '</div>' +
+      '<div class="blitz-feedback" id="blitz-feedback"></div>' +
+      '</div>';
+    var f = $('#blitz-fill');
+    if (f) f.focus();
+  }
+  App.blitzFill = function () {
+    var el = $('#blitz-fill');
+    App.blitzAnswer(el ? el.value : '');
+  };
+  App.blitzAnswer = function (ans) {
+    if (!blitz || blitz.over) return;
+    var now = Date.now();
+    if (now - blitz.lastAt < 250) return;     // 防连点，一次作答只算一次
+    blitz.lastAt = now;
+
+    var q = blitz.pool[blitz.idx % blitz.pool.length];
+    if (!q) return blitzEnd('题目用完了');
+    if (ans == null || String(ans).trim() === '') { toast('先输入答案', 'no'); return; }
+    var correct = AIEngine.Judge.check(q, ans);
+    var mult = Game.blitzMultiplier(blitz.combo);
+    var gain = 0;
+
+    if (correct) {
+      gain = 10 * mult;
+      blitz.score += gain;
+      blitz.combo++;
+      blitz.correct++;
+      if (blitz.combo > blitz.bestCombo) blitz.bestCombo = blitz.combo;
+      if (window.SFX) SFX.correct(blitz.combo);
+    } else {
+      blitz.combo = 0;
+      blitz.wrong++;
+      blitz.lives--;
+      if (window.SFX) SFX.wrong();
+    }
+    addAttempt(q, ans, correct, 'blitz');
+
+    var fb = $('#blitz-feedback');
+    if (fb) {
+      fb.className = 'blitz-feedback ' + (correct ? 'ok' : 'no');
+      /* answerText() 本身就带"答案："前缀，不要再拼一次；
+         而且要过 inlineMd —— 204 条解析里 132 条带 LaTeX，
+         用 esc() 会让用户看到 "\frac{3}{2}" 这样的反斜杠源码。 */
+      fb.innerHTML = (correct
+        ? icon('check') + ' 正确 <b>+' + gain + '</b>'
+        : icon('x') + ' 错了。' + inlineMd(AIEngine.Judge.answerText(q))) +
+        '<span class="blitz-next">0.7 秒后下一题…</span>';
+    }
+    var hud = document.querySelector('.blitz-score');
+    if (hud) hud.textContent = blitz.score;
+    /* 扣命要当场看得见 —— 否则玩家以为答错没代价 */
+    var livesEl = $('#blitz-lives');
+    if (livesEl) livesEl.innerHTML = blitzLivesHtml();
+
+    if (blitz.lives <= 0) { setTimeout(function () { blitzEnd('命用完了'); }, 700); return; }
+    blitz.idx++;
+    setTimeout(function () {
+      if (!blitz || blitz.over) return;
+      if (blitz.left <= 0) return;
+      renderBlitzPlay();
+    }, 700);
+  };
+  function blitzEnd(reason) {
+    if (!blitz || blitz.over) return;
+    blitz.over = true;
+    blitzStop();
+    if (window.SFX) SFX.timeUp();
+    var run = {
+      score: blitz.score, correct: blitz.correct, wrong: blitz.wrong,
+      bestCombo: blitz.bestCombo
+    };
+    var rec = Game.recordBlitz(state, run, todayStr());
+    save();
+    sweepAchievements();
+    var best = rec.best || run;
+
+    $('#main').innerHTML = head('闪电战 · 结算', esc(reason)) +
+      '<div class="card blitz-result">' +
+      (rec.isBest ? '<div class="blitz-newbest">新纪录</div>' : '') +
+      '<div class="blitz-final">' + run.score + '</div>' +
+      '<div class="blitz-final-sub">本局得分 · 最高分 ' + best.score + '</div>' +
+      '<div class="lab-readout">' +
+      '<div class="lab-row"><span>答对</span><b>' + run.correct + ' 题</b></div>' +
+      '<div class="lab-row"><span>答错</span><b>' + run.wrong + ' 题</b></div>' +
+      '<div class="lab-row"><span>最长连击</span><b>' + run.bestCombo + ' 连</b></div>' +
+      '<div class="lab-row"><span>倍率峰值</span><b>×' + Game.blitzMultiplier(run.bestCombo) + '</b></div>' +
+      '</div>' +
+      '<div class="blitz-cta">' +
+      '<button class="btn primary" onclick="App.blitzStart()">再来一局</button>' +
+      '<a class="btn" href="#/mistakes">看看错在哪</a>' +
+      '<a class="btn" href="#/">回仪表盘</a>' +
+      '</div>' +
+      '</div>';
+  }
+  function pageBlitz() {
+    if (blitz && !blitz.over) return renderBlitzPlay();
+    blitz = null;
+    renderBlitzIntro();
   }
 
   /* ----- 统计页 ----- */
@@ -2889,6 +3329,9 @@
   /* ----- 路由 ----- */
   function route() {
     var h = (location.hash || '').replace(/^#/, '') || '/';
+    /* 离开闪电战就停掉计时器 —— 不然切走后 setInterval 还在跑，
+       回来会看到倒计时凭空少了一截。 */
+    if (h.indexOf('/blitz') !== 0) blitzStop();
     setActiveNav(h);
     refreshBadges();
     if (h === '/' || h === '') return pageDashboard();
@@ -2909,6 +3352,10 @@
     if (h === '/review') return pageReview();
     if (h === '/mistakes') return pageMistakes();
     if (h === '/stats') return pageStats();
+    m = h.match(/^\/lab\/(.+)$/);
+    if (m) return pageLab(m[1]);
+    if (h === '/lab') return pageLab(Lab.MODULES[0].id);
+    if (h === '/blitz') return pageBlitz();
     if (h === '/settings') return pageSettings();
     return pageDashboard();
   }
@@ -2927,6 +3374,22 @@
   };
   App.resetTimer = function () { timer.seconds = 0; updateTimerUI(); };
 
+  /* ----- 音效开关 ----- */
+  function refreshSfxLabel() {
+    if (!window.SFX) return;
+    var on = SFX.isEnabled();
+    var lab = $('#side-sfx-label');
+    if (lab) lab.textContent = '音效 ' + (on ? '开' : '关');
+    var btn = $('#side-sfx');
+    if (btn) btn.classList.toggle('off', !on);
+  }
+  App.toggleSfx = function () {
+    if (!window.SFX) return;
+    var on = SFX.toggle();
+    refreshSfxLabel();
+    toast(on ? '音效已打开' : '音效已关闭');
+  };
+
   /* ----- 启动 ----- */
   window.App = App;
 
@@ -2942,6 +3405,10 @@
 
   state = load();
   mergeCustomQ();
+  /* 补签券在启动时结算一次：昨天漏了打卡就自动接上，
+     免得用户打开应用先看到"连续 0 天"再自己去翻说明。 */
+  runAutoMakeup();
+  refreshSfxLabel();
   window.addEventListener('hashchange', route);
   window.addEventListener('load', route);
   if (document.readyState !== 'loading') route();

@@ -418,7 +418,185 @@ async function waitPort(file, ms) {
     passes += cardOut.filter(l => l.startsWith('✓')).length;
     fails += cardOut.filter(l => l.startsWith('✗')).length;
 
-    const allErr = jsErrs.concat(consoleErrors, cardErrs);
+    /* ================= C. 学习引擎 v2：公式实验室 · 闪电战 · 解析公式渲染 ================= */
+    /* 这一段的三个点都是「静态检查查不出来」的：
+       · 画布到底画没画上东西（选择器对了但画布空白，一样是白屏体验）
+       · 拖滑块后读数有没有跟着变
+       · 答案解析里的 LaTeX 有没有真的过 KaTeX（不过就是一堆反斜杠源码） */
+    const v2Out = [];
+
+    const goto = async (route) => {
+      await client.send('Page.navigate', { url: parts[0] + '?n=' + Date.now() + '#/' + route });
+      const dl = Date.now() + 15000;
+      while (Date.now() < dl) {
+        const v = String(await evalVal(
+          'document.readyState + "|" + (typeof window.App) + "|" + ' +
+          '(document.getElementById("main") ? document.getElementById("main").innerHTML.length : 0)') || '');
+        const m = v.split('|');
+        if (m[0] === 'complete' && m[1] === 'object' && parseInt(m[2], 10) > 200) break;
+        await sleep(120);
+      }
+      await sleep(250);
+    };
+
+    // C1：公式实验室 —— 四个模块都能画出东西
+    await goto('lab');
+    v2Out.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var tabs = document.querySelectorAll('.lab-tabs .lab-tab');
+        chk(tabs.length >= 4, '公式实验室有 ' + tabs.length + ' 个模块标签');
+        chk(!!document.querySelector('.lab-tab.on'), '有一个标签处于选中态');
+        chk(document.querySelectorAll('.lab-ctrl input[type=range]').length >= 1, '至少有一个可拖滑块');
+        var cv = document.getElementById('lab-canvas');
+        chk(!!cv, '画布元素存在');
+        chk(!!cv && cv.width > 100 && cv.height > 100, '画布有实际尺寸（' + (cv ? cv.width + '×' + cv.height : '无') + '）');
+        chk(!!cv && getComputedStyle(cv).height !== '0px', '★ 画布的 CSS 高度生效了（不是被压成 0）');
+        // 真去数非透明像素 —— 元素存在但一片空白是最常见的"假通过"
+        var painted = -1;
+        if (cv) {
+          var g = cv.getContext('2d');
+          var d = g.getImageData(0, 0, cv.width, cv.height).data;
+          painted = 0;
+          for (var i = 3; i < d.length; i += 4) if (d[i] !== 0) painted++;
+        }
+        chk(painted > 500, '★ 画布上真的画了东西（' + painted + ' 个非透明像素）');
+        var rows = document.querySelectorAll('.lab-readout .lab-row');
+        chk(rows.length >= 2, '读数区有 ' + rows.length + ' 行');
+        var vd = document.getElementById('lab-verdict');
+        chk(!!vd && vd.textContent.length > 4, '★ 给了一句结论（' + (vd ? vd.textContent.slice(0, 24) : '无') + '…）');
+        chk(document.querySelector('.lab-verdict') && getComputedStyle(document.querySelector('.lab-verdict')).backgroundColor !== 'rgba(0, 0, 0, 0)',
+            '结论块的样式生效了（有底色）');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    // C2：拖滑块 → 读数跟着变（不然"可交互"是假的）
+    const beforeH = await evalVal('document.querySelector("#lab-readout .lab-row b").textContent');
+    await evalVal("window.App.labSet('derivative', 'h', 0.01)");
+    await sleep(300);
+    const afterH = await evalVal('document.querySelector("#lab-readout .lab-row b").textContent');
+    v2Out.push('  ' + (beforeH !== afterH ? '✓' : '✗') +
+      ' 拖动滑块后读数确实变了（' + beforeH + ' → ' + afterH + '）');
+
+    // C3：切模块 —— 不能只是换了个标题，画布要重画
+    await goto('lab/riemann');
+    v2Out.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        chk(/定积分/.test(document.querySelector('.lab-title').textContent), '★ 切到了「定积分」模块');
+        chk(document.querySelectorAll('.lab-ctrl select').length >= 1, '该模块有下拉控件（取点方式）');
+        var cv = document.getElementById('lab-canvas');
+        var painted = -1;
+        if (cv) {
+          var d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+          painted = 0;
+          for (var i = 3; i < d.length; i += 4) if (d[i] !== 0) painted++;
+        }
+        chk(painted > 500, '★ 切模块后画布重画了（' + painted + ' 个非透明像素）');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    // C4：闪电战 —— 开局 / 答题 / 扣命
+    await goto('blitz');
+    v2Out.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        chk(/60 秒/.test(document.getElementById('main').textContent), '规则里写明 60 秒限时');
+        chk(typeof window.App.blitzStart === 'function', 'App.blitzStart 可调用');
+        chk(!!document.querySelector('.blitz-rules'), '规则列表渲染出来了');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    await evalVal('window.App.blitzStart()');
+    await sleep(300);
+    v2Out.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        chk(!!document.querySelector('.blitz-hud'), 'HUD 渲染出来了');
+        var lives = document.querySelectorAll('.blitz-lives .life');
+        chk(lives.length === 3, 'HUD 上是 3 条命');
+        chk(document.querySelectorAll('.blitz-lives .life.on').length === 3, '开局 3 条命都是亮的');
+        chk(/^\\d+s$/.test((document.querySelector('.blitz-clock') || {}).textContent || ''), '倒计时在走（' + (document.querySelector('.blitz-clock') || {}).textContent + '）');
+        chk(document.querySelectorAll('.blitz-body .opt, #blitz-body .opt, #blitz-body .fill-row').length >= 1 ||
+            !!document.querySelector('#blitz-body .opt') || !!document.querySelector('#blitz-body .fill-row'),
+            '题干下方有作答区');
+        chk(!!document.querySelector('#blitz-bar'), '倒计时进度条存在');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    // 故意答错，验证「命当场就少一条」+ 解析走了公式渲染
+    await evalVal("window.App.blitzAnswer('__definitely_wrong__')");
+    await sleep(250);
+    v2Out.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        chk(document.querySelectorAll('.blitz-lives .life.on').length === 2,
+            '★ 答错后当场少一条命（剩 ' + document.querySelectorAll('.blitz-lives .life.on').length + ' 条）');
+        var fb = document.getElementById('blitz-feedback');
+        chk(!!fb && fb.className.indexOf('no') >= 0, '反馈区标成答错态');
+        chk(!!fb && fb.textContent.length > 4, '反馈里写出了正确答案');
+        chk(!!fb && fb.textContent.indexOf('答案：答案：') < 0, '★ 没有出现「答案：答案：」这种重复前缀');
+        // 冒烟页的 KaTeX 是桩，桩会把原始 tex 放进自己的 span 里，
+        // 所以判据是「剔除渲染过的片段之后，外面不能再有裸露的反斜杠」。
+        var BS = String.fromCharCode(92);
+        var bare = fb ? fb.innerHTML.replace(/<span class="katex-stub">[\\s\\S]*?<\\/span>/g, '') : '';
+        chk(!!fb && bare.indexOf(BS) < 0,
+            '★ 反馈里没有裸露的 LaTeX 源码（公式都进了渲染器）');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    // C5：做完一题后，解析里的公式必须过 KaTeX
+    //     （冒烟页把 KaTeX 换成了 stub，所以只要解析走了渲染器就会留下 .katex-stub）
+    await evalVal(`(function () {
+      var BS = String.fromCharCode(92);
+      var pick = null;
+      for (var i = 0; i < QDATA.length; i++) {
+        var x = QDATA[i];
+        if (x.type === 'choice' && x.analysis && x.analysis.indexOf(BS) >= 0 && x.options && x.options.length) { pick = x; break; }
+      }
+      if (!pick) return 'none';
+      var st = JSON.parse(localStorage.getItem('kaoyan_math_tutor_v1') || '{}');
+      var t = window.Game.fmtToday();
+      st.daily = { date: t, reviewIds: [], newIds: [], quizIds: [pick.id], reviewDoneIds: [], newDoneIds: [], quizDoneIds: [] };
+      localStorage.setItem('kaoyan_math_tutor_v1', JSON.stringify(st));
+      return pick.id;
+    })()`);
+    await goto('quiz');
+    const quizQid = await evalVal('document.querySelector(".q-card") ? 1 : 0');
+    v2Out.push('  ' + (quizQid ? '✓' : '✗') + ' 每日一练渲染出题目（种子生效）');
+    await evalVal('(function () { var o = document.querySelector("#main .opt"); if (o) o.click(); })()');
+    await sleep(300);
+    v2Out.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var ans = document.querySelector('#main .ans');
+        chk(!!ans, '答完后出现了「解析」区块');
+        chk(!!ans && ans.textContent.indexOf('答案：') >= 0, '解析里有答案');
+        var BS = String.fromCharCode(92);
+        var bare = ans ? ans.innerHTML.replace(/<span class="katex-stub">[\\s\\S]*?<\\/span>/g, '') : '';
+        chk(!!ans && bare.indexOf(BS) < 0,
+            '★ 解析里没有裸露的 LaTeX 源码（公式都进了渲染器）');
+        chk(!!ans && !!ans.querySelector('.katex-stub'),
+            '★ 解析确实交给了公式渲染器（含 .katex-stub）');
+        var xp = document.querySelector('#main .xp-note');
+        chk(!!xp, '★ 答完后显示了本次拿到的 XP');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    const v2Errs = JSON.parse(await evalVal('JSON.stringify(window.__errors || [])') || '[]');
+
+    console.log('\n=== 学习引擎 v2：公式实验室 · 闪电战 · 解析公式渲染 ===');
+    v2Out.forEach(l => console.log('  ' + l));
+    passes += v2Out.filter(l => l.startsWith('✓')).length;
+    fails += v2Out.filter(l => l.startsWith('✗')).length;
+
+    const allErr = jsErrs.concat(consoleErrors, cardErrs, v2Errs);
     if (allErr.length) {
       fails++;
       console.log('  ✗ 页面有 JS 报错：');

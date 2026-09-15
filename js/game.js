@@ -65,7 +65,10 @@ window.Game = (function () {
       bestCombo: 0,
       boss: {},           // chapterKey -> { score, total, date }
       flags: {},          // 一次性标记（清空过队列、拿过满分…）
-      seen: {}            // 幂等键 -> 1
+      seen: {},           // 幂等键 -> 1
+      makeups: {},        // 补签日 -> 1（连续打卡的兜底）
+      freezeLog: {},      // 补签日 -> 补签当天（用来按周算券）
+      blitz: null         // 闪电战最好成绩 { score, correct, wrong, bestCombo, date }
     };
   }
 
@@ -81,6 +84,9 @@ window.Game = (function () {
     if (!g.boss) g.boss = {};
     if (!g.flags) g.flags = {};
     if (!g.seen) g.seen = {};
+    if (!g.makeups) g.makeups = {};
+    if (!g.freezeLog) g.freezeLog = {};
+    if (g.blitz === undefined) g.blitz = null;
     return g;
   }
 
@@ -189,11 +195,11 @@ window.Game = (function () {
     d.setDate(d.getDate() + n);
     return dayStr(d);
   }
-  function streakInfo(checkins, today) {
-    var dates = Object.keys(checkins || {}).filter(function (d) { return checkinOk(checkins[d]); }).sort();
+  /* 连续天数的核心算法。抽出来是为了让「补签后的有效连续」能复用同一套口径 ——
+   * 两处各写一遍迟早会漂移（一个算补签一个不算，界面就自相矛盾）。 */
+  function streakFromSet(set, today) {
+    var dates = Object.keys(set).sort();
     if (!dates.length) return { current: 0, best: 0 };
-    var set = {};
-    dates.forEach(function (x) { set[x] = 1; });
     var best = 1, run = 1;
     for (var i = 1; i < dates.length; i++) {
       run = (dates[i] === shiftDay(dates[i - 1], 1)) ? run + 1 : 1;
@@ -203,6 +209,11 @@ window.Game = (function () {
     var cur = 0, d = set[today] ? today : shiftDay(today, -1);
     while (set[d]) { cur++; d = shiftDay(d, -1); if (cur > 9999) break; }
     return { current: cur, best: best };
+  }
+  function streakInfo(checkins, today) {
+    var set = {};
+    Object.keys(checkins || {}).forEach(function (d) { if (checkinOk(checkins[d])) set[d] = 1; });
+    return streakFromSet(set, today);
   }
 
   /* ---------- 快照：所有成就判定都读这个 ---------- */
@@ -443,6 +454,332 @@ window.Game = (function () {
     return r;
   }
 
+  /* ================================================================
+   * 以下为「学习引擎 v2」——借鉴几个成熟开源项目的机制，逐条注明来源。
+   * 全部保持纯函数：只认 (state, world, opts)，不碰 DOM / 存储。
+   * ================================================================ */
+
+  /* ---------- 1. 三级掌握度 ----------
+   * 借鉴 helix-trainer 的 Scenario Mastery。
+   *
+   * 为什么要三级：「已学 / 未学」这种二元判断把「看过一遍」和「真的会了」
+   * 混成一件事。三级制把它拆开，也顺带给 XP 递减提供了依据 ——
+   * 已经精通的题再刷，本来就不该给分。
+   */
+  var MASTERY_LABEL = { new: '未学', learning: '学习中', proficient: '熟练', mastered: '精通' };
+  var PROF_ATTEMPTS = 3;      // 熟练门槛：至少答过 3 次
+  var PROF_ACCURACY = 0.9;    //           且正确率 ≥ 90%
+
+  /* 单个知识点的掌握情况。只看该节点下的题。 */
+  function nodeMastery(state, world, nodeId, opts) {
+    state = state || {};
+    world = world || defaultWorld();
+    opts = opts || {};
+    var attempts = (state.attempts || []).filter(function (a) { return a.kid === nodeId; });
+    var n = attempts.length;
+    var correct = attempts.filter(function (a) { return a.correct; }).length;
+    var accuracy = n ? correct / n : 0;
+
+    /* 该节点下每道题的最后一次作答 —— attempts 按时间追加，后面覆盖前面 */
+    var last = {}, seenQ = {};
+    attempts.forEach(function (a) { last[a.qid] = a; seenQ[a.qid] = 1; });
+    var qIds = world.questions.filter(function (q) { return q.kid === nodeId; }).map(function (q) { return q.id; });
+    var allRight = qIds.length > 0 && qIds.every(function (id) { return last[id] && last[id].correct; });
+
+    /* 精通 = 该节点下**每道题**都至少答对过一次，且整体正确率达标。
+     * 注意这里刻意不采用「最近三次全对」这种更松的口径 ——
+     * 那样只刷节点里最简单的那一道题三次就能"精通"，正是要防的事。 */
+    var level;
+    if (!n) level = 'new';
+    else if (n >= PROF_ATTEMPTS && accuracy >= PROF_ACCURACY && allRight) level = 'mastered';
+    else if (n >= PROF_ATTEMPTS && accuracy >= PROF_ACCURACY) level = 'proficient';
+    else level = 'learning';
+
+    return {
+      nodeId: nodeId, level: level, label: MASTERY_LABEL[level],
+      attempts: n, correct: correct, accuracy: accuracy,
+      questions: qIds.length, questionsSeen: Object.keys(seenQ).length,
+      allRight: allRight
+    };
+  }
+
+  /* 全树掌握度分布，给统计页画图用 */
+  function masteryBoard(state, world, opts) {
+    state = state || {};
+    world = world || defaultWorld();
+    opts = opts || {};
+    var track = opts.track || 'math1';
+    var nodes = world.nodes.filter(function (n) { return inTrack(n, track); });
+    var rows = nodes.map(function (n) { return nodeMastery(state, world, n.id); });
+    var dist = { new: 0, learning: 0, proficient: 0, mastered: 0 };
+    rows.forEach(function (r) { dist[r.level]++; });
+    var cards = state.cards || {};
+    var learned = nodes.filter(function (n) { return cards[n.id]; }).length;
+    return {
+      rows: rows, dist: dist, total: nodes.length, learned: learned,
+      label: MASTERY_LABEL,
+      pct: {
+        learning: nodes.length ? Math.round(dist.learning / nodes.length * 100) : 0,
+        proficient: nodes.length ? Math.round(dist.proficient / nodes.length * 100) : 0,
+        mastered: nodes.length ? Math.round(dist.mastered / nodes.length * 100) : 0
+      }
+    };
+  }
+
+  /* ---------- 2. XP 递减（防刷分）----------
+   * 同样借鉴 helix-trainer：它的掌握等级带 XP 倍率，且同一天重复刷会再打折。
+   *
+   * 两个乘数相乘：
+   *   掌握度   学习中 100% / 熟练 50% / 精通 20%
+   *   当日重复 第 1 次 100% / 第 2-3 次 70% / 第 4 次起 30%
+   *
+   * 目的：让「反复刷同一道简单题」变得没有收益，把时间推向新题和薄弱点。
+   * 下限保留 1 XP —— 参与本身仍有正反馈，只是不再划算。
+   */
+  var MASTERY_MULT = { new: 1, learning: 1, proficient: 0.5, mastered: 0.2 };
+  function sessionMult(nthToday) { return nthToday <= 1 ? 1 : nthToday <= 3 ? 0.7 : 0.3; }
+
+  /* 本次作答该给多少 XP。
+   * 默认假设「本次作答尚未写入 state.attempts」——也就是在 push 之前调用。
+   * 这样 nthToday 读起来就是"这是今天第几次答这道题"，不容易用错。
+   * 若已经先写入再调用，传 opts.recorded: true。 */
+  function answerXp(state, qid, kid, opts) {
+    opts = opts || {};
+    var today = opts.today || fmtToday();
+    var world = opts.world || defaultWorld();
+    var todayN = (state.attempts || []).filter(function (a) {
+      return a.qid === qid && a.date === today;
+    }).length;
+    var nth = opts.recorded ? Math.max(1, todayN) : todayN + 1;
+
+    var m = nodeMastery(state, world, kid);
+    var mm = MASTERY_MULT[m.level] == null ? 1 : MASTERY_MULT[m.level];
+    var sm = sessionMult(nth);
+    var base = XP.correct;
+    var amount = Math.max(1, Math.round(base * mm * sm));
+
+    return {
+      amount: amount, base: base,
+      mastery: m.level, masteryLabel: m.label, masteryMult: mm,
+      nthToday: nth, sessionMult: sm,
+      reduced: amount < base,
+      /* 给界面用的一句话解释 —— 光看到"+3"会以为程序坏了 */
+      note: amount < base
+        ? (mm < 1 && nth > 1 ? '已掌握 + 今日重复'
+          : mm < 1 ? '该知识点已' + m.label
+            : '今日第 ' + nth + ' 次作答')
+        : ''
+    };
+  }
+
+  /* ---------- 3. 补签券 ----------
+   * 借鉴 Duolingo 的 streak freeze / HabitTrove 的习惯兜底。
+   *
+   * 连续打卡最容易崩的地方不是懒，是"断一天就归零"——
+   * 一旦断了，心理上"反正已经断了"，于是彻底放弃。
+   * 每周发 2 张券，漏打卡时自动补上，连续链不断。券不累积（防囤积）。
+   */
+  var FREEZE_PER_WEEK = 2;
+
+  /* 某天所在周的周一（周一为一周起点） */
+  function weekStart(dayS) {
+    var d = parseDay(dayS);
+    if (!d) return dayS;
+    var dow = (d.getDay() + 6) % 7;    // 周一 = 0
+    d.setDate(d.getDate() - dow);
+    return dayStr(d);
+  }
+
+  function freezesUsedThisWeek(state, today) {
+    var g = ensure(state);
+    var log = g.freezeLog || {};
+    var ws = weekStart(today);
+    var n = 0;
+    Object.keys(log).forEach(function (d) { if (weekStart(d) === ws) n++; });
+    return n;
+  }
+  function freezesLeft(state, today) {
+    return Math.max(0, FREEZE_PER_WEEK - freezesUsedThisWeek(state, today));
+  }
+
+  /* 自动补签：只补「昨天」。
+   * 不补更早的 —— 断两天以上就该真的从头来，否则券变成免死金牌，
+   * 反而消解了连续打卡的意义。
+   * 返回被补的日期，或 null（没补）。 */
+  function autoMakeup(state, today) {
+    var g = ensure(state);
+    var checkins = state.checkins || {};
+    var y = shiftDay(today, -1);
+    var d2 = shiftDay(today, -2);
+    if (checkinOk(checkins[y])) return null;              // 昨天打了
+    if (g.makeups && g.makeups[y]) return null;           // 已经补过
+    if (!checkinOk(checkins[d2])) return null;            // 前天也没打 → 链子本来就断了
+    if (freezesLeft(state, today) <= 0) return null;      // 本周券用完
+    g.makeups = g.makeups || {};
+    g.makeups[y] = 1;
+    g.freezeLog = g.freezeLog || {};
+    g.freezeLog[y] = today;
+    return y;
+  }
+
+  /* 把补签日算进去的连续天数（app.js 的 calcStreak 走这里） */
+  function effectiveStreak(state, today) {
+    var g = ensure(state);
+    var set = {};
+    Object.keys(state.checkins || {}).forEach(function (d) { if (checkinOk(state.checkins[d])) set[d] = 1; });
+    Object.keys(g.makeups || {}).forEach(function (d) { set[d] = 1; });
+    return streakFromSet(set, today);
+  }
+
+  /* ---------- 4. 备考节奏投影 ----------
+   * 只告诉"还剩多少个知识点"没有用 —— 人会一直拖到考前。
+   * 必须把"按你最近的速度，考前能覆盖多少"提前摆出来，
+   * 「来不及」这件事越早暴露越有救。
+   */
+  function paceProjection(state, world, opts) {
+    state = state || {};
+    world = world || defaultWorld();
+    opts = opts || {};
+    var track = opts.track || 'math1';
+    var today = opts.today || fmtToday();
+    var examDate = opts.examDate || '';
+    var WINDOW = 14;
+
+    var nodes = world.nodes.filter(function (n) { return inTrack(n, track); });
+    var cards = state.cards || {};
+    var learned = nodes.filter(function (n) { return cards[n.id]; }).length;
+    var remaining = nodes.length - learned;
+
+    var daysLeft = null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(examDate))) {
+      var a = parseDay(today), b = parseDay(examDate);
+      if (a && b) daysLeft = Math.max(0, Math.round((b - a) / 86400000));
+    }
+
+    /* 近 14 天日均新学：靠卡片创建日反推（比"今天学了几张"更抗漏记） */
+    var since = shiftDay(today, -(WINDOW - 1));
+    var recent = nodes.filter(function (n) {
+      var c = cards[n.id];
+      return c && c.createdAt && c.createdAt >= since;
+    }).length;
+    var perDay = recent / WINDOW;
+
+    var projected = daysLeft == null ? null
+      : Math.min(nodes.length, learned + Math.round(perDay * daysLeft));
+    var suggested = (daysLeft != null && daysLeft > 0 && remaining > 0)
+      ? Math.ceil(remaining / daysLeft) : null;
+    var onTrack = daysLeft == null ? null : (remaining === 0 || (perDay * daysLeft) >= remaining);
+
+    return {
+      total: nodes.length, learned: learned, remaining: remaining,
+      daysLeft: daysLeft,
+      recentLearned: recent, windowDays: WINDOW,
+      perDay: perDay,
+      projected: projected,
+      projectedPct: (projected == null || !nodes.length) ? null : Math.round(projected / nodes.length * 100),
+      suggestedPerDay: suggested,
+      onTrack: onTrack,
+      gap: projected == null ? null : Math.max(0, nodes.length - projected)
+    };
+  }
+
+  /* ---------- 5. 下一步只做这一件事 ----------
+   * 借鉴 Orbit 的「可编程注意力」：注意力是可以被编排的资源。
+   * 打开应用最大的摩擦不是难，是"我该干嘛"。
+   * 这里直接给一个答案，而且只给一个 —— 按「遗忘风险 × 考试紧迫度」排序。
+   *
+   * 所有输入都从 opts 传进来（保持纯函数，也便于测试各分支）。
+   */
+  function nextAction(state, world, opts) {
+    opts = opts || {};
+    var dueReview = opts.dueReview || 0;
+    var mistakes = opts.mistakes || 0;
+    var quizLeft = opts.quizLeft || 0;
+    var newLeft = opts.newLeft || 0;
+    var learned = opts.learned || 0;
+    var onTrack = opts.onTrack;
+    var c = [];
+
+    if (dueReview > 0) c.push({
+      kind: 'review',
+      label: '先清掉 ' + dueReview + ' 张到期复习卡',
+      reason: '这些卡正好卡在遗忘临界点上。今天不复习，前面花的功夫会打折。',
+      href: '#/review',
+      weight: 100 + Math.min(60, dueReview * 6)
+    });
+
+    if (quizLeft > 0) c.push({
+      kind: 'quiz',
+      label: '做掉今天的 ' + quizLeft + ' 道每日一练',
+      reason: '每天固定几道，是维持手感的最低成本。',
+      href: '#/quiz',
+      weight: 70
+    });
+
+    if (mistakes > 0) c.push({
+      kind: 'mistakes',
+      label: '把 ' + mistakes + ' 道错题重做一遍',
+      reason: '错过的题重做一遍，比做三道新题更划算。',
+      href: '#/mistakes',
+      weight: 62
+    });
+
+    if (newLeft > 0) c.push({
+      kind: 'learn',
+      label: '学 ' + newLeft + ' 个新知识点',
+      reason: onTrack === false
+        ? '按考试日期倒推，现在的推进速度不够，得补上。'
+        : '按考试日期倒推，这是今天该推进的进度。',
+      href: '#/learn',
+      weight: onTrack === false ? 85 : 55
+    });
+
+    if (learned > 0) c.push({
+      kind: 'blitz',
+      label: '打一局闪电战（60 秒）',
+      reason: '只有几分钟的时候，用限时连答把学过的知识点过一遍。',
+      href: '#/blitz',
+      weight: 25
+    });
+
+    c.push({
+      kind: 'lab',
+      label: '去公式实验室动手拖一拖',
+      reason: '公式记不住，多半是没见过它长什么样。',
+      href: '#/lab',
+      weight: 10
+    });
+
+    c.sort(function (a, b) { return b.weight - a.weight; });
+    return c[0];
+  }
+
+  /* ---------- 6. 闪电战计分 ----------
+   * 借鉴 helix-trainer 的 Arcade：限时 + 命数 + 连击倍率。
+   * 连击倍率封顶 5x，避免一局长局滚雪球把纪录刷到没意义。
+   */
+  var BLITZ_SECONDS = 60;
+  var BLITZ_LIVES = 3;
+  var BLITZ_MAX_MULT = 5;
+  function blitzMultiplier(combo) {
+    return Math.min(BLITZ_MAX_MULT, 1 + Math.floor(Math.max(0, combo) / 3));
+  }
+  function blitzScore(state) {
+    var s = state || {};
+    var combo = s.combo || 0, correct = s.correct || 0, wrong = s.wrong || 0;
+    return { combo: combo, correct: correct, wrong: wrong, multiplier: blitzMultiplier(combo) };
+  }
+  /* 最好成绩存 state.game.blitz */
+  function recordBlitz(state, run, today) {
+    var g = ensure(state);
+    var r = run || {};
+    var rec = { score: r.score || 0, correct: r.correct || 0, wrong: r.wrong || 0, bestCombo: r.bestCombo || 0, date: today || fmtToday() };
+    var old = g.blitz;
+    var isBest = !old || rec.score > (old.score || 0);
+    if (isBest) g.blitz = rec;
+    return { isBest: isBest, best: g.blitz, run: rec };
+  }
+
   /* ---------- 小工具 ---------- */
   function fmtToday() {
     var d = new Date();
@@ -466,6 +803,14 @@ window.Game = (function () {
     LEVELS: LEVELS,
     COMBO_MILESTONES: COMBO_MILESTONES,
     BOSS_PASS_RATIO: BOSS_PASS_RATIO,
+    MASTERY_LABEL: MASTERY_LABEL,
+    PROF_ATTEMPTS: PROF_ATTEMPTS,
+    PROF_ACCURACY: PROF_ACCURACY,
+    MASTERY_MULT: MASTERY_MULT,
+    FREEZE_PER_WEEK: FREEZE_PER_WEEK,
+    BLITZ_SECONDS: BLITZ_SECONDS,
+    BLITZ_LIVES: BLITZ_LIVES,
+    BLITZ_MAX_MULT: BLITZ_MAX_MULT,
 
     needFor: needFor,
     levelInfo: levelInfo,
@@ -480,7 +825,24 @@ window.Game = (function () {
     inTrack: inTrack,
     snapshot: snapshot,
     streakInfo: streakInfo,
+    streakFromSet: streakFromSet,
+    effectiveStreak: effectiveStreak,
     shiftDay: shiftDay,
+
+    /* 学习引擎 v2 */
+    nodeMastery: nodeMastery,
+    masteryBoard: masteryBoard,
+    answerXp: answerXp,
+    sessionMult: sessionMult,
+    weekStart: weekStart,
+    freezesUsedThisWeek: freezesUsedThisWeek,
+    freezesLeft: freezesLeft,
+    autoMakeup: autoMakeup,
+    paceProjection: paceProjection,
+    nextAction: nextAction,
+    blitzMultiplier: blitzMultiplier,
+    blitzScore: blitzScore,
+    recordBlitz: recordBlitz,
 
     ACHIEVEMENTS: ACHIEVEMENTS,
     byId: byId,

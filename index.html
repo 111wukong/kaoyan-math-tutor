@@ -26,6 +26,8 @@
       <a href="#/review" data-route="/review" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg><span>复习队列</span><i class="badge" id="nav-review-badge" hidden></i></a>
       <a href="#/mistakes" data-route="/mistakes" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg><span>错题本</span><i class="badge" id="nav-mistake-badge" hidden></i></a>
       <a href="#/stats" data-route="/stats" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg><span>统计</span></a>
+      <a href="#/lab" data-route="/lab" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M3 8h7"/><circle cx="13" cy="8" r="2.5"/><path d="M18.5 8H21"/><path d="M3 16h3"/><circle cx="9" cy="16" r="2.5"/><path d="M14.5 16H21"/></svg><span>公式实验室</span></a>
+      <a href="#/blitz" data-route="/blitz" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg><span>闪电战</span></a>
       <a href="#/cards" data-route="/cards" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M12.8 2.2a2 2 0 0 0-1.6 0L2.6 6.1a1 1 0 0 0 0 1.8l8.6 3.9a2 2 0 0 0 1.6 0l8.6-3.9a1 1 0 0 0 0-1.8Z"/><path d="m22 17.6-9.2 4.2a2 2 0 0 1-1.6 0L2 17.6"/><path d="m22 12.6-9.2 4.2a2 2 0 0 1-1.6 0L2 12.6"/></svg><span>卡片库</span></a>
       <a href="#/achievements" data-route="/achievements" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><circle cx="12" cy="8" r="6"/><path d="m15.5 12.9 1.5 8.5a.5.5 0 0 1-.8.5l-3.6-2.7a1 1 0 0 0-1.2 0l-3.6 2.7a.5.5 0 0 1-.8-.5l1.5-8.5"/></svg><span>成就</span><i class="badge" id="nav-ach-badge" hidden></i></a>
       <a href="#/settings" data-route="/settings" class="nav-item"><svg viewBox="0 0 24 24" class="ic"><path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/></svg><span>设置</span></a>
@@ -33,7 +35,7 @@
     <div class="side-foot">
       <!-- 等级条：等级 + 称号 + 本级 XP 进度。refreshBadges() 负责刷新。 -->
       <a class="lv-bar" href="#/achievements" id="side-level" title="看成就">
-        <div class="lv-top lv-face">
+        <div class="lv-face">
           <span class="lv-num" id="side-lv">1</span>
           <span class="lv-title" id="side-lv-title">初识极限</span>
           <span class="lv-xp" id="side-xp">0</span>
@@ -45,6 +47,11 @@
         <div class="streak-label">连续学习天数</div>
       </div>
       <div class="side-tip" id="side-tip">每天 30 分钟，数学不掉队。</div>
+      <!-- 音效开关：默认跟随系统「减少动态效果」设置，点一下可手动切换 -->
+      <button type="button" class="side-sfx" id="side-sfx" onclick="App.toggleSfx()" title="音效开关">
+        <svg viewBox="0 0 24 24" class="ic"><path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+        <span id="side-sfx-label">音效 开</span>
+      </button>
     </div>
   </aside>
   <main id="main"></main>
@@ -56,12 +63,14 @@
 <script src="js/sm2.js"></script>
 <script src="js/data-knowledge.js"></script>
 <script src="js/data-questions.js"></script>
+<script src="js/sfx.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/llm.js"></script>
 <script src="js/tools.js"></script>
 <script src="js/agent.js"></script>
 <script src="js/classroom.js"></script>
 <script src="js/cards.js"></script>
+<script src="js/lab.js"></script>
 <script src="js/game.js"></script>
 <script src="js/app.js"></script>
 </body>
