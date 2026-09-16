@@ -27,7 +27,13 @@ python3 -m http.server 8080
 
 **方式三：GitHub Pages 在线部署**
 
-本仓库可直接推送至 GitHub 并开启 GitHub Pages（Settings → Pages → Branch `main` / folder `root`），即可获得免费在线访问地址，手机/平板无需安装即用。
+本仓库可直接推送至 GitHub 并开启 GitHub Pages（Settings → Pages → Branch **`master`** / folder `root`），
+即可获得免费在线访问地址，手机/平板无需安装即用。
+
+线上地址：<https://111wukong.github.io/kaoyan-math-tutor/>
+
+> 推完 `master` 之后 Pages 会自动 rebuild（约 40 秒）。**别用 `curl` 判断部署成没成** ——
+> 它只能证明文件在服务器上，证明不了页面跑得起来。用 `node tests/smoke-online.js` 开真浏览器验一遍。
 
 ---
 
@@ -89,6 +95,7 @@ tests/                      零依赖测试套件（node tests/run-all.js 一键
 ├── test-store.js           **存档层不变式**：裁剪明细前后所有统计口径必须一致、聚合等价、导出脱敏、导入校验、合并「只增不减」
 ├── test-telemetry.js       **诊断包不泄露用户内容**、错误去重与封顶、事件环形缓冲、全局捕获分类
 ├── shots.js                截图验收（不进测试套件）：375×812 与 1440×900 关键页面，带路由自检
+├── smoke-online.js         **线上冒烟**（不进测试套件，需联网）：直打 GitHub Pages，验脚本装载、无障碍、小屏、写盘告警闭环、诊断包不泄露
 ├── test-classroom.js       多智能体课堂：水平裁剪、结构性无知、调度规则、两条端到端流程
 ├── test-cards.js           卡片引擎：蒸馏正确性、公式碎片过滤、去重、模型 JSON 容错、打印 HTML
 ├── test-engine-v2.js       学习引擎 v2：掌握度口径、XP 递减边界、补签券规则、备考投影、下一步优先级、闪电战计分、实验室纯数学层、模块接线
@@ -474,6 +481,27 @@ node tests/run-all.js classroom    # 只跑名字含 classroom 的
 `tests/shots.js` 是截图验收脚本（**不进测试套件**），按 375×812 与 1440×900 两组尺寸抓关键页面。
 它每抓一张都会回读 `location.hash` 与页面标题 —— 因为曾经把路由写成 `#//quiz`（多一个斜杠），
 结果九张截图全落在仪表盘上，光看文件名完全看不出来。
+
+`tests/smoke-online.js` 是**线上冒烟**（**不进测试套件**，需要联网）：
+
+```bash
+node tests/smoke-online.js                          # 默认打 GitHub Pages
+node tests/smoke-online.js http://localhost:8080/   # 也可以打本地
+```
+
+它存在的理由：`curl` 只能证明「文件在服务器上」，证明不了「页面跑得起来」。
+GitHub Pages 上脚本 404、加载顺序错、KaTeX CDN 挂掉，都会让 `curl` 全绿而页面白屏。
+所以它开真浏览器、走真网络、抓真报错，逐项验 60 条：脚本装载与全局 API、无障碍骨架、
+答题反馈的播报区、图表文字摘要、设置页两个新面板、**诊断包不含敏感字段**（拿线上真跑一遍）、
+375×812 五个路由无横向溢出、抽屉开合与 Esc 闭环、**写盘失败横幅的出现与自动撤销**、
+以及控制台 0 报错 + 无 4xx/5xx。
+
+两个踩过的坑写在这里，免得下次再踩：
+
+- **断言必须下在有内容的档上**。空档下统计页是空态、答题页可能不出题，断言会「因为没东西可比」
+  而假通过或假失败。所以脚本第一步就是播种 96 条作答记录。
+- **别在错误的页面上数元素**。`#blitz-feedback` 只在闪电战开局后才渲染，`#qbody-*` 只在答题页才有 ——
+  在仪表盘上数 `[aria-live]` 只会得到 1（那个 toast），然后误判成「无障碍没做」。
 
 `test-browser` 找不到 Chromium 会自动跳过（不算失败）。它做了几件不那么显然的事：
 
