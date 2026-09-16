@@ -695,6 +695,41 @@ body {
 .math-wrap code { font-family: var(--mono); font-size: 12.5px; background: var(--sunken); padding: 1px 4px; border-radius: 3px; }
 .stem-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; max-height: 2.2em; }
 
+/* ---------- 气泡 / 解析里的轻量 Markdown ----------
+   标题、列表、表格、强调、行内代码。
+   原则：**每一种标记都必须有对应样式**，漏一种用户就会在屏幕上看到
+   裸露的 #### 或 ** —— 那比没有样式更糟。 */
+.md-h1, .md-h2, .md-h3, .md-h4, .md-h5, .md-h6 {
+  font-weight: 600; line-height: 1.5; margin: .8em 0 .35em; color: var(--ink);
+}
+.md-h1 { font-size: 16px; }
+.md-h2 { font-size: 15px; }
+.md-h3 { font-size: 14px; }
+.md-h4 { font-size: 13.5px; }
+.md-h5, .md-h6 { font-size: 13px; color: var(--ink-2); }
+.md-ul, .md-ol { padding-left: 20px; margin: .3em 0; }
+.md-ul { list-style: disc; }
+.md-ol { list-style: decimal; }
+.md-ul li, .md-ol li { margin: .18em 0; }
+.md-table {
+  border-collapse: collapse; margin: .5em 0; font-size: 13px;
+  max-width: 100%; display: block; overflow-x: auto;
+}
+.md-table th, .md-table td {
+  border: 1px solid var(--line); padding: 4px 8px;
+  text-align: left; vertical-align: top; white-space: nowrap;
+}
+.md-table th { background: var(--sunken); font-weight: 600; }
+/* 首元素不留上边距，否则气泡顶部会莫名多出一块空白 */
+.md-h1:first-child, .md-h2:first-child, .md-h3:first-child, .md-h4:first-child,
+.md-h5:first-child, .md-h6:first-child, .md-ul:first-child, .md-ol:first-child,
+.md-table:first-child { margin-top: 0; }
+/* 流式打字时尚未闭合的尾巴：按纯文本挂着，等闭合了再变成正式渲染 */
+.md-tail { color: var(--ink-2); }
+/* 答题卡题干改走 md() 之后会带 <p>，把段落边距收掉，别把卡片撑高 */
+.c-ask-q p { margin: 0 0 .4em; }
+.c-ask-q p:last-child { margin-bottom: 0; }
+
 /* 朗读 / 工具按钮 */
 .speak-btn {
   display: inline-flex; align-items: center; justify-content: center;

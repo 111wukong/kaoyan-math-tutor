@@ -92,17 +92,53 @@
 
   /* ============ 数学渲染（KaTeX CDN，失败则降级原文） ============ */
   function katexOK() { return typeof window.katex !== 'undefined' && window.katex.renderToString; }
+  /* 同一个公式在一次会话里会被渲染很多遍 —— 流式打字每 24ms 就要重排一遍
+     整段气泡，不缓存的话 KaTeX 会把已经渲染过的公式反复重算。
+     降级结果（CDN 没到位）**不缓存**，否则网络恢复后公式永远停在等宽原文。 */
+  var FORMULA_CACHE = {};
+  var FORMULA_CACHE_MAX = 400;
   function renderFormula(tex, display) {
-    if (katexOK()) {
-      try {
-        return window.katex.renderToString(tex, { displayMode: !!display, throwOnError: false, strict: false });
-      } catch (e) { /* fallthrough */ }
+    var key = (display ? 'D' : 'I') + tex;
+    if (FORMULA_CACHE[key] != null) return FORMULA_CACHE[key];
+    if (!katexOK()) return '<span class="mock-formula">' + esc(tex) + '</span>';
+    var html;
+    try {
+      html = window.katex.renderToString(tex, { displayMode: !!display, throwOnError: false, strict: false });
+    } catch (e) {
+      return '<span class="mock-formula">' + esc(tex) + '</span>';
     }
-    return '<span class="mock-formula">' + esc(tex) + '</span>';
+    if (Object.keys(FORMULA_CACHE).length >= FORMULA_CACHE_MAX) FORMULA_CACHE = {};
+    FORMULA_CACHE[key] = html;
+    return html;
   }
+
+  /* ── 数学优先的行内渲染管线 ────────────────────────────────────────
+   * 公式有两个来源，格式还不一样：
+   *   · 模型输出 —— 提示词明确要求「行内 $...$，独立 $$...$$」（agent.js / engine.js / classroom.js）
+   *   · 题库数据 —— 裸 LaTeX，没有 $ 包裹（data-questions.js 里一个 $ 都没有）
+   * 两者都进同一个渲染函数，就要求它必须认识 $ 定界符。
+   * 老实现不认识：autoLatex 看见 $\frac{1}{2}$ 里的 \frac 会再包一层 $，
+   * 原来的两个 $ 反而变成普通字符打到屏幕上 —— 这就是「公式没正确显示」的来源。
+   *
+   * 处理顺序也不能反。老实现是「先按 $ 切分，再逐段套 **加粗**」，
+   * 于是「**当 $x\to 0$ 时**」这种把术语和公式一起加粗的句子被 $ 从中间切开，
+   * 两半各剩一个 **，谁都不配对 —— 这就是气泡里看到裸露 ** 的来源。
+   *
+   * 正确顺序：数学先摘成占位符 → 剩下的纯文本做 autoLatex + Markdown 强调 → 再塞回去。
+   * 占位符用 \u0001 \u0002（正文里不可能出现），并被 FRAG_STOP 当作硬边界，
+   * 这样 autoLatex 的片段回溯不会跨过公式去吞文本。
+   * ---------------------------------------------------------------- */
+  var PH_RE = /\u0001(\d+)\u0002/g;
+  function ph(i) { return '\u0001' + i + '\u0002'; }
+  /* 已带定界符的数学：$$...$$ / $...$ / \(...\) / \[...\] */
+  var MATH_SPAN = /\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]/g;
+  /* autoLatex 新包出来的 $...$ */
+  var AUTO_SPAN = /\$([^$\n]+?)\$/g;
+
   // 数据中的公式常是裸 LaTeX 源码（无 $ 包裹），自动为数学片段包裹 $ 以触发 KaTeX
   var TEX_CMD = /[a-zA-Z]/;
-  var FRAG_STOP = /[\u4e00-\u9fff，。；：、！？「」【】（）《》〈〉\s·…]/; // 片段边界：中文、中文标点、全角括号、空白、点号
+  // 片段边界：占位符、中文、中文标点、全角括号、空白、点号
+  var FRAG_STOP = /[\u0001\u0002\u4e00-\u9fff，。；：、！？「」【】（）《》〈〉\s·…]/;
   function autoLatex(s) {
     if (!s) return s;
     var out = '', i = 0, n = s.length;
@@ -207,57 +243,229 @@
     }
     return out;
   }
-  /* 轻量 markdown：**加粗**、$行内公式$、$$块级公式$$、- 列表、空行分段 */
-  function md(text) {
-    var s = String(text == null ? '' : text);
-    var out = '';
-    var blocks = s.split(/\$\$([\s\S]+?)\$\$/g);
-    for (var i = 0; i < blocks.length; i++) {
-      if (i % 2 === 1) {
-        out += '<div class="katex-display">' + renderFormula(blocks[i], true) + '</div>';
-      } else {
-        out += inlineBlock(autoLatex(blocks[i]));
-      }
-    }
-    // 分段
-    var paras = out.split(/\n{2,}/);
-    var html = paras.map(function (para) {
-      var lines = para.split('\n');
-      var str = '', ul = null;
-      lines.forEach(function (l) {
-        var m = l.match(/^\s*[-*]\s+(.+)/);
-        if (m) {
-          if (!ul) ul = '<ul style="padding-left:20px;margin:.3em 0">';
-          ul += '<li>' + m[1] + '</li>';
-        } else {
-          if (ul) { str += ul + '</ul>'; ul = null; }
-          str += l;
-        }
-      });
-      if (ul) str += ul + '</ul>';
-      return '<p>' + str.replace(/\n/g, '<br/>') + '</p>';
-    }).join('');
-    return html;
+  /* Markdown 强调。只处理已经 esc() 转义过的纯文本，且此时公式已经换成占位符，
+     所以不用担心 ** 和 $ 互相干扰，也不用担心把公式内容误当强调。
+     斜体刻意写得保守：星号两侧必须落在词边界上，否则「2 * 3」「a*b」这种
+     数学里遍地都是的乘法会被当成斜体吃掉。 */
+  function emphasize(s) {
+    return s
+      .replace(/\*\*\*([^*\n]+?)\*\*\*/g, '<b><i>$1</i></b>')
+      .replace(/\*\*([^*\n]+?)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[^\w\u4e00-\u9fff])\*([^\s*][^*\n]*?)\*(?![\w*])/g, '$1<i>$2</i>')
+      .replace(/`([^`\n]+?)`/g, '<code>$1</code>');
   }
+
+  /* 行内富文本：数学优先 → autoLatex → 转义 → Markdown 强调 → 数学塞回。
+     不套 <p>，所以能安全地放在 .c-bubble / .ans / 黑板条目这种行内位置。 */
   function inlineBlock(s) {
-    var parts = s.split(/\$([^$\n]+?)\$/g);
-    var o = '';
-    for (var i = 0; i < parts.length; i++) {
-      if (i % 2 === 1) {
-        o += renderFormula(parts[i], false);
-      } else {
-        o += esc(parts[i]).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
-      }
-    }
-    return o;
+    var text = String(s == null ? '' : s);
+    var parts = [];
+
+    /* 1) 行内代码 `...` 先摘出来。必须在 autoLatex 之前 ——
+          否则 `x^2` 里的 ^ 会被 autoLatex 连反引号一起包成公式，
+          屏幕上就是 KaTeX 渲染出来的一对反引号。 */
+    var rest = text.replace(/`([^`\n]+?)`/g, function (m, inner) {
+      parts.push('<code>' + inlineBlock(inner) + '</code>');
+      return ph(parts.length - 1);
+    });
+
+    /* 2) 已经带定界符的数学（模型输出走这条） */
+    rest = rest.replace(MATH_SPAN, function (m, dd, ii, pp, bb) {
+      var tex = dd != null ? dd : ii != null ? ii : pp != null ? pp : bb;
+      parts.push(renderFormula(tex, dd != null || bb != null));
+      return ph(parts.length - 1);
+    });
+
+    /* 3) __加粗__ 也要在 autoLatex 之前摘走。autoLatex 会把 __ 当成两个裸下标
+          包进公式里，KaTeX 遇到 __ 会直接吐一个红色报错块。 */
+    rest = rest.replace(/__([^_\n]+?)__/g, function (m, inner) {
+      parts.push('<b>' + inlineBlock(inner) + '</b>');
+      return ph(parts.length - 1);
+    });
+
+    /* 4) 裸 LaTeX（题库数据走这条）。走到这里 rest 里已经没有 $ 了，
+          所以 autoLatex 不可能把已有公式二次包裹。 */
+    rest = autoLatex(rest);
+
+    /* 5) autoLatex 刚刚包出来的 $...$ */
+    rest = rest.replace(AUTO_SPAN, function (m, tex) {
+      parts.push(renderFormula(tex, false));
+      return ph(parts.length - 1);
+    });
+
+    /* 6) 剩下的纯文本：先转义，再套强调 */
+    var html = emphasize(esc(rest));
+
+    /* 7) 把渲染好的数学塞回占位符 */
+    return html.replace(PH_RE, function (m, i) {
+      return parts[+i] == null ? m : parts[+i];
+    });
   }
-  /* 行内文本（答案解析、题干结论这类）专用的渲染：
-     过一遍自动 LaTeX 包裹 + 行内公式渲染，但**不加 <p> 段落包装**。
+
+  /* 行内文本（答案解析、题干结论、答题卡题干这类）专用的渲染：
+     过一遍数学渲染，但**不加 <p> 段落包装**。
      直接用 md() 会塞进一堆块级 <p>，用在 .ans 这种行内位置会把行高撑开。
      204 条解析里有 132 条带 LaTeX —— 不走这一步，用户答完题看到的就是
      "\frac{3}{2} \cdot \frac{\sin 3x}{3x}" 这样的反斜杠源码。 */
   function inlineMd(text) {
-    return inlineBlock(autoLatex(String(text == null ? '' : text)));
+    return inlineBlock(text);
+  }
+
+  /* ============ 轻量 Markdown ============
+   * 覆盖：`#` 标题、`-` / `1.` 列表、表格、**加粗**、*斜体*、`代码`、
+   * $行内公式$、$$块级公式$$。
+   * 目标不是完整实现 CommonMark，而是**不让标记符号漏到屏幕上** ——
+   * 模型爱写标题、爱写编号列表、爱用反引号包公式，漏一个用户就看见一个。 */
+
+  /* 块级公式先切成独立的块。不能让它留在 <p> 里：
+     <div> 落在 <p> 内部会被浏览器强行拆开，后面的文字会跑到公式外面。 */
+  function md(text) {
+    var s = String(text == null ? '' : text);
+    var segs = [];
+    var re = /\$\$([\s\S]+?)\$\$/g, last = 0, m;
+    while ((m = re.exec(s))) {
+      if (m.index > last) segs.push({ text: s.slice(last, m.index) });
+      segs.push({ tex: m[1] });
+      last = m.index + m[0].length;
+    }
+    if (last < s.length) segs.push({ text: s.slice(last) });
+    if (!segs.length) segs.push({ text: s });
+    return segs.map(function (seg) {
+      if (seg.tex != null) return '<div class="katex-display">' + renderFormula(seg.tex, true) + '</div>';
+      return mdBlocks(seg.text);
+    }).join('');
+  }
+
+  var HCLS = ['', 'md-h1', 'md-h2', 'md-h3', 'md-h4', 'md-h5', 'md-h6'];
+  function isTableRow(l) {
+    var t = l.trim();
+    return t.length > 2 && t.charAt(0) === '|' && t.charAt(t.length - 1) === '|';
+  }
+  function isTableSep(l) {
+    var t = l.trim().replace(/\s/g, '');
+    return t.length > 2 && t.charAt(0) === '|' && t.charAt(t.length - 1) === '|'
+      && /^[|:\-]+$/.test(t) && t.indexOf('-') >= 0;
+  }
+  function tableCells(l) {
+    return l.trim().replace(/^\||\|$/g, '').split('|').map(function (c) { return c.trim(); });
+  }
+  function tableHtml(head, rows) {
+    var h = '<table class="md-table"><thead><tr>';
+    head.forEach(function (c) { h += '<th>' + inlineBlock(c) + '</th>'; });
+    h += '</tr></thead><tbody>';
+    rows.forEach(function (r) {
+      h += '<tr>';
+      r.forEach(function (c) { h += '<td>' + inlineBlock(c) + '</td>'; });
+      h += '</tr>';
+    });
+    return h + '</tbody></table>';
+  }
+
+  var RE_UL = /^\s*[-*+]\s+/;
+  var RE_OL = /^\s*\d+[.、)]\s+/;
+  var RE_H = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+
+  function mdBlocks(src) {
+    var lines = String(src).split('\n');
+    var out = '', i = 0;
+    while (i < lines.length) {
+      var l = lines[i];
+      if (!l.trim()) { i++; continue; }
+
+      /* 表格：本行是 |…|，下一行是 |---|---| 分隔行 */
+      if (isTableRow(l) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+        var head = tableCells(l), rows = [];
+        i += 2;
+        while (i < lines.length && isTableRow(lines[i])) { rows.push(tableCells(lines[i])); i++; }
+        out += tableHtml(head, rows);
+        continue;
+      }
+
+      /* 标题 */
+      var hm = l.match(RE_H);
+      if (hm) {
+        out += '<div class="' + HCLS[hm[1].length] + '">' + inlineBlock(hm[2]) + '</div>';
+        i++;
+        continue;
+      }
+
+      /* 无序列表 */
+      if (RE_UL.test(l)) {
+        var ul = '<ul class="md-ul">';
+        while (i < lines.length && RE_UL.test(lines[i])) {
+          ul += '<li>' + inlineBlock(lines[i].replace(RE_UL, '')) + '</li>';
+          i++;
+        }
+        out += ul + '</ul>';
+        continue;
+      }
+
+      /* 有序列表 */
+      if (RE_OL.test(l)) {
+        var ol = '<ol class="md-ol">';
+        while (i < lines.length && RE_OL.test(lines[i])) {
+          ol += '<li>' + inlineBlock(lines[i].replace(RE_OL, '')) + '</li>';
+          i++;
+        }
+        out += ol + '</ol>';
+        continue;
+      }
+
+      /* 普通段落：一直读到空行 / 列表 / 标题 / 表格为止，行内换行用 <br/>。
+         逐行渲染而不是整段渲染，否则列表项、标题里的标记会被漏掉。 */
+      var buf = [];
+      while (i < lines.length && lines[i].trim()
+        && !RE_UL.test(lines[i]) && !RE_OL.test(lines[i]) && !RE_H.test(lines[i])
+        && !(isTableRow(lines[i]) && i + 1 < lines.length && isTableSep(lines[i + 1]))) {
+        buf.push(lines[i]);
+        i++;
+      }
+      out += '<p>' + buf.map(inlineBlock).join('<br/>') + '</p>';
+    }
+    return out;
+  }
+
+  /* ── 流式渲染 ──────────────────────────────────────────────────────
+   * 打字机效果每 24ms 拿**半截文本**重排一次气泡。直接丢给 md()，
+   * 未闭合的 ** 或 $ 会周期性变成裸露标记，屏幕上一闪一闪的。
+   * 这里只把「已经闭合的部分」交给 md()，未闭合的尾巴先按纯文本挂着，
+   * 闭合了（或整段说完）再变成正式渲染。
+   * 尾巴要接在最后一个 <p> 内部，否则会掉到下一行去。 */
+  function balancedPrefix(s) {
+    var n = s.length, i = 0, last = 0, open = -1, mode = '';
+    while (i < n) {
+      var c = s[i];
+      if (mode === '') {
+        if (c === '\\') { i += 2; continue; }
+        if (c === '$') {
+          if (s[i + 1] === '$') { mode = '$$'; open = i; i += 2; continue; }
+          mode = '$'; open = i; i++; continue;
+        }
+        if (c === '`') { mode = '`'; open = i; i++; continue; }
+        if (c === '*' && s[i + 1] === '*') { mode = '**'; open = i; i += 2; continue; }
+        i++; last = i; continue;
+      }
+      if (mode === '$' && (c === '$' || c === '\n')) { mode = ''; i++; last = i; continue; }
+      if (mode === '$$' && c === '$' && s[i + 1] === '$') { mode = ''; i += 2; last = i; continue; }
+      if (mode === '`' && c === '`') { mode = ''; i++; last = i; continue; }
+      if (mode === '**') {
+        if (c === '*' && s[i + 1] === '*') { mode = ''; i += 2; last = i; continue; }
+        if (c === '\n') { mode = ''; i++; last = i; continue; }
+      }
+      i++;
+    }
+    /* 未闭合的**块级**公式整段先不渲染：打字过程中跳出一大坨居中公式太跳。
+       行内公式则照常逐字显示，只有还没闭合的那一小段是原文。 */
+    if (mode === '$$') return open;
+    return last;
+  }
+  function mdStream(text) {
+    var s = String(text == null ? '' : text);
+    var k = balancedPrefix(s);
+    if (k >= s.length) return md(s);
+    var head = md(s.slice(0, k));
+    var tail = '<span class="md-tail">' + esc(s.slice(k)) + '</span>';
+    return /<\/p>$/.test(head) ? head.replace(/<\/p>$/, tail + '</p>') : head + tail;
   }
 
   /* ============ 数据索引 ============ */
@@ -1459,7 +1667,7 @@
         },
         onAssistantDelta: function (b, full) {
           if (!b || !b.bubble) return;
-          b.bubble.innerHTML = md(full);
+          b.bubble.innerHTML = mdStream(full);
           area.scrollTop = area.scrollHeight;
         },
         onAssistantDone: function (b, full) {
@@ -1658,7 +1866,9 @@
     var answered = session.userTurns && session.userTurns.length;
     return '<div class="c-ask" id="c-ask">' +
       '<div class="c-ask-tag">轮到你了' + (answered ? '（第 ' + (answered + 1) + ' 次）' : '') + '</div>' +
-      '<div class="c-ask-q">' + esc(a.prompt || '') + '</div>' +
+      /* 题干是整堂课公式最密集的地方，必须走 md()。
+         以前这里是 esc()，老师出的题会带着裸露的 $...$ 和 ** 一起出现。 */
+      '<div class="c-ask-q">' + md(a.prompt || '') + '</div>' +
       '<textarea id="c-ask-input" rows="3" placeholder="' + esc(a.placeholder || '写下你的答案') + '"></textarea>' +
       '<div class="c-ask-row">' +
         '<button type="button" class="btn primary" onclick="App.classAnswer()">交答案</button>' +
@@ -1696,7 +1906,8 @@
   }
   function typingHtml() { return '<span class="typing"><i></i><i></i><i></i></span>'; }
 
-  /* 逐字打字，制造"正在说"的现场感 */
+  /* 逐字打字，制造"正在说"的现场感。
+     用 mdStream 而不是 md —— 半截文本里的 ** 和 $ 会一闪一闪地露出来。 */
   function typeInto(bubble, text) {
     return new Promise(function (resolve) {
       var full = String(text || '');
@@ -1711,7 +1922,7 @@
           scrollStream();
           resolve();
         } else {
-          bubble.innerHTML = md(full.slice(0, i));
+          bubble.innerHTML = mdStream(full.slice(0, i));
           scrollStream();
         }
       }, 24);
@@ -2174,7 +2385,7 @@
       onTurnStart: turnStart,
       onDelta: function (role, full) {
         var el = pending[role];
-        if (el) { el.querySelector('.c-bubble').innerHTML = md(full); scrollStream(); }
+        if (el) { el.querySelector('.c-bubble').innerHTML = mdStream(full); scrollStream(); }
       },
       onEvent: async function (ev) {
         if (ev.type === 'thinking') {
@@ -2312,7 +2523,7 @@
     bubble.innerHTML = typingHtml();
     try {
       var reply = await Classroom.replyToUser(session, text, ctx, {
-        onDelta: function (role, full) { bubble.innerHTML = md(full); scrollStream(); }
+        onDelta: function (role, full) { bubble.innerHTML = mdStream(full); scrollStream(); }
       });
       bubble.innerHTML = md(reply);
       save();
