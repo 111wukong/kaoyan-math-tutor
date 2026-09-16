@@ -63,7 +63,7 @@ window.Tools = (function () {
       return out;
     }
 
-    function parse(tokens, xVal) {
+    function parse(tokens, xVal, scope) {
       var pos = 0;
       function peek() { return tokens[pos]; }
       function nextTok() { return tokens[pos++]; }
@@ -128,6 +128,10 @@ window.Tools = (function () {
         }
         if (tk.t === 'id') {
           if (tk.v === 'x') return xVal;
+          /* 参数（a、b、c 这类）由调用方按次传进 scope。
+             查找顺序：x → scope → 常量 → 函数。
+             scope 里混不进 pi/e/tau 或函数名 —— compile() 在声明阶段就拦掉了。 */
+          if (scope && Object.prototype.hasOwnProperty.call(scope, tk.v)) return +scope[tk.v];
           if (Object.prototype.hasOwnProperty.call(CONSTS, tk.v)) return CONSTS[tk.v];
           if (Object.prototype.hasOwnProperty.call(FUNCS, tk.v)) {
             var nx = peek();
@@ -150,10 +154,55 @@ window.Tools = (function () {
       return result;
     }
 
-    function compile(src) {
+    /* compile(src, varNames)
+     *   varNames 可选 —— 声明这个表达式允许出现哪些参数名（如 ['a','b','c']）。
+     *   不传时行为与以前完全一致：只认 x、内置常量、内置函数。
+     *
+     * 两个校验都放在**编译期**，而不是等画图时每个采样点各抛一次：
+     *   1. 参数名本身合法（不叫 x、不撞常量 / 函数名）
+     *   2. 表达式里用到的每个未知符号都真的声明过
+     * 这样「表达式写错了」在调工具的那一刻就报出来，而不是画到一半返回 null。
+     */
+    function compile(src, varNames) {
       var tokens = tokenize(src);
       if (!tokens.length) throw new Error('表达式为空');
-      return function (x) { return parse(tokens, x); };
+
+      var allowed = null;
+      if (varNames && varNames.length) {
+        allowed = {};
+        for (var i = 0; i < varNames.length; i++) {
+          var raw = String(varNames[i] == null ? '' : varNames[i]).toLowerCase();
+          if (!/^[a-z][a-z0-9_]*$/.test(raw)) throw new Error('参数名不合法：' + varNames[i]);
+          if (raw === 'x') throw new Error('参数名不能叫 x —— x 已经是自变量');
+          if (Object.prototype.hasOwnProperty.call(CONSTS, raw)) throw new Error('参数名不能叫 ' + raw + '（内置常数）');
+          if (Object.prototype.hasOwnProperty.call(FUNCS, raw)) throw new Error('参数名不能叫 ' + raw + '（内置函数）');
+          allowed[raw] = true;
+        }
+      }
+
+      for (var k = 0; k < tokens.length; k++) {
+        var tk = tokens[k];
+        if (tk.t !== 'id') continue;
+        if (tk.v === 'x') continue;
+        if (Object.prototype.hasOwnProperty.call(CONSTS, tk.v)) continue;
+        if (Object.prototype.hasOwnProperty.call(FUNCS, tk.v)) continue;
+        if (allowed && Object.prototype.hasOwnProperty.call(allowed, tk.v)) continue;
+        throw new Error('未知符号：' + tk.v);
+      }
+
+      return function (x, scope) {
+        /* 只采纳声明过的参数名 —— 调用方多传的 key 一律忽略，
+           免得某个叫 pi 的 key 把内置常数顶掉。 */
+        var s = null;
+        if (allowed && scope) {
+          s = {};
+          for (var key in allowed) {
+            if (Object.prototype.hasOwnProperty.call(allowed, key) &&
+                Object.prototype.hasOwnProperty.call(scope, key)) s[key] = +scope[key];
+          }
+        }
+        return parse(tokens, x, s);
+      };
     }
 
     return { compile: compile, evalAt: function (src, x) { return compile(src)(x); } };
@@ -182,8 +231,12 @@ window.Tools = (function () {
   function drawGraphSVG(expr, opts) {
     opts = opts || {};
     var W = 620, H = 300, PAD = 36;
+    /* params：{a: 1, b: -2} 这样的参数当前值。传了就把这些名字声明给表达式引擎，
+       表达式里才能出现 a、b、c —— 否则 MathExpr 会按「未知符号」拒绝。 */
+    var params = (opts.params && typeof opts.params === 'object') ? opts.params : null;
+    var varNames = params ? Object.keys(params) : null;
     var fn;
-    try { fn = MathExpr.compile(expr); } catch (e) { return null; }
+    try { fn = MathExpr.compile(expr, varNames); } catch (e) { return null; }
 
     var xmin = (opts.xmin != null && isFinite(+opts.xmin)) ? +opts.xmin : -6.283185;
     var xmax = (opts.xmax != null && isFinite(+opts.xmax)) ? +opts.xmax : 6.283185;
@@ -194,7 +247,7 @@ window.Tools = (function () {
     for (var i = 0; i <= N; i++) {
       var x = xmin + (xmax - xmin) * i / N;
       var y;
-      try { y = fn(x); } catch (e) { y = NaN; }
+      try { y = fn(x, params); } catch (e) { y = NaN; }
       if (typeof y !== 'number' || !isFinite(y)) y = NaN;
       pts.push([x, y]);
       if (!isNaN(y)) ys.push(y);
@@ -202,7 +255,11 @@ window.Tools = (function () {
     if (!ys.length) return null;
 
     var ymin, ymax;
-    if (opts.ymin != null && opts.ymax != null && isFinite(+opts.ymin) && isFinite(+opts.ymax) && +opts.ymax > +opts.ymin) {
+    if (opts.fixedY && isFinite(+opts.fixedY[0]) && isFinite(+opts.fixedY[1]) && +opts.fixedY[1] > +opts.fixedY[0]) {
+      /* 固定 y 轴：拖滑块重绘时必须复用同一个范围。否则坐标轴会跟着曲线一起缩放，
+         整张图随手指抖动，反而看不出「参数到底改变了什么」。 */
+      ymin = +opts.fixedY[0]; ymax = +opts.fixedY[1];
+    } else if (opts.ymin != null && opts.ymax != null && isFinite(+opts.ymin) && isFinite(+opts.ymax) && +opts.ymax > +opts.ymin) {
       ymin = +opts.ymin; ymax = +opts.ymax;
     } else {
       var sorted = ys.slice().sort(function (a, b) { return a - b; });
@@ -214,6 +271,10 @@ window.Tools = (function () {
       if (ymin > 0) ymin = -padY;
       if (ymax < 0) ymax = padY;
     }
+    /* 只要范围、不要图。参数化图得试算好几个参数组合来求 y 轴包络，
+       每次都拼一整张 SVG 纯属白费 —— 这时调用方只关心 out 里的两个数。 */
+    if (opts.rangeOnly) return { ymin: ymin, ymax: ymax };
+
     var yRange = ymax - ymin;
     var jumpLimit = yRange * 4;   // 断点判定阈值，处理 tan 这类无界函数
 
@@ -272,6 +333,67 @@ window.Tools = (function () {
     parts.push('<text x="' + (W - PAD) + '" y="' + (PAD - 12) + '" text-anchor="end" font-size="12" fill="#5a6478" font-family="ui-monospace,Menlo,monospace">y = ' + String(expr).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</text>');
     parts.push('</svg>');
     return parts.join('');
+  }
+
+  /* 老师给的参数定义要过一遍：滑块是给学生手指用的，范围写错（max<min、
+     初始值跑到区间外）会直接变成一个拖不动的坏控件。返回 {list} 或 {error}。 */
+  var MAX_GRAPH_PARAMS = 3;
+  function normalizeParams(raw) {
+    if (raw == null || raw === '') return { list: [] };
+    if (!Array.isArray(raw)) return { error: 'params 必须是数组' };
+    if (raw.length > MAX_GRAPH_PARAMS) {
+      return { error: '参数最多 ' + MAX_GRAPH_PARAMS + ' 个（再多滑块就挤成一团，学生也调不过来）' };
+    }
+    var list = [], seen = {};
+    for (var i = 0; i < raw.length; i++) {
+      var p = raw[i] || {};
+      var name = String(p.name == null ? '' : p.name).trim().toLowerCase();
+      if (!/^[a-z]$/.test(name)) return { error: '参数名必须是单个字母（a~z），收到：' + p.name };
+      if (seen[name]) return { error: '参数名重复：' + name };
+      seen[name] = true;
+      var value = +p.value, min = +p.min, max = +p.max;
+      if (!isFinite(value) || !isFinite(min) || !isFinite(max)) {
+        return { error: '参数 ' + name + ' 的 value / min / max 必须是数字' };
+      }
+      if (!(max > min)) return { error: '参数 ' + name + ' 的 max 必须大于 min' };
+      if (value < min || value > max) {
+        return { error: '参数 ' + name + ' 的初始值 ' + value + ' 不在 [' + min + ', ' + max + '] 内' };
+      }
+      var step = +p.step;
+      if (!isFinite(step) || step <= 0) step = (max - min) / 40;
+      list.push({ name: name, value: value, min: min, max: max, step: step });
+    }
+    return { list: list };
+  }
+
+  /* 求 y 轴包络：让每个参数各取遍自己的 [min, max] 端点，组合起来算一遍 y 范围，取并集。
+     目的是把滑块**拖到任何位置**曲线都还在视野内 —— 否则坐标轴会跟着参数一起缩放，
+     整张图随手指抖，反而看不出「参数到底改变了什么」。
+     参数上限 3 个 → 最多 2^3 = 8 个组合。 */
+  function envelopeY(expr, xmin, xmax, params) {
+    var combos = [{}];
+    params.forEach(function (p) {
+      var next = [];
+      combos.forEach(function (c) {
+        [p.min, p.max].forEach(function (v) {
+          var c2 = {};
+          for (var k in c) if (Object.prototype.hasOwnProperty.call(c, k)) c2[k] = c[k];
+          c2[p.name] = v;
+          next.push(c2);
+        });
+      });
+      combos = next;
+    });
+
+    var lo = Infinity, hi = -Infinity;
+    for (var i = 0; i < combos.length; i++) {
+      var r = drawGraphSVG(expr, { xmin: xmin, xmax: xmax, params: combos[i], rangeOnly: true });
+      if (!r) return null;                     // 表达式本身有问题 → 交给上层统一报错
+      if (r.ymin < lo) lo = r.ymin;
+      if (r.ymax > hi) hi = r.ymax;
+    }
+    if (!isFinite(lo) || !isFinite(hi) || !(hi > lo)) return null;
+    return [lo, hi];
   }
 
   /* ==================================================================
@@ -440,29 +562,78 @@ window.Tools = (function () {
     },
 
     draw_graph: {
-      description: '把数学函数画成图像直接显示给学生。讲极限、导数几何意义、单调性、凹凸性、积分面积时非常有用。只支持单变量 x。',
+      description: '把数学函数画成图像直接显示给学生。讲极限、导数几何意义、单调性、凹凸性、积分面积时非常有用。只支持单变量 x。'
+        + '如果函数带参数（如 a*x^2+b*x+c），就把参数写进 params —— 图上会出现滑块，学生能自己拖着看曲线怎么变。'
+        + '讲「参数对图像的影响」时用它，比连画三张静态图清楚得多，而且学生是自己动手发现的。',
       parameters: {
         type: 'object',
         properties: {
-          expr: { type: 'string', description: '函数表达式，如 sin(x)/x、x^3-3x、ln(x)、1/x、exp(-x^2)' },
+          expr: { type: 'string', description: '函数表达式，如 sin(x)/x、x^3-3x、ln(x)、1/x、exp(-x^2)；也可以带参数，如 a*x^2+b*x+c' },
           xmin: { type: 'number', description: 'x 轴下界，默认约 -2π' },
-          xmax: { type: 'number', description: 'x 轴上界，默认约 2π' }
+          xmax: { type: 'number', description: 'x 轴上界，默认约 2π' },
+          params: {
+            type: 'array',
+            description: '要让学手动调节的参数（最多 3 个）。给了它，图上就会出现可拖动的滑块。取值范围要覆盖你想讲的全部情形。',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: '参数名，单个字母，如 a' },
+                value: { type: 'number', description: '初始值，必须落在 min~max 之间' },
+                min: { type: 'number', description: '滑块最小值' },
+                max: { type: 'number', description: '滑块最大值' },
+                step: { type: 'number', description: '滑块步长，默认 (max-min)/40' }
+              },
+              required: ['name', 'value', 'min', 'max']
+            }
+          }
         },
         required: ['expr']
       },
-      run: function (a, ctx) {
+      run: function (a) {
         var expr = String(a.expr || '').trim();
         if (!expr) return { ok: false, error: '缺少 expr' };
         var xmin = a.xmin != null ? +a.xmin : -6.283185;
         var xmax = a.xmax != null ? +a.xmax : 6.283185;
-        var svg = drawGraphSVG(expr, { xmin: xmin, xmax: xmax });
+        if (!(xmax > xmin)) { xmin = -6.283185; xmax = 6.283185; }
+
+        var spec = normalizeParams(a.params);
+        if (spec.error) return { ok: false, error: spec.error };
+        var params = spec.list;
+
+        var scope = {};
+        params.forEach(function (p) { scope[p.name] = p.value; });
+
+        var svg, yRange = null;
+        if (params.length) {
+          yRange = envelopeY(expr, xmin, xmax, params);
+          if (!yRange) {
+            return { ok: false, error: '表达式无法解析：' + expr + '。带参数时，参数名必须是单个字母，并且要在 params 里逐个声明。' };
+          }
+          svg = drawGraphSVG(expr, { xmin: xmin, xmax: xmax, params: scope, fixedY: yRange });
+        } else {
+          svg = drawGraphSVG(expr, { xmin: xmin, xmax: xmax });
+        }
         if (!svg) {
           return { ok: false, error: '表达式无法解析：' + expr + '。支持 + - * / ^ 与括号，函数 sin/cos/tan/ln/log/exp/sqrt/abs，常数 pi、e，变量 x' };
         }
+
+        /* xmin / xmax 必须一起存：前端拖滑块重绘时要复用同一个 x 轴，
+           不然会退回默认的 -2π~2π，跟老师原本要讲的那段区间对不上。 */
+        var item = { kind: 'graph', expr: expr, svg: svg, xmin: xmin, xmax: xmax };
+        if (params.length) {
+          item.params = params;
+          item.yRange = yRange;      // 拖滑块重绘时要复用这个范围，坐标轴不能跟着抖
+        }
         return {
           ok: true,
-          data: { expr: expr, xmin: xmin, xmax: xmax, plotted: true, note: '图像已显示给学生' },
-          render: { type: 'board', item: { kind: 'graph', expr: expr, svg: svg } }
+          data: {
+            expr: expr, xmin: xmin, xmax: xmax, plotted: true,
+            params: params.length
+              ? params.map(function (p) { return p.name + '=' + p.value; }).join('，')
+              : undefined,
+            note: params.length ? '图像已显示给学生，并带上了可拖动的参数滑块' : '图像已显示给学生'
+          },
+          render: { type: 'board', item: item }
         };
       }
     },

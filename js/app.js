@@ -1765,6 +1765,105 @@
     return '';
   }
 
+  function fmtNum(v) {
+    var n = +v;
+    if (!isFinite(n)) return '?';
+    return String(Math.round(n * 1000) / 1000);
+  }
+
+  /* 函数图。带 params 的会多出一排滑块 —— 学生拖着自己看曲线怎么变，
+     比老师连画三张静态图清楚，而且是他自己发现的。
+     注意 data-* 上必须带全 expr / params / yRange / xmin / xmax：
+     重绘靠事件委托，处理器手里没有当时的 session 对象，只能从 DOM 读回来。 */
+  function graphInner(b) {
+    var canvas = '<div class="c-graph-canvas">' + (b.svg || '') + '</div>';
+    var expr = b.expr ? '<div class="c-board-expr">' + renderFormula('y = ' + b.expr, false) + '</div>' : '';
+    var ps = (b.params && b.params.length) ? b.params : null;
+    if (!ps) return '<div class="c-board-graph">' + canvas + expr + '</div>';
+
+    var ctrl = ps.map(function (p) {
+      return '<label class="c-param">' +
+        '<span class="c-param-name">' + esc(p.name) + '</span>' +
+        '<input type="range" data-role="graph-param" data-pname="' + esc(p.name) + '"' +
+          ' min="' + esc(p.min) + '" max="' + esc(p.max) + '" step="' + esc(p.step) + '"' +
+          ' value="' + esc(p.value) + '" aria-label="参数 ' + esc(p.name) + '">' +
+        '<span class="c-param-val" data-role="graph-val">' + esc(fmtNum(p.value)) + '</span>' +
+        '</label>';
+    }).join('');
+
+    return '<div class="c-board-graph c-board-graph-live"' +
+      ' data-expr="' + esc(b.expr || '') + '"' +
+      ' data-xmin="' + esc(b.xmin != null ? b.xmin : '') + '"' +
+      ' data-xmax="' + esc(b.xmax != null ? b.xmax : '') + '"' +
+      ' data-yrange="' + esc(b.yRange ? JSON.stringify(b.yRange) : '') + '"' +
+      ' data-params="' + esc(JSON.stringify(ps)) + '">' +
+      canvas + expr +
+      '<div class="c-graph-controls">' + ctrl + '</div>' +
+      '</div>';
+  }
+
+  /* 拖滑块 → 就地重画这一张图。
+     只替换图容器，**不重建整个黑板块** —— 否则每拖一下都会重播一次入场动画，
+     看起来像整块黑板在闪。 */
+  function redrawGraph(wrap) {
+    var expr = wrap.getAttribute('data-expr') || '';
+    if (!expr) return;
+    if (!window.Tools || typeof Tools.drawGraphSVG !== 'function') return;
+
+    var params = [];
+    try { params = JSON.parse(wrap.getAttribute('data-params') || '[]') || []; } catch (e) { params = []; }
+    var yRange = null;
+    try { yRange = JSON.parse(wrap.getAttribute('data-yrange') || 'null'); } catch (e) { yRange = null; }
+    var xmin = parseFloat(wrap.getAttribute('data-xmin'));
+    var xmax = parseFloat(wrap.getAttribute('data-xmax'));
+
+    var scope = {};
+    var ranges = wrap.querySelectorAll('[data-role="graph-param"]');
+    for (var i = 0; i < ranges.length; i++) {
+      var name = ranges[i].getAttribute('data-pname');
+      var v = +ranges[i].value;
+      scope[name] = v;
+      var valEl = ranges[i].parentNode.querySelector('[data-role="graph-val"]');
+      if (valEl) valEl.textContent = fmtNum(v);
+    }
+    /* 参数定义里的 value 也要跟着走 —— 否则重绘过再切走切回，会退回初始值。 */
+    for (var j = 0; j < params.length; j++) {
+      if (Object.prototype.hasOwnProperty.call(scope, params[j].name)) params[j].value = scope[params[j].name];
+    }
+    wrap.setAttribute('data-params', JSON.stringify(params));
+
+    var opts = { params: scope };
+    if (isFinite(xmin) && isFinite(xmax) && xmax > xmin) { opts.xmin = xmin; opts.xmax = xmax; }
+    if (yRange && yRange.length === 2) opts.fixedY = yRange;
+
+    var svg = Tools.drawGraphSVG(expr, opts);
+    if (!svg) return;
+
+    /* ★ 换图之前先把这块的 .c-fresh 摘掉。
+       否则新插进来的 <path> 会重新匹配
+       `.c-board-item.c-fresh ... .c-graph-line { animation: cDraw }`，
+       每拖一下就重播一次「一笔描出来」—— 那是入场动画，不是交互反馈。
+       语义上也对：他都在拖它了，它显然不再是「刚出现的块」。 */
+    var host = wrap;
+    while (host && host !== document) {
+      if (host.classList && host.classList.contains('c-board-item')) { host.classList.remove('c-fresh'); break; }
+      host = host.parentNode;
+    }
+
+    var canvas = wrap.querySelector('.c-graph-canvas');
+    if (canvas) canvas.innerHTML = svg;
+  }
+
+  function onBoardInput(e) {
+    var el = e.target;
+    if (!el || el.getAttribute('data-role') !== 'graph-param') return;
+    var node = el;
+    while (node && node !== document) {
+      if (node.classList && node.classList.contains('c-board-graph-live')) { redrawGraph(node); return; }
+      node = node.parentNode;
+    }
+  }
+
   function boardHtml(session, freshFrom) {
     var blocks = boardVisible(session);
     if (!blocks.length) {
@@ -1807,8 +1906,7 @@
           (b.note ? '<div class="c-board-note">' + inlineMd(b.note) + '</div>' : '');
       } else {
         /* graph（默认分支）：兼容早期只存了 svg 的老存档 */
-        inner = '<div class="c-board-graph">' + (b.svg || '') + '</div>' +
-          (b.expr ? '<div class="c-board-expr">' + renderFormula('y = ' + b.expr, false) + '</div>' : '');
+        inner = graphInner(b);
       }
 
       html += '<div class="' + cls + '">' +
@@ -1819,9 +1917,27 @@
     return html || '<div class="c-board-empty">黑板还是空的。</div>';
   }
 
+  /* 参数滑块用**事件委托**绑在容器上，而不是每个 input 各绑一次 ——
+     黑板内容会被反复重建（innerHTML 换掉），逐个绑必然漏。
+
+     ★ 初始渲染和后续重画都要调它。初始那次渲染走的是 pageClass 里的模板
+     （boardHtml 直接拼进 HTML），**压根不经过 renderBoard**；只在那里绑的话，
+     滑块画得出来、却没人听它的事件，拖了毫无反应。（真踩过）
+
+     change 也要听 —— 键盘方向键微调只发 change，不发 input。 */
+  function bindBoard() {
+    var box = $('#c-board');
+    if (!box || box.getAttribute('data-graph-bound')) return;
+    box.setAttribute('data-graph-bound', '1');
+    box.addEventListener('input', onBoardInput);
+    box.addEventListener('change', onBoardInput);
+  }
+
   function renderBoard(session) {
     var box = $('#c-board');
     if (!box) return;
+    bindBoard();
+
     var blocks = boardVisible(session);
     var drawn = boardRenderable(session);
     var lastClear = boardClearIndex(session);
@@ -1930,6 +2046,8 @@
     }
     /* 渲染完再统一对一次状态（含提示语），避免模板里的判断和实际状态漂移。 */
     setInterject(session);
+    /* 参数滑块的事件委托。**初始渲染也要绑** —— 这条路径不经过 renderBoard。 */
+    bindBoard();
   }
 
   App.goClass = function (kid) { window.location.hash = '#/class/' + kid; };

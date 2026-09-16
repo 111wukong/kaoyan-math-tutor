@@ -323,7 +323,15 @@ async function waitPort(file, ms) {
               steps: ['提取公因式 tan x', '用 1−cos x ~ x²/2', '得极限 1/2']
             },
             { by: 'teacher', kind: 'latex', tex: '\\lim_{x\\to 0}\\frac{\\sin x}{x}=1', note: '第一个重要极限' },
-            { by: 'weak', kind: 'graph', expr: 'sin(x)/x', svg: '<svg viewBox="0 0 10 10"><path class="c-graph-line" pathLength="1" d="M0 5 L10 5" fill="none" stroke="#3b5bdb"/></svg>' },
+            /* 带参数的图：图上会出现滑块，学生能拖着看曲线怎么变。
+               这里的 svg 故意是个「假的」极简占位 —— 拖动滑块后它必须被真的
+               重绘结果替换掉，「重绘真的发生了」才证明得了。 */
+            {
+              by: 'weak', kind: 'graph', expr: 'a*sin(x)/x', xmin: -6, xmax: 6,
+              params: [{ name: 'a', value: 1, min: 0, max: 3, step: 0.5 }],
+              yRange: [-1.5, 3],
+              svg: '<svg viewBox="0 0 10 10"><path class="c-graph-line" pathLength="1" d="M0 5 L10 5" fill="none" stroke="#3b5bdb"/></svg>'
+            },
             { by: 'teacher', kind: 'highlight', target: '提取公因式' }
           ]
         }
@@ -442,6 +450,40 @@ async function waitPort(file, ms) {
           '★ 黑板容器记下了已渲染块数（' + (cb ? cb.getAttribute('data-blocks') : '无') + '）');
         chk(!!cb && cb.getAttribute('data-blocks') === String(document.querySelectorAll('.c-board-item').length),
           '★ 记账口径和渲染口径一致（highlight 不算一块）');
+        /* ---- 参数滑块：讲「参数怎么影响图像」时，学生自己拖着看 ---- */
+        var pr = document.querySelectorAll('[data-role="graph-param"]');
+        chk(pr.length === 1, '★ 参数滑块渲染出来了（' + pr.length + ' 个）');
+        chk(!!pr[0] && pr[0].type === 'range', '滑块是 range 控件');
+        chk(!!pr[0] && pr[0].getAttribute('data-pname') === 'a', '滑块知道自己管哪个参数');
+        var pv = document.querySelector('[data-role="graph-val"]');
+        chk(!!pv && pv.textContent === '1', '★ 参数当前值显示出来了（' + (pv ? pv.textContent : '无') + '）');
+        var gw = document.querySelector('.c-board-graph-live');
+        chk(!!gw && gw.getAttribute('data-expr') === 'a*sin(x)/x',
+          '★ 图块把表达式记在 DOM 上（重绘时拿不到 session，只能从这儿读）');
+        chk(!!gw && !!gw.getAttribute('data-params'), '图块记下了参数定义');
+        chk(!!gw && gw.getAttribute('data-xmin') === '-6' && gw.getAttribute('data-xmax') === '6',
+          '★ 图块记下了 x 轴范围（否则重绘会退回默认的 -2π~2π）');
+
+        /* 先手动标成「刚画上去的」，再拖滑块 —— c-fresh 必须被摘掉，
+           否则每拖一下都会重播一次「一笔描出来」的入场动画。 */
+        var gItem = document.querySelector('.c-board-item.c-board-graph');
+        if (gItem) gItem.classList.add('c-fresh');
+
+        var before = gw ? gw.querySelector('.c-graph-canvas').innerHTML : '';
+        if (pr[0]) {
+          pr[0].value = '3';
+          pr[0].dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        var after = gw ? gw.querySelector('.c-graph-canvas').innerHTML : '';
+        chk(!!before && before !== after, '★ 拖滑块后图真的重画了（不是只改了个数字）');
+        chk(after.indexOf('M0 5 L10 5') < 0 && after.indexOf('<path') > 0,
+          '★ 重画后换成了真曲线（原来的占位 svg 被替换掉）');
+        var pv2 = document.querySelector('[data-role="graph-val"]');
+        chk(!!pv2 && pv2.textContent === '3', '★ 参数值跟着更新（' + (pv2 ? pv2.textContent : '无') + '）');
+        chk(!!gItem && gItem.className.indexOf('c-fresh') < 0,
+          '★ 拖动后摘掉了 c-fresh（否则每拖一下都重播入场动画）');
+        chk(document.querySelectorAll('.c-board-item').length === 3,
+          '★ 拖动只重画了那张图，没有重建整块黑板');
         /* ---- 教学动作统计 ---- */
         var mv = document.getElementById('c-mv-host');
         chk(!!mv, '教学动作统计卡存在');

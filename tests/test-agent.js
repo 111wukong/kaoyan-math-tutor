@@ -19,9 +19,10 @@ function eq(label, got, want) {
   if (ok) { pass++; console.log('  ✓ ' + label + '  => ' + got); }
   else { fail++; console.log('  ✗ ' + label + '  => 得到 ' + got + '，期望 ' + want); }
 }
-function truthy(label, got) {
-  if (got) { pass++; console.log('  ✓ ' + label); }
-  else { fail++; console.log('  ✗ ' + label + '  (falsy)'); }
+function truthy(label, got, extra) {
+  const tail = extra != null ? '  => ' + extra : '';
+  if (got) { pass++; console.log('  ✓ ' + label + tail); }
+  else { fail++; console.log('  ✗ ' + label + tail + '  (falsy)'); }
 }
 
 console.log('\n=== 1. 表达式求值器 ===');
@@ -57,6 +58,82 @@ exprs.forEach(function (ex) {
   }
 });
 truthy('非法表达式返回 null', T.drawGraphSVG('sin(', {}) === null);
+
+console.log('\n=== 2b. 参数化表达式（参数值由调用方按次传进来）===');
+
+const pf = E.compile('a*x^2+b*x+c', ['a', 'b', 'c']);
+eq('a=1,b=0,c=0 @x=2', pf(2, { a: 1, b: 0, c: 0 }), 4);
+eq('a=2,b=-3,c=1 @x=2', pf(2, { a: 2, b: -3, c: 1 }), 3);
+truthy('换个 scope，同一个函数给出不同结果',
+  pf(1, { a: 1, b: 0, c: 0 }) !== pf(1, { a: 5, b: 0, c: 0 }));
+
+/* ★ 不传 varNames 时必须和以前一模一样 —— 老表达式全在这条路径上 */
+eq('不带参数的老表达式照常求值', E.evalAt('sin(pi/2)', 0), 1);
+eq('x^2+2x+1 @3 仍是 16', E.evalAt('x^2+2x+1', 3), 16);
+try { E.compile('a*x'); fail++; console.log('  ✗ 未声明的 a 竟然通过了'); }
+catch (e) { pass++; console.log('  ✓ 未声明的 a 仍报未知符号  => ' + e.message); }
+
+/* 参数名不能撞 x / 常量 / 函数名 —— 否则 pi 会被一个叫 pi 的参数顶掉 */
+[['x', 'x*a'], ['pi', 'pi*a'], ['sin', 'sin*a']].forEach(function (pair) {
+  try { E.compile(pair[1], [pair[0]]); fail++; console.log('  ✗ 参数名叫 ' + pair[0] + ' 竟然通过了'); }
+  catch (e) { pass++; console.log('  ✓ 参数名不能叫 ' + pair[0] + '  => ' + e.message); }
+});
+
+/* scope 里多传的 key 一律忽略 —— 顶不掉内置常数 */
+const onlyA = E.compile('a*x', ['a']);
+eq('多传的 pi 顶不掉内置常数', onlyA(1, { a: 2, pi: 999 }), 2);
+eq('多传的未声明 key 被忽略', onlyA(3, { a: 1, zzz: 100 }), 3);
+
+console.log('\n=== 2c. draw_graph 带 params（图上出现滑块）===');
+
+const dg = function (args) { return T.execute('draw_graph', args, {}); };
+
+/* 不带 params：必须和以前完全一样，老存档与老提示词都还走这条路径 */
+const plain = dg({ expr: 'sin(x)' });
+eq('不带 params 仍然 ok', plain.ok, true);
+eq('item 里没有 params 字段', 'params' in plain.render.item, false);
+eq('item 里没有 yRange 字段', 'yRange' in plain.render.item, false);
+
+const live = dg({
+  expr: 'a*x^2+b*x+c', xmin: -3, xmax: 3,
+  params: [
+    { name: 'a', value: 1, min: -3, max: 3, step: 0.1 },
+    { name: 'b', value: 0, min: -5, max: 5, step: 0.1 },
+    { name: 'c', value: 0, min: -5, max: 5, step: 0.5 }
+  ]
+});
+eq('带 params 仍然 ok', live.ok, true);
+eq('item.params 有 3 项', live.render.item.params.length, 3);
+truthy('item.yRange 是 [lo, hi]',
+  Array.isArray(live.render.item.yRange) && live.render.item.yRange.length === 2);
+/* ★ yRange 必须是「参数取遍极值」的包络，不是按初始值算出来那点范围。
+   否则滑块一拖曲线就出视野，或者坐标轴跟着抖 —— 两种都看不出参数在干什么。 */
+truthy('★ yRange 是包络（远大于初始值那点范围）',
+  live.render.item.yRange[1] - live.render.item.yRange[0] > 20,
+  '跨度 ' + (live.render.item.yRange[1] - live.render.item.yRange[0]).toFixed(1));
+/* ★ xmin/xmax 必须一起存：重绘要复用同一个 x 轴，不能退回默认的 -2π~2π */
+truthy('★ item 存了 xmin / xmax', live.render.item.xmin === -3 && live.render.item.xmax === 3,
+  live.render.item.xmin + ' ~ ' + live.render.item.xmax);
+eq('step 缺省时自动推为 (max-min)/40',
+  dg({ expr: 'a*x', params: [{ name: 'a', value: 1, min: 0, max: 4 }] }).render.item.params[0].step, 0.1);
+
+/* 参数定义写错必须当场拦住 —— 否则会变成一个拖不动的坏控件 */
+[
+  ['参数名不是单字母', { expr: 'ab*x', params: [{ name: 'ab', value: 1, min: 0, max: 2 }] }],
+  ['参数名重复', { expr: 'a*x', params: [{ name: 'a', value: 1, min: 0, max: 2 }, { name: 'a', value: 1, min: 0, max: 2 }] }],
+  ['max 不大于 min', { expr: 'a*x', params: [{ name: 'a', value: 1, min: 2, max: 2 }] }],
+  ['初始值跑出区间', { expr: 'a*x', params: [{ name: 'a', value: 99, min: 0, max: 2 }] }],
+  ['参数超过 3 个', { expr: 'a*b*c*d*x', params: ['a', 'b', 'c', 'd'].map(function (n) { return { name: n, value: 1, min: 0, max: 2 }; }) }],
+  ['声明了 a 但表达式用了 b', { expr: 'a*x+b', params: [{ name: 'a', value: 1, min: 0, max: 2 }] }]
+].forEach(function (pair) {
+  eq('★ 拦住「' + pair[0] + '」', dg(pair[1]).ok, false);
+});
+
+/* yRange 得真的罩住参数极值，不能只是「看起来够宽」 */
+const env = dg({ expr: 'a*x^2', xmin: -2, xmax: 2, params: [{ name: 'a', value: 1, min: 1, max: 10 }] });
+const yr = env.render.item.yRange;
+truthy('★ yRange 罩住了 a 取最大时的 y=40（a=10、x=2）', yr[0] <= 40 && yr[1] >= 40,
+  '[' + yr[0].toFixed(1) + ', ' + yr[1].toFixed(1) + ']');
 
 console.log('\n=== 3. 工具执行（mock 学情数据）===');
 const mockCtx = {

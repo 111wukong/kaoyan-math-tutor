@@ -858,6 +858,26 @@ body {
 .c-board-graph svg { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); }
 .c-board-expr { font-size: 12px; color: var(--ink); margin-top: 6px; text-align: center; font-family: var(--serif); }
 
+/* ---------- 参数滑块 ----------
+   讲「参数对图像的影响」时，让学生自己拖着看曲线怎么变 ——
+   比老师连画三张静态图清楚，而且结论是他自己发现的。
+   拖动时只重画图，不重建整块（见 app.js 的 redrawGraph）。 */
+.c-board-graph-live { display: block; }
+.c-graph-canvas { display: block; }
+.c-graph-controls {
+  display: flex; flex-wrap: wrap; gap: 8px 18px;
+  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line);
+}
+.c-param { display: flex; align-items: center; gap: 7px; flex: 1 1 170px; min-width: 140px; }
+.c-param-name { font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--ink); min-width: 11px; }
+.c-param-val {
+  font-family: var(--mono, ui-monospace, Menlo, monospace);
+  font-size: 12px; color: var(--brand); min-width: 38px; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.c-param input[type="range"] { flex: 1; min-width: 70px; height: 18px; margin: 0; cursor: pointer; accent-color: var(--brand); }
+.c-param input[type="range"]:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+
 /* ---------- 黑板动作族 ----------
    黑板是「一笔一笔写出来」的，不是一次性铺满。新追加的块带 .c-fresh 才播动画，
    否则每次重画整块黑板都会重播一遍，像坏了。 */
