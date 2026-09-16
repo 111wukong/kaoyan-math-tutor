@@ -1751,10 +1751,36 @@
     return items.slice(boardClearIndex(session) + 1);
   }
 
-  /* 真正会画成一块内容的（highlight 只是给已有块打光，不占号）。
-     data-blocks 和动画的"新块起点"都用这个口径，否则记账和渲染对不上。 */
-  function boardRenderable(session) {
-    return boardVisible(session).filter(function (b) { return b.kind !== 'highlight'; });
+  /* 把「擦黑板」之后剩下的内容按页切开。
+     页号**不存进数据**，而是在序列里插 {kind:'page'} 分隔块、由这里数出来 ——
+     老存档没有分隔块，天然就是一页，不用迁移。 */
+  function boardPages(session) {
+    var pages = [{ title: '', blocks: [] }];
+    boardVisible(session).forEach(function (b) {
+      if (b.kind === 'page') { pages.push({ title: String(b.title || ''), blocks: [] }); return; }
+      pages[pages.length - 1].blocks.push(b);
+    });
+    /* 老师一上来就翻页的话，第一页是空的 —— 没必要留一个空白页 */
+    if (pages.length > 1 && !pages[0].blocks.length) pages.shift();
+    return pages;
+  }
+
+  /* 现在看的是第几页。默认看最新那页；viewPage 越界（比如内容被擦了）也退回最新。 */
+  function curPage(session) {
+    var n = boardPages(session).length;
+    if (!n) return 0;
+    var v = session && session.viewPage;
+    if (typeof v !== 'number' || v < 0 || v >= n) return n - 1;
+    return v;
+  }
+
+  /* 真正会画成一块内容的。highlight 是打光、page 是分隔符，两者都不占号。
+     data-blocks 和动画的「新块起点」都用这个口径，否则记账和渲染对不上。 */
+  function boardRenderable(session, pageIdx) {
+    var pages = boardPages(session);
+    if (!pages.length) return [];
+    var p = pages[typeof pageIdx === 'number' ? pageIdx : curPage(session)] || { blocks: [] };
+    return p.blocks.filter(function (b) { return b.kind !== 'highlight'; });
   }
 
   function boardTextOf(b) {
@@ -1762,6 +1788,7 @@
     if (b.kind === 'steps') return String(b.title || '') + ' ' + (b.steps || []).join(' ');
     if (b.kind === 'latex') return String(b.tex || '') + ' ' + String(b.note || '');
     if (b.kind === 'graph') return String(b.expr || '');
+    if (b.kind === 'page') return String(b.title || '');
     return '';
   }
 
@@ -1865,7 +1892,9 @@
   }
 
   function boardHtml(session, freshFrom) {
-    var blocks = boardVisible(session);
+    /* 只画当前这一页。分页的意义就在于黑板不会无限往下长。 */
+    var pages = boardPages(session);
+    var blocks = (pages[curPage(session)] || { blocks: [] }).blocks;
     if (!blocks.length) {
       return '<div class="c-board-empty">黑板还是空的。<br>讲到关键处，老师会自己往上写。</div>';
     }
@@ -1917,20 +1946,21 @@
     return html || '<div class="c-board-empty">黑板还是空的。</div>';
   }
 
-  /* 参数滑块用**事件委托**绑在容器上，而不是每个 input 各绑一次 ——
-     黑板内容会被反复重建（innerHTML 换掉），逐个绑必然漏。
+  /* 黑板上的交互（参数滑块、翻页）一律用**事件委托**绑在容器上，
+     而不是每个控件各绑一次 —— 黑板内容会被反复重建（innerHTML 换掉），逐个绑必然漏。
 
      ★ 初始渲染和后续重画都要调它。初始那次渲染走的是 pageClass 里的模板
      （boardHtml 直接拼进 HTML），**压根不经过 renderBoard**；只在那里绑的话，
-     滑块画得出来、却没人听它的事件，拖了毫无反应。（真踩过）
+     控件画得出来、却没人听它的事件，点了毫无反应。（真踩过）
 
-     change 也要听 —— 键盘方向键微调只发 change，不发 input。 */
+     change 也要听 —— 键盘方向键微调滑块只发 change，不发 input。 */
   function bindBoard() {
     var box = $('#c-board');
-    if (!box || box.getAttribute('data-graph-bound')) return;
-    box.setAttribute('data-graph-bound', '1');
+    if (!box || box.getAttribute('data-board-bound')) return;
+    box.setAttribute('data-board-bound', '1');
     box.addEventListener('input', onBoardInput);
     box.addEventListener('change', onBoardInput);
+    box.addEventListener('click', onBoardClick);
   }
 
   function renderBoard(session) {
@@ -1938,27 +1968,69 @@
     if (!box) return;
     bindBoard();
 
-    var blocks = boardVisible(session);
     var drawn = boardRenderable(session);
     var lastClear = boardClearIndex(session);
+    var page = curPage(session);
 
     var prevBlocks = parseInt(box.getAttribute('data-blocks'), 10);
     var prevClear = parseInt(box.getAttribute('data-clear'), 10);
+    var prevPage = parseInt(box.getAttribute('data-page'), 10);
     if (isNaN(prevBlocks)) prevBlocks = drawn.length;    // 初次渲染没有标记 → 全是旧的
     if (isNaN(prevClear)) prevClear = lastClear;
 
-    /* 擦过黑板 → 之前画的全没了，剩下的都算新的；否则只有新追加的才算新。 */
-    var freshFrom = (lastClear !== prevClear) ? 0 : prevBlocks;
+    var freshFrom;
+    if (lastClear !== prevClear) {
+      /* 擦过黑板 → 之前画的全没了，剩下这些对眼睛来说确实刚出现，都播一遍 */
+      freshFrom = 0;
+    } else if (page !== prevPage) {
+      /* 翻页 → 屏幕上是换了一批内容，但那是他自己翻的，
+         拿一屏入场动画糊他脸只会显得卡。 */
+      freshFrom = drawn.length;
+    } else {
+      freshFrom = prevBlocks;
+    }
 
     box.setAttribute('data-blocks', drawn.length);
     box.setAttribute('data-clear', lastClear);
-    box.innerHTML = boardHtml(session, freshFrom);
+    box.setAttribute('data-page', page);
+    box.innerHTML = boardHtml(session, freshFrom) + pageNavHtml(session);
   }
 
-  /* 黑板容器的初始标记。页面第一次画黑板时就要把"已经画了几块"记在 DOM 上，
-     否则第一次收到新动作时 prevBlocks 读不到，老内容会被当成新内容重播一遍动画。 */
+  /* 页码导航。只有一页时不渲染 —— 一节课没翻过页，就别多给他一个要理解的东西。 */
+  function pageNavHtml(session) {
+    var pages = boardPages(session);
+    if (pages.length < 2) return '';
+    var i = curPage(session);
+    var name = pages[i].title ? esc(pages[i].title) : '第 ' + (i + 1) + ' 页';
+    return '<div class="c-board-nav">' +
+      '<button type="button" data-role="board-prev"' + (i <= 0 ? ' disabled' : '') + '>上一页</button>' +
+      '<span class="c-board-nav-label">' + name + ' · ' + (i + 1) + ' / ' + pages.length + '</span>' +
+      '<button type="button" data-role="board-next"' + (i >= pages.length - 1 ? ' disabled' : '') + '>下一页</button>' +
+      '</div>';
+  }
+
+  /* 翻页。事件委托在 #c-board 上，所以翻完直接重画整块黑板是安全的。 */
+  function onBoardClick(e) {
+    var el = e.target;
+    if (!el || !el.getAttribute) return;
+    var role = el.getAttribute('data-role');
+    if (role !== 'board-prev' && role !== 'board-next') return;
+    var session = classOf(window.__curKid);
+    if (!session) return;
+    var n = boardPages(session).length;
+    var i = curPage(session) + (role === 'board-next' ? 1 : -1);
+    if (i < 0 || i >= n) return;
+    /* 只改内存里的浏览位置，不落盘 —— 刷新后回到最新一页是更合理的默认 */
+    session.viewPage = i;
+    renderBoard(session);
+  }
+
+  /* 黑板容器的初始标记。页面第一次画黑板时就要把「已经画了几块、在第几页」记在 DOM 上，
+     否则第一次收到新动作时读不到，老内容会被当成新内容重播一遍动画。 */
   function boardAttrs(session) {
-    return ' data-blocks="' + boardRenderable(session).length + '" data-clear="' + boardClearIndex(session) + '"';
+    return ' data-blocks="' + boardRenderable(session).length + '"' +
+      ' data-clear="' + boardClearIndex(session) + '"' +
+      ' data-page="' + curPage(session) + '"';
   }
 
   function pageClass(kid) {
@@ -2015,7 +2087,7 @@
           '</div>' +
         '</div>' +
         '<div class="class-board">' +
-          '<div class="card"><div class="sub-title">黑板</div><div class="c-board" id="c-board"' + boardAttrs(session) + '>' + boardHtml(session) + '</div></div>' +
+          '<div class="card"><div class="sub-title">黑板</div><div class="c-board" id="c-board"' + boardAttrs(session) + '>' + boardHtml(session) + pageNavHtml(session) + '</div></div>' +
         '</div>' +
       '</div>';
 

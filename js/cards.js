@@ -15,13 +15,14 @@ window.Cards = (function () {
   /* ---------- 卡片类型 ---------- */
   var TYPES = {
     point:    { key: 'point',    name: '必记结论', short: '结论', color: '#1b4d8f' },
+    steps:    { key: 'steps',    name: '解题步骤', short: '步骤', color: '#5a3d8a' },
     pitfall:  { key: 'pitfall',  name: '易错点',   short: '易错', color: '#a33a2e' },
     question: { key: 'question', name: '疑问解答', short: '疑问', color: '#2f6b4f' },
     formula:  { key: 'formula',  name: '必记公式', short: '公式', color: '#8a5f17' },
     problem:  { key: 'problem',  name: '题目回顾', short: '题目', color: '#57574f' }
   };
   /* 打印时的排列顺序：先题后理，易错夹在结论后面 */
-  var TYPE_ORDER = ['problem', 'point', 'pitfall', 'question', 'formula'];
+  var TYPE_ORDER = ['problem', 'point', 'steps', 'pitfall', 'question', 'formula'];
 
   /* 角色名：优先用 Classroom 的，没有就本地兜底（让本模块能独立测试） */
   var FALLBACK_NAMES = { teacher: '老师', smart: '学生甲', average: '学生乙', weak: '学生丙', me: '你' };
@@ -32,7 +33,7 @@ window.Cards = (function () {
     return FALLBACK_NAMES[role] || role;
   }
 
-  var MAX_PER_TYPE = { problem: 1, point: 5, pitfall: 4, question: 3, formula: 4 };
+  var MAX_PER_TYPE = { problem: 1, point: 5, steps: 2, pitfall: 4, question: 3, formula: 4 };
 
   /* ---------- 文本处理 ---------- */
 
@@ -293,13 +294,45 @@ window.Cards = (function () {
       raw.push({ type: 'question', title: nameOf(t.role) + '问', front: qs[0], back: ans });
     }
 
+    /* --- 解题步骤：黑板上一条条写出来的推导 ---
+       这是整节课结构最清楚的东西（目标 + 有序步骤），反而是原来最容易漏的 ——
+       老代码只从黑板收 graph 块的 expr。write_steps 的 title 是「求 lim…」这类目标，
+       正好当卡片正面；正面有实质内容，这张卡才拿来复习得动。 */
+    (session.board || []).forEach(function (b) {
+      if (!b || b.kind !== 'steps') return;
+      var steps = (b.steps || []).map(function (s) { return cleanText(s); })
+        .filter(function (s) { return s.length >= 2; });
+      if (steps.length < 2) return;                     // 单条步骤不值得占一张卡
+      var head = cleanText(b.title || '');
+      /* 编号写成「第 N 步：」而不是「N. 」—— cleanText 会把行首的「1. 」
+         （以及 ①）当 markdown 列表符号剥掉，而它正好会剥到第一行。 */
+      var numbered = steps.map(function (s, i) { return '第 ' + (i + 1) + ' 步：' + s; });
+      if (head) {
+        raw.push({ type: 'steps', title: head, front: head, back: numbered.join('\n') });
+      } else {
+        /* 老师没给标题 —— 把第一步提到正面，别让正面只剩「解题步骤」四个字 */
+        raw.push({
+          type: 'steps',
+          title: '解题步骤',
+          front: steps[0],
+          back: numbered.slice(1).join('\n')
+        });
+      }
+    });
+
     /* --- 必记公式：只留真正像公式的，并带上它出现的那句话当注解 --- */
     var pool = [];
     pool = pool.concat(latexFragments((q && q.analysis) || ''));
     teacherTurns.forEach(function (t) { pool = pool.concat(latexFragments(t.text)); });
-    // 黑板上的式子是人主动写上去的，一定是有意为之，无条件保留
+    // 黑板上的式子是老师主动写上去的，一定是有意为之。
+    // 两条来源分工不同：graph 块的 expr 是函数式（sin(x)/x），latex 块的 tex 才是排版好的公式。
+    // tex 原来漏收了，而它恰恰是「写在黑板上要你记住」的那一类。
+    // 注解只取 latex 的 note —— 没有就留空，别塞「在黑板上写下的公式」这种废话当背面
+    //（pool 里先到的赢，所以公式若在讲解文本里出现过，带语境的注解会优先被采用）。
     (session.board || []).forEach(function (b) {
-      if (b && b.expr) pool.push({ tex: String(b.expr).trim(), context: '在黑板上写下的式子' });
+      if (!b) return;
+      if (b.expr) pool.push({ tex: String(b.expr).trim(), context: '' });
+      if (b.tex) pool.push({ tex: String(b.tex).trim(), context: cleanText(b.note || '') });
     });
     var seenTex = {};
     pool.forEach(function (f) {

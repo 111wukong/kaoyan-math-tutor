@@ -889,6 +889,29 @@ body {
 .c-board-latex .katex { font-size: 1.05em; }
 .c-board-note { font-size: 11.5px; color: var(--ink-3); text-align: center; margin-top: 4px; line-height: 1.6; }
 
+/* ---------- 黑板分页 ----------
+   一节课要讲好几件事，黑板不该无限往下长（讲第三个知识点时，第一个已经滚出视野了）。
+   翻页只换「当前显示哪一页」，前面写的仍在数据里，翻回去看得到。
+   只有一页时导航整个不渲染 —— 没翻过页，就别多给他一个要理解的东西。 */
+.c-board-nav {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding-top: 8px; border-top: 1px dashed var(--line);
+}
+.c-board-nav button {
+  font: inherit; font-size: 11.5px; line-height: 1;
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink-2);
+  cursor: pointer; transition: border-color .15s, color .15s;
+}
+.c-board-nav button:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+.c-board-nav button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.c-board-nav button:disabled { opacity: .38; cursor: default; }
+.c-board-nav-label {
+  flex: 1; min-width: 0; text-align: center;
+  font-size: 11.5px; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 .c-board-item.c-fresh { animation: cIn .26s ease-out both; }
 .c-board-item.c-fresh .c-board-steps li { animation: cStep .26s ease-out both; }
 .c-board-item.c-board-hit { border-color: var(--brand); border-left-width: 3px; background: var(--brand-soft); animation: cHit .5s ease-out both; }

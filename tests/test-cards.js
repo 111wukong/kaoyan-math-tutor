@@ -154,7 +154,14 @@ ok(!cards.some(c => c.type === 'formula' && c.front === '$1/2$'),
   '★ 题目解析里的 $1/2$ 没有变成公式卡');
 ok(!cards.some(c => c.type === 'formula' && c.front === '$x^3/2$'),
   '★ 也没有 $x^3/2$');
-ok(forms.every(c => c.back && c.back.length > 0), '★ 每张公式卡都带上了它出现的那句话');
+// 公式卡的背面只放**真实语境**。黑板上直接写下的式子本来就没有「它出现的那句话」——
+// 以前会硬塞一句「在黑板上写下的式子」当背面，那是标签不是语境，纯占地方。
+ok(forms.filter(c => c.front.indexOf('\\frac{1-\\cos x}{x^2}') >= 0)
+     .every(c => c.back && c.back.length > 0),
+  '★ 从讲解里抽出的公式卡，背面带上了它出现的那句话');
+ok(forms.filter(c => c.front.indexOf('\\frac{\\sin x}{x}') >= 0)
+     .every(c => !c.back || c.back.indexOf('在黑板上') < 0),
+  '★ 黑板来的公式卡不塞「在黑板上写下的式子」这种填充话');
 
 // 原句如果除了公式本身没别的信息，就不该放背面（正反面同一句话是浪费纸）
 const bare = Cards.distill({
@@ -218,6 +225,67 @@ const ctxCard = Cards.distill({
 }, NODE);
 ok(ctxCard.some(c => c.type === 'formula'),
   '★ 带语境的结论卡提到的公式，仍然单独出一张（别把清单规则误伤成「一律不拆」）');
+
+console.log('\n=== 4f. ★ 黑板上的公式与步骤也要进卡片库 ===');
+// 写在黑板上的东西是老师「有意为之」，比正文里顺口提一句更该进卡片。
+// 老代码只从黑板收 graph 块的 expr，漏了 latex 的 tex，steps 更是完全没进。
+const boardCards = Cards.distill({
+  kid: 'c1n4',
+  turns: [],
+  board: [
+    { kind: 'latex', tex: '\\lim_{x\\to 0}\\frac{\\sin x}{x}=1', note: '第一个重要极限' },
+    { kind: 'steps', title: '求 $\\lim_{x\\to 0}\\frac{\\tan x-\\sin x}{x^3}$',
+      steps: ['先通分', '再用等价代换', '最后求极限'] },
+    { kind: 'page', title: '下一节' },
+    { kind: 'clear' }
+  ]
+}, NODE);
+
+const bForm = boardCards.filter(c => c.type === 'formula');
+eq(bForm.length, 1, '★ 黑板 write_latex 写的公式进了公式卡');
+has(bForm[0].front, '\\lim_{x\\to 0}\\frac{\\sin x}{x}=1', '公式本体对');
+eq(bForm[0].back, '第一个重要极限', 'note 当成了卡片背面（有语境才留）');
+
+const bSteps = boardCards.filter(c => c.type === 'steps');
+eq(bSteps.length, 1, '★ 黑板 write_steps 的步骤成了「解题步骤」卡');
+has(bSteps[0].front, '\\lim_{x\\to 0}', '正面是题目（有实质内容，复习得动）');
+has(bSteps[0].back, '第 1 步：先通分', '背面第 1 步带编号');
+has(bSteps[0].back, '第 3 步：最后求极限', '背面第 3 步带编号');
+eq(Cards.TYPES.steps.name, '解题步骤', '新类型有中文名（筛选按钮要用）');
+ok(Cards.TYPE_ORDER.indexOf('steps') >= 0, '新类型在打印排序里');
+
+// 老师没给标题 → 把第一步提到正面，别让正面只剩「解题步骤」四个字
+const noHead = Cards.distill({
+  kid: 'c1n4', turns: [],
+  board: [{ kind: 'steps', steps: ['先把分母有理化', '再约掉公因子'] }]
+}, NODE);
+eq(noHead.length, 1, '没标题也能出卡');
+eq(noHead[0].front, '先把分母有理化', '★ 没标题时正面用第一步，不是泛化词');
+
+// 单条步骤不值得占一张卡
+eq(Cards.distill({
+  kid: 'c1n4', turns: [],
+  board: [{ kind: 'steps', title: '一句话的事', steps: ['就这一步'] }]
+}, NODE).length, 0, '只有一条步骤不出卡');
+
+// 同一个公式在讲解里也出现过 → 只出一张，且注解用讲解里那句（黑板那条没语境）
+// 讲解放倒数第二个 turn，这样它不会被当成「最后一段小结」而生成结论卡，
+// 免得「背面复读别的卡正面」的规则把注解清空、测不到我们想测的东西。
+const bothCtx = Cards.distill({
+  kid: 'c1n4',
+  turns: [
+    { role: 'teacher', text: '这个极限要记牢：$\\lim_{x\\to 0}\\frac{\\sin x}{x}=1$，它是最基本的。' },
+    { role: 'teacher', text: '好，先停一下，你来试试下面这道题。' }
+  ],
+  board: [{ kind: 'latex', tex: '\\lim_{x\\to 0}\\frac{\\sin x}{x}=1' }]
+}, NODE);
+const bothForm = bothCtx.filter(c => c.type === 'formula');
+eq(bothForm.length, 1, '★ 讲解和黑板写了同一个公式，只出一张卡');
+has(bothForm[0].back, '最基本的', '★ 注解优先用讲解里那句（黑板的没语境）');
+
+// 分页分隔块本身不是内容，不该变成任何卡
+eq(Cards.distill({ kid: 'c1n4', turns: [], board: [{ kind: 'page', title: '下一页' }] }, NODE).length,
+  0, '★ page 分隔块不产生卡片');
 
 console.log('\n=== 5. 重复蒸馏不产生重复卡 ===');
 const again = Cards.distill(SESSION, NODE);

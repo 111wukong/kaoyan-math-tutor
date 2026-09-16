@@ -201,6 +201,25 @@ truthy('学生能圈黑板（highlight）', T.STUDENT_TOOLS.indexOf('highlight')
 truthy('老师能写步骤', T.TEACHER_TOOLS.indexOf('write_steps') >= 0);
 truthy('老师能写公式', T.TEACHER_TOOLS.indexOf('write_latex') >= 0);
 
+console.log('\n=== 3d. 黑板分页（翻页是保留，不是擦掉）===');
+const np = T.execute('new_page', { title: '  导数的几何意义  ' }, mockCtx);
+eq('new_page 的 kind', np.render.item.kind, 'page');
+truthy('new_page 产出 board 动作', !!(np.ok && np.render.type === 'board'));
+eq('标题前后空白被 trim', np.render.item.title, '导数的几何意义');
+truthy('data 里带 newPage 标记（UI 可以据此提示）', np.data.newPage === true);
+const npBare = T.execute('new_page', {}, mockCtx);
+eq('不给标题也能翻页', npBare.render.item.kind, 'page');
+truthy('★ 没标题时不塞空 title 字段（渲染层才好判「这页没名字」）',
+  !Object.prototype.hasOwnProperty.call(npBare.render.item, 'title'));
+const npSchema = T.SCHEMA.filter(function (s) { return s.function.name === 'new_page'; })[0];
+truthy('title 不是必填（schema 里没有 required）', npSchema.function.parameters.required === undefined);
+truthy('老师能翻页', T.TEACHER_TOOLS.indexOf('new_page') >= 0);
+truthy('★ 学生不能翻页 —— 节奏是老师安排的，学生要回头看得靠前端导航按钮',
+  T.STUDENT_TOOLS.indexOf('new_page') < 0);
+eq('LABELS 有中文名', T.LABELS.new_page, '翻新一页');
+eq('工具表总数（老师 14 + 学生独有 4）', Object.keys(T.TABLE).length, 18);
+eq('老师工具数', T.TEACHER_TOOLS.length, 14);
+
 console.log('\n=== 4. system prompt 构建（学情是否真的进去了）===');
 const sys = Agent.buildSystem({ kid: 'c1n2', history: [] }, mockCtx);
 ['已掌握 12', '连续打卡：6 天', '近 7 天正确率：68%', '两个重要极限（一）', '严格督学', 'query_weakness', 'draw_graph', '本考点'].forEach(function (k) {

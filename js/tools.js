@@ -726,6 +726,29 @@ window.Tools = (function () {
       }
     },
 
+    /* 分页不靠给每个块打「第几页」的标签，而是在序列里插一个分隔块，
+       页号由渲染层数出来。好处是老存档（没有分隔块）天然就是一页，不用迁移。 */
+    new_page: {
+      description: '在黑板上翻到新的一页。讲完一个完整段落、要换下一个话题时用它 —— 前面写的会保留下来（学生能翻回去看），但黑板空出一页给你写新的。'
+        + '和 clear_board 的区别：clear 是擦掉作废，new_page 是翻页保留。整节课只讲一件事就别翻页。',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: '这一页的小标题，如「导数的几何意义」。会显示在页码导航上' }
+        }
+      },
+      run: function (a) {
+        var title = String(a.title || '').trim();
+        var item = { kind: 'page' };
+        if (title) item.title = title;
+        return {
+          ok: true,
+          data: { newPage: true, title: title || undefined, note: '已翻到新的一页，之前写的还留着' },
+          render: { type: 'board', item: item }
+        };
+      }
+    },
+
     save_note: {
       description: '把一条学习笔记记到某个考点下（学生自己总结的口诀、易错点都适用）。学生说"帮我记一下"或总结出规律时调用。',
       parameters: {
@@ -834,7 +857,7 @@ window.Tools = (function () {
   var TEACHER_TOOLS = [
     'query_weakness', 'get_mistakes', 'pick_question', 'get_node', 'search_nodes',
     'get_progress', 'draw_graph', 'write_steps', 'write_latex', 'highlight', 'clear_board',
-    'save_note', 'mark_mastered'
+    'new_page', 'save_note', 'mark_mastered'
   ];
   var SCHEMA = TEACHER_TOOLS.map(toSchema);
 
@@ -871,6 +894,7 @@ window.Tools = (function () {
     write_latex: '写公式',
     highlight: '圈出黑板一处',
     clear_board: '擦黑板',
+    new_page: '翻新一页',
     save_note: '记笔记',
     mark_mastered: '标记已掌握',
     look_up: '翻书',

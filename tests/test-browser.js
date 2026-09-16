@@ -318,6 +318,11 @@ async function waitPort(file, ms) {
           spoken: [], userTurns: [], memory: {},
           moves: { focus: 4, probing: 2, telling: 1 },
           board: [
+            /* 第 1 页：上一段讲完的东西。翻页后它不会消失 —— 学生能翻回去看，
+               这正是 new_page 和 clear_board 的区别。 */
+            { by: 'teacher', kind: 'latex', tex: 'x^2', note: '上一段留下的式子' },
+            { by: 'teacher', kind: 'page', title: '等价代换的应用' },
+            /* 第 2 页（当前页）： */
             {
               by: 'teacher', kind: 'steps', title: '求 lim (tan x − sin x)/x³',
               steps: ['提取公因式 tan x', '用 1−cos x ~ x²/2', '得极限 1/2']
@@ -484,6 +489,44 @@ async function waitPort(file, ms) {
           '★ 拖动后摘掉了 c-fresh（否则每拖一下都重播入场动画）');
         chk(document.querySelectorAll('.c-board-item').length === 3,
           '★ 拖动只重画了那张图，没有重建整块黑板');
+        /* ---- 黑板分页：讲好几件事时，黑板不该无限往下长 ---- */
+        var nav = document.querySelector('.c-board-nav');
+        chk(!!nav, '★ 多页时出现页码导航');
+        var navLabel = document.querySelector('.c-board-nav-label');
+        chk(!!navLabel && navLabel.textContent.indexOf('2 / 2') >= 0,
+          '★ 默认停在最新那页（' + (navLabel ? navLabel.textContent : '无') + '）');
+        chk(!!navLabel && navLabel.textContent.indexOf('等价代换的应用') >= 0,
+          '★ 页码上显示这一页的小标题（不是干巴巴的页号）');
+        var btnPrev = document.querySelector('[data-role="board-prev"]');
+        var btnNext = document.querySelector('[data-role="board-next"]');
+        chk(!!btnPrev && !!btnNext, '有上一页 / 下一页按钮');
+        chk(!!btnNext && btnNext.disabled === true, '★ 已经在最后一页，下一页按钮禁用');
+        chk(!!btnPrev && btnPrev.disabled === false, '上一页按钮可点');
+
+        /* 翻到第 1 页 */
+        if (btnPrev) btnPrev.click();
+        chk(document.querySelectorAll('.c-board-item').length === 1,
+          '★ 翻到第 1 页后只显示那一页的内容（' + document.querySelectorAll('.c-board-item').length + ' 块）');
+        chk(!!document.querySelector('.c-board-latex') && !document.querySelector('.c-board-steps'),
+          '★ 第 1 页只有 latex 块、没有第 2 页的 steps —— 确实换了一页');
+        chk(document.querySelectorAll('.c-board-item.c-fresh').length === 0,
+          '★ 翻页不重播入场动画（是他自己翻的，糊一屏动画只会显得卡）');
+        var navLabel1 = document.querySelector('.c-board-nav-label');
+        chk(!!navLabel1 && navLabel1.textContent.indexOf('1 / 2') >= 0,
+          '★ 页码跟着翻（' + (navLabel1 ? navLabel1.textContent : '无') + '）');
+        var bp1 = document.querySelector('[data-role="board-prev"]');
+        chk(!!bp1 && bp1.disabled === true, '★ 到第 1 页后上一页禁用');
+        var cb2 = document.getElementById('c-board');
+        chk(!!cb2 && cb2.getAttribute('data-page') === '0',
+          '★ 容器记下了当前页号（重画时靠它判断该不该播动画）');
+
+        /* 翻回第 2 页 */
+        var bn1 = document.querySelector('[data-role="board-next"]');
+        if (bn1) bn1.click();
+        chk(document.querySelectorAll('.c-board-item').length === 3,
+          '★ 翻回来第 2 页内容完整（' + document.querySelectorAll('.c-board-item').length + ' 块）');
+        chk(document.querySelectorAll('.c-board-item.c-fresh').length === 0,
+          '★ 翻回来也不播动画');
         /* ---- 教学动作统计 ---- */
         var mv = document.getElementById('c-mv-host');
         chk(!!mv, '教学动作统计卡存在');
@@ -533,6 +576,18 @@ async function waitPort(file, ms) {
         chk(!document.querySelector('#main .pk-card.pk-formula') ||
             /[=\\\\]/.test(document.querySelector('#main .pk-card.pk-formula').textContent),
             '★ 公式卡里没有纯碎片（都带等号或 LaTeX 命令）');
+        /* 黑板上写的东西也要进卡片库 —— 那是老师有意为之的内容 */
+        var formTxt = Array.prototype.map.call(document.querySelectorAll('#main .pk-card.pk-formula'),
+          function (c) { return c.textContent; }).join('|');
+        chk(/sin/.test(formTxt),
+            '★ 黑板 write_latex 写的公式进了卡片库（' + formTxt.slice(0, 40) + '）');
+        var stCard = document.querySelector('#main .pk-card.pk-steps');
+        chk(!!stCard, '★ 有「解题步骤」卡（从黑板 write_steps 来的）');
+        chk(!!stCard && /第 1 步/.test(stCard.textContent),
+            '★ 步骤卡背面是编号好的步骤（' + (stCard ? stCard.textContent.slice(0, 40) : '无') + '）');
+        var chipTxt = Array.prototype.map.call(document.querySelectorAll('#main .deck-chip'),
+          function (b) { return b.textContent; }).join('|');
+        chk(chipTxt.indexOf('解题步骤') >= 0, '★ 类型筛选里出现了「解题步骤」（' + chipTxt + '）');
         return r.join('\\n');
       } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
     })()`)).split('\n').filter(Boolean));
