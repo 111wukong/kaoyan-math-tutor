@@ -40,7 +40,13 @@ function findBrowser() {
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
     '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'
+    /* Linux：Chrome 的 .deb 包会建 /usr/bin/google-chrome 符号链接，
+       但也见过只留 /opt/google/chrome/chrome 的环境（CI runner 就是）。
+       候选列全一点，免得在 CI 上"找不到浏览器"然后静默跳过、假装通过。 */
+    '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    '/opt/google/chrome/chrome', '/opt/google/chrome/google-chrome',
+    '/snap/bin/chromium'
   ];
   for (const c of cands) if (fs.existsSync(c)) return { bin: c, kind: 'chrome' };
   return null;
