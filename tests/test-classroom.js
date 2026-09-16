@@ -357,6 +357,26 @@ function reset(conf) { log.calls = []; log.toolResults = []; log.studentMsgs = {
   const auto2 = await Classroom.askUser({}, { onAsk: () => '' }, { prompt: 'p' });
   eq(auto2.skipped, true, 'onAsk 返回空 → 算跳过');
 
+  /* ★ 回归：ask 事件发出时 awaiting 必须**已经挂上**。
+     UI 收到 ask 事件会读 session.awaiting 来决定关不关插话入口 ——
+     如果这时它还是 null，UI 会以为「没在等答案」而把入口留着，
+     老师就一边等他作答、一边还能被他插话。（真踩过） */
+  const evSess = { kid: 'c1n4', turns: [], userTurns: [] };
+  let seenAtAsk = 'never';
+  const evPending = Classroom.askUser(evSess, {
+    onEvent: (ev) => { if (ev.type === 'ask') seenAtAsk = evSess.awaiting; }
+  }, { prompt: '事件顺序' });
+  ok(seenAtAsk !== 'never', 'ask 事件确实发出来了');
+  ok(!!seenAtAsk, '★ ask 事件发出时 awaiting 已挂上（否则 UI 会误判成没在等答案）');
+  eq(seenAtAsk && seenAtAsk.prompt, '事件顺序', '挂上的正是这次要问的题');
+  Classroom.submitAnswer(evSess, 'ok');
+  await evPending;
+
+  /* onAsk 直通路径没有真人在等，不能留下残留的 awaiting */
+  const autoSess = {};
+  await Classroom.askUser(autoSess, { onAsk: () => 'x' }, { prompt: 'p' });
+  eq(autoSess.awaiting, null, '★ onAsk 直通后不留残留 awaiting');
+
   console.log('\n=== 17. 用户的答案会进课堂记录，并成为讨论的靶子 ===');
   const uSess = { kid: 'c1n4', mode: 'debate', question: QS.c1n4[0], turns: [], spoken: [], memory: {} };
   const askEv = [];

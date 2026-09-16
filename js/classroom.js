@@ -943,22 +943,29 @@ window.Classroom = (function () {
       placeholder: spec.placeholder || '写下你的答案或思路（一句话也行）',
       phase: spec.phase || 'first'
     };
+    /* ⚠️ awaiting 必须在 emit **之前**挂上。
+       UI 收到 ask 事件时会读 session.awaiting 来决定要不要关掉插话入口 ——
+       如果这时它还是 null，UI 会以为「没在等答案」，把插话入口留着，
+       老师就会被「等你作答」和「你插话」两条线同时拉扯。（真踩过）
+       resolve 先留空，等 Promise 的 executor 跑起来再补上。 */
+    session.awaiting = {
+      prompt: payload.prompt,
+      placeholder: payload.placeholder,
+      phase: payload.phase,
+      resolve: null
+    };
     /* 事件先发 —— 无论走不走 onAsk 直通，UI 都该看见"该你了"这一步。 */
     emit(hooks, { type: 'ask', spec: payload });
     status(hooks, spec.status || '等你先答');
 
     if (hooks && typeof hooks.onAsk === 'function') {
       var auto = hooks.onAsk(spec);
+      session.awaiting = null;          // 直通路径没有真人在等，别留残留状态
       return Promise.resolve(auto && typeof auto === 'object'
         ? auto : { text: String(auto == null ? '' : auto), skipped: !auto });
     }
     return new Promise(function (resolve) {
-      session.awaiting = {
-        prompt: payload.prompt,
-        placeholder: payload.placeholder,
-        phase: payload.phase,
-        resolve: resolve
-      };
+      session.awaiting.resolve = resolve;
     });
   }
 

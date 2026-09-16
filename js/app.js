@@ -1569,6 +1569,37 @@
      里面的 resolve 早随旧页面一起没了，不能再拿它去接用户的答案。 */
   var classLive = null;
   function isLive(session) { return !!session && classLive === session; }
+
+  /* 插话入口的提示语。禁用了就得说清为什么 —— 一个不解释的灰输入框
+     会让人以为是自己操作错了。 */
+  function interjectPlaceholder(session) {
+    if (isLive(session)) {
+      return session.awaiting ? '先把上面那道题交了，再插话' : '插话 —— 老师会当场回应你';
+    }
+    if (!session) return '点「开始」开一节课';
+    if (session.stage === 'running') return '这一节已经中断了，重开一节吧';
+    return '这一节已结束 —— 想接着问就重开一节';
+  }
+
+  /* 插话入口能不能用，只看「现在有没有一节在跑的课」。
+     不能拿 live 判断 —— live 的含义是「这节课已经有发言内容」，
+     而刚开课时 turns 还是空的、live 为 false，
+     于是输入框一渲染出来就是禁用的，整节课都点不了。（真踩过的 bug） */
+  function canInterject(session) {
+    return isLive(session) && !(session && session.awaiting);
+  }
+
+  /* 统一改插话入口的可用状态。页面渲染 / 抛题等他答 / 交完答案 / 收尾
+     四处共用同一套口径，免得各写一遍 disabled 然后漏掉一个。 */
+  function setInterject(session) {
+    var on = canInterject(session);
+    var ph = interjectPlaceholder(session);
+    var inp = $('#c-input');
+    if (inp) { inp.disabled = !on; inp.placeholder = ph; }
+    var s = $('#c-send'); if (s) s.disabled = !on;
+    var h = $('#c-hand'); if (h) h.disabled = !on;
+    return on;
+  }
   function scrollStream() {
     var s = $('#c-stream');
     if (s) s.scrollTop = s.scrollHeight;
@@ -1822,9 +1853,9 @@
     }
     var session = classOf(kid);
     var live = !!(session && session.turns && session.turns.length);
-    /* 课堂停下来等他作答时，插话入口要关掉 —— 那会让老师同时回应两条线，
-       而且他此刻该做的是交答案，不是闲聊。 */
-    var canInterject = live && isLive(session) && !session.awaiting;
+    /* 插话入口是否可用由 canInterject() 统一判定（见文件上方）。
+       这里算一次只为渲染初始的 disabled 属性，渲染完还会再 setInterject 一次。 */
+    var interjectable = canInterject(session);
     var mode = (session && session.mode) || 'debate';
     var chap = chapOf(n) || { cat: { name: '' } };
     var deck = (state.cardDeck && state.cardDeck[kid]) || [];
@@ -1861,9 +1892,9 @@
             '</div>' +
             '<div class="c-stream" id="c-stream"></div>' +
             '<div class="c-input-row">' +
-              '<input id="c-input" placeholder="插话 —— 老师会当场回应你" autocomplete="off"' + (canInterject ? '' : ' disabled') + '>' +
-              '<button id="c-send" onclick="App.classInterject()"' + (canInterject ? '' : ' disabled') + '>插话</button>' +
-              '<button id="c-hand" onclick="App.raiseMyHand()"' + (canInterject ? '' : ' disabled') + ' title="抢话筒：预填一句话，你可以改">举手</button>' +
+              '<input id="c-input" placeholder="' + esc(interjectPlaceholder(session)) + '" autocomplete="off"' + (interjectable ? '' : ' disabled') + '>' +
+              '<button id="c-send" onclick="App.classInterject()"' + (interjectable ? '' : ' disabled') + '>插话</button>' +
+              '<button id="c-hand" onclick="App.raiseMyHand()"' + (interjectable ? '' : ' disabled') + ' title="抢话筒：预填一句话，你可以改">举手</button>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -1891,12 +1922,14 @@
         stream.appendChild(el);
       }
       var inp = $('#c-input');
-      if (inp && !inp.disabled) {
-        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') App.classInterject(); });
-      }
+      /* 无条件绑定 Enter：禁用的输入框本来就不会触发 keydown，
+         而 App.classInterject 自己有一整套守卫，不需要这里再判一次。 */
+      if (inp) inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') App.classInterject(); });
       resetRoster(session);
       scrollStream();
     }
+    /* 渲染完再统一对一次状态（含提示语），避免模板里的判断和实际状态漂移。 */
+    setInterject(session);
   }
 
   App.goClass = function (kid) { window.location.hash = '#/class/' + kid; };
@@ -1986,10 +2019,9 @@
         /* 课堂在这里停下来等他。把答题卡接到流末尾，关掉插话入口，
            并把焦点送进输入框 —— 不能让他盯着一动不动等。 */
         if (ev.type === 'ask') {
-          var inp0 = $('#c-input');
-          if (inp0) inp0.disabled = true;
-          var b0 = $('#c-send'); if (b0) b0.disabled = true;
-          var b1 = $('#c-hand'); if (b1) b1.disabled = true;
+          /* 此时 session.awaiting 已经挂上了（askUser 保证 emit 在赋值之后），
+             所以 setInterject 会算出「不可插话」并把提示语换成"先交答案"。 */
+          setInterject(session);
           stream.insertAdjacentHTML('beforeend', askHtml(session));
           var ta = $('#c-ask-input');
           if (ta) { ta.focus(); scrollStream(); }
@@ -2027,10 +2059,10 @@
       if (mv) mv.innerHTML = movesHtml(session);
       var ask = $('#c-ask');
       if (ask) ask.remove();
-      var inp1 = $('#c-input');
-      if (inp1) inp1.disabled = false;
-      var b2 = $('#c-send'); if (b2) b2.disabled = false;
-      var b3 = $('#c-hand'); if (b3) b3.disabled = false;
+      /* 课跑完了，插话入口要跟着关掉 —— 老师已经不在了。
+         以前这里是直接 disabled=false，结果留下一个点了只会弹
+         「这一节已经中断了」的输入框，比禁用更让人困惑。 */
+      setInterject(session);
     }
   };
 
@@ -2048,10 +2080,7 @@
     }
     var ask = $('#c-ask');
     if (ask) ask.remove();
-    var inp = $('#c-input');
-    if (inp) inp.disabled = false;
-    var b = $('#c-send'); if (b) b.disabled = false;
-    var b2 = $('#c-hand'); if (b2) b2.disabled = false;
+    setInterject(session);
     save();
   };
 
@@ -2063,10 +2092,7 @@
     if (!Classroom.skipAnswer(session)) { toast('这一节已经接不上了', 'no'); return; }
     var ask = $('#c-ask');
     if (ask) ask.remove();
-    var inp = $('#c-input');
-    if (inp) inp.disabled = false;
-    var b = $('#c-send'); if (b) b.disabled = false;
-    var b2 = $('#c-hand'); if (b2) b2.disabled = false;
+    setInterject(session);
     save();
   };
 

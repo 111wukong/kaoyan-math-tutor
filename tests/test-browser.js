@@ -321,6 +321,17 @@ async function waitPort(file, ms) {
             { by: 'teacher', kind: 'highlight', target: '提取公因式' }
           ]
         }
+      },
+      /* 让 llmOn() 成立 —— 本地通道免 Key。
+         注意字段名：load() 里 `L.base = kind==='cloud' ? cloudBase : localBase`，
+         写 base/model 是没用的，会被 localBase/localModel 覆盖掉（localModel 默认空串 → llmOn 判 false）。
+         有了它才能走 App.startClass 的**真实同步段**（建 session → 指 classLive → 重渲染），
+         去断言「课在跑的时候插话入口是开的」。 */
+      settings: {
+        llm: {
+          enabled: true, kind: 'local',
+          localBase: 'http://127.0.0.1:1', localModel: 'test-model', localName: 'test'
+        }
       }
     };
     await evalVal('localStorage.setItem("kaoyan_math_tutor_v1", ' + JSON.stringify(JSON.stringify(seeded)) + ')');
@@ -338,6 +349,66 @@ async function waitPort(file, ms) {
     await sleep(200);
 
     const cardOut = [];
+
+    /* ================= B0. 插话入口的可用状态 =================
+       回归：canInterject 一度拿 live（含义是"这节课已经有发言内容"）当条件，
+       而 startClass 建 session 时 turns 是空的、live 为 false，
+       于是输入框一渲染出来就是禁用的 —— 整节课都插不了话，
+       而课结束后它又被无条件启用，点了只弹「这一节已经中断了」。
+       这里走 App.startClass 的**真实同步段**把两个状态都钉住。
+
+       ⚠️ 这个探针会**覆盖掉某个考点的课堂记录**（startClass 里有
+       `state.classrooms[topic.kid] = session`，而 pickTopic 优先挑错题、
+       返回的 kid 未必是我们传的那个）。所以跑完必须重新播种 + 重载，
+       否则后面依赖种子数据的断言会集体崩。 */
+    const ijOut = [];
+    /* 注意别写成 `await runProbe(x).split()` —— await 的优先级低于成员访问，
+       那样会被解析成 `await (runProbe(x).split())`，而 Promise 没有 split。
+       拆成两步最省事。 */
+    const ijRaw = await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var inp = document.getElementById('c-input');
+        chk(!!inp && inp.disabled, '★ 只有历史记录、没在跑课时，插话入口是禁用的');
+        chk(!!inp && /已结束/.test(inp.placeholder), '★ 禁用时提示语说明了原因（' + (inp ? inp.placeholder : '无') + '）');
+
+        /* 把 run 换成永不 resolve 的 Promise：startClass 的同步段照跑，
+           异步段挂在原地 —— 既不发网络请求，也不会往 __errors 里塞东西。 */
+        var origRun = window.Classroom.run;
+        window.Classroom.run = function () { return new Promise(function () {}); };
+        window.__curKid = 'c1n4';
+        window.App.startClass('debate');
+        /* startClass 会在模型没配好时 toast + 跳到设置页。hash 是同步改的，
+           所以这一条能直接把「为什么没开起来」暴露出来。 */
+        chk(location.hash.indexOf('settings') < 0,
+          'startClass 没有因为"模型没配好"而跳走（hash = ' + location.hash + '）');
+        var st = document.getElementById('c-status');
+        chk(!!st && st.textContent.indexOf('已结束') < 0,
+          '★ 课确实在跑（状态条 = ' + (st ? st.textContent : '无') + '）');
+        var inp2 = document.getElementById('c-input');
+        chk(!!inp2 && !inp2.disabled, '★ 课在跑时插话入口是**可用**的（回归：以前这里是禁用的）');
+        chk(!!inp2 && /插话/.test(inp2.placeholder), '★ 可用时提示语是「插话」（' + (inp2 ? inp2.placeholder : '无') + '）');
+        window.Classroom.run = origRun;
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针自身抛异常：' + (e && e.message); }
+    })()`);
+    ijOut.push(...ijRaw.split('\n').filter(Boolean));
+
+    console.log('\n=== 插话入口（B0）===');
+    ijOut.forEach(l => console.log('  ' + l));
+    passes += ijOut.filter(l => l.startsWith('✓')).length;
+    fails += ijOut.filter(l => l.startsWith('✗')).length;
+
+    /* B0 把课堂记录改脏了 → 原样重新播种再重载一次，让后面的断言看到干净的种子 */
+    await evalVal('localStorage.setItem("kaoyan_math_tutor_v1", ' + JSON.stringify(JSON.stringify(seeded)) + ')');
+    await client.send('Page.navigate', { url: parts[0] + '?reseed=' + Date.now() + '#' + (parts[1] || '') });
+    const dl3 = Date.now() + 15000;
+    while (Date.now() < dl3) {
+      const v = String(await evalVal('document.readyState + "|" + (typeof window.App) + "|" + document.querySelectorAll(".c-roster-item").length') || '');
+      if (v.indexOf('complete|object|4') === 0) break;
+      await sleep(150);
+    }
+    await sleep(200);
 
     // B1：课堂页有没有「整理成复习卡片」入口
     cardOut.push(...(await runProbe(`(function () {
