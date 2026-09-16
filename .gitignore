@@ -34,6 +34,7 @@ coverage/
 .nyc_output/
 tests/.smoke.html
 tests/.shot.html
+tests/.shot-pages.html
 tests/.probe.html
 
 # Environment

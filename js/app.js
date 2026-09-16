@@ -2002,10 +2002,17 @@
     if (pages.length < 2) return '';
     var i = curPage(session);
     var name = pages[i].title ? esc(pages[i].title) : '第 ' + (i + 1) + ' 页';
+    /* 分两行：标题一行、控件一行。
+       一开始挤在一行（「上一页 | 标题 · 2 / 2 | 下一页」），但黑板是**侧栏**，
+       本来就窄 —— 两个按钮一占，标题只剩几个字的宽度，「等价代换的应用」被截成
+       「等价…」，页码也一起被吃掉。两行之后两边都放得下，按钮还更好点。 */
     return '<div class="c-board-nav">' +
+      '<div class="c-board-nav-label">' + name + '</div>' +
+      '<div class="c-board-nav-row">' +
       '<button type="button" data-role="board-prev"' + (i <= 0 ? ' disabled' : '') + '>上一页</button>' +
-      '<span class="c-board-nav-label">' + name + ' · ' + (i + 1) + ' / ' + pages.length + '</span>' +
+      '<span class="c-board-nav-pos">' + (i + 1) + ' / ' + pages.length + '</span>' +
       '<button type="button" data-role="board-next"' + (i >= pages.length - 1 ? ' disabled' : '') + '>下一页</button>' +
+      '</div>' +
       '</div>';
   }
 

@@ -892,10 +892,22 @@ body {
 /* ---------- 黑板分页 ----------
    一节课要讲好几件事，黑板不该无限往下长（讲第三个知识点时，第一个已经滚出视野了）。
    翻页只换「当前显示哪一页」，前面写的仍在数据里，翻回去看得到。
-   只有一页时导航整个不渲染 —— 没翻过页，就别多给他一个要理解的东西。 */
+   只有一页时导航整个不渲染 —— 没翻过页，就别多给他一个要理解的东西。
+
+   分两行（标题 / 控件）是必需的，不是审美：黑板是侧栏，本来就窄。
+   挤在一行时两个按钮一占，标题只剩几个字的宽度，「等价代换的应用」被截成「等价…」。 */
 .c-board-nav {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding-top: 8px; border-top: 1px dashed var(--line);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.c-board-nav-label {
+  text-align: center; font-size: 11.5px; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.c-board-nav-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.c-board-nav-pos {
+  font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .c-board-nav button {
   font: inherit; font-size: 11.5px; line-height: 1;
@@ -906,11 +918,6 @@ body {
 .c-board-nav button:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
 .c-board-nav button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .c-board-nav button:disabled { opacity: .38; cursor: default; }
-.c-board-nav-label {
-  flex: 1; min-width: 0; text-align: center;
-  font-size: 11.5px; color: var(--ink-3);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
 
 .c-board-item.c-fresh { animation: cIn .26s ease-out both; }
 .c-board-item.c-fresh .c-board-steps li { animation: cStep .26s ease-out both; }

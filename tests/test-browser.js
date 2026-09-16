@@ -492,11 +492,13 @@ async function waitPort(file, ms) {
         /* ---- 黑板分页：讲好几件事时，黑板不该无限往下长 ---- */
         var nav = document.querySelector('.c-board-nav');
         chk(!!nav, '★ 多页时出现页码导航');
+        chk(!!nav && nav.textContent.indexOf('2 / 2') >= 0,
+          '★ 默认停在最新那页（' + (nav ? nav.textContent : '无') + '）');
         var navLabel = document.querySelector('.c-board-nav-label');
-        chk(!!navLabel && navLabel.textContent.indexOf('2 / 2') >= 0,
-          '★ 默认停在最新那页（' + (navLabel ? navLabel.textContent : '无') + '）');
         chk(!!navLabel && navLabel.textContent.indexOf('等价代换的应用') >= 0,
-          '★ 页码上显示这一页的小标题（不是干巴巴的页号）');
+          '★ 导航上显示这一页的小标题（不是干巴巴的页号）');
+        chk(!!navLabel && navLabel.textContent.indexOf('/') < 0,
+          '★ 标题与页码分行放（黑板是侧栏，挤在一行标题会被截成「等价…」）');
         var btnPrev = document.querySelector('[data-role="board-prev"]');
         var btnNext = document.querySelector('[data-role="board-next"]');
         chk(!!btnPrev && !!btnNext, '有上一页 / 下一页按钮');
@@ -511,9 +513,9 @@ async function waitPort(file, ms) {
           '★ 第 1 页只有 latex 块、没有第 2 页的 steps —— 确实换了一页');
         chk(document.querySelectorAll('.c-board-item.c-fresh').length === 0,
           '★ 翻页不重播入场动画（是他自己翻的，糊一屏动画只会显得卡）');
-        var navLabel1 = document.querySelector('.c-board-nav-label');
-        chk(!!navLabel1 && navLabel1.textContent.indexOf('1 / 2') >= 0,
-          '★ 页码跟着翻（' + (navLabel1 ? navLabel1.textContent : '无') + '）');
+        var nav2 = document.querySelector('.c-board-nav');
+        chk(!!nav2 && nav2.textContent.indexOf('1 / 2') >= 0,
+          '★ 页码跟着翻（' + (nav2 ? nav2.textContent : '无') + '）');
         var bp1 = document.querySelector('[data-role="board-prev"]');
         chk(!!bp1 && bp1.disabled === true, '★ 到第 1 页后上一页禁用');
         var cb2 = document.getElementById('c-board');
