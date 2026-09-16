@@ -211,6 +211,26 @@ async function waitPort(file, ms) {
     };
     const runProbe = async (expr) => String((await evalVal(expr)) || '');
 
+    /* 轮询等一个条件成立，而不是死等固定毫秒。
+       为什么需要：抽屉的 transform 过渡是 .18s，测试里写 sleep(320) 在空闲机器上够用，
+       但机器一忙（并发跑测试、后台任务）就可能还没滑完就去读 getBoundingClientRect，
+       于是断言间歇性失败 —— 而且失败信息看起来像「产品坏了」。
+       轮询把「等多久」交给事实，不交给运气。 */
+    const waitFor = async (expr, label, timeout) => {
+      const t0 = Date.now();
+      const limit = timeout || 4000;
+      while (Date.now() - t0 < limit) {
+        try { if (await evalVal(expr)) return true; } catch (e) { /* 求值失败就当没就绪，继续等 */ }
+        await sleep(60);
+      }
+      /* 注意：不能只 out.push —— out 在第 276 行就已经打印并计数过了，
+         而这里是在那之后调用的。只 push 的话你会看到「失败 1」却不知道是哪一条超时。
+         所以直接打印 + 直接计数。 */
+      console.log('  ✗ 等待超时（' + limit + 'ms）：' + label);
+      fails++;
+      return false;
+    };
+
     // 探针自己包一层 try/catch —— 否则它一抛异常，测试只会报"什么都没测到"，
     // 看不出到底是页面坏了还是探针写错了。
     const probe = `(function () {
@@ -619,6 +639,10 @@ async function waitPort(file, ms) {
         chk(!!al && al.getAttribute('role') === 'alert', '★ 告警用 role=alert（读屏器会打断播报）');
         var tg = document.getElementById('nav-toggle');
         chk(!!tg && !!tg.getAttribute('aria-controls'), '导航按钮声明了 aria-controls');
+        /* 初始态：按钮的语义是「打开」。展开后名字必须跟着变（见 D4）——
+           只翻 aria-expanded 会让读屏器念出「打开导航菜单，已展开」。 */
+        chk(!!tg && /打开/.test(tg.getAttribute('aria-label') || ''),
+            '导航按钮初始 aria-label 是「打开…」');
         /* 图标必须全部 aria-hidden，否则读屏器会把每个 path 都念一遍 */
         var icons = document.querySelectorAll('#nav svg.ic');
         var bad = 0;
@@ -692,7 +716,9 @@ async function waitPort(file, ms) {
 
     /* 点开抽屉 → 滑入 + 遮罩 + aria 同步；Esc 关掉 */
     await evalVal('document.getElementById("nav-toggle").click()');
-    await sleep(320);
+    /* 等过渡真的走完（transform 到位），别用固定 sleep 赌它 */
+    await waitFor('Math.round(document.getElementById("sidebar").getBoundingClientRect().left) >= -1',
+      '抽屉滑入到位');
     dOut.push(...(await runProbe(`(function () {
       try {
         var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
@@ -702,13 +728,16 @@ async function waitPort(file, ms) {
         chk(sb.getBoundingClientRect().left >= -1, '★ 点按钮后抽屉滑入（left=' + Math.round(sb.getBoundingClientRect().left) + '）');
         chk(!!sc && !sc.hidden, '★ 遮罩出现');
         chk(!!tg && tg.getAttribute('aria-expanded') === 'true', '★ aria-expanded 同步为 true');
+        chk(!!tg && /关闭/.test(tg.getAttribute('aria-label') || ''),
+            '★ aria-label 跟着变成「关闭…」（否则读屏器念「打开导航菜单，已展开」）');
         chk(document.body.classList.contains('nav-locked'), '★ 抽屉打开时锁住背后滚动');
         return r.join('\\n');
       } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
     })()`)).split('\n').filter(Boolean));
 
     await evalVal('document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
-    await sleep(320);
+    await waitFor('document.getElementById("sidebar").getBoundingClientRect().right <= 2',
+      '抽屉收起到位');
     dOut.push(...(await runProbe(`(function () {
       try {
         var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
@@ -718,6 +747,7 @@ async function waitPort(file, ms) {
         chk(sb.getBoundingClientRect().right <= 2, '★ Esc 能收起抽屉');
         chk(!!sc && sc.hidden, '遮罩跟着收起');
         chk(!!tg && tg.getAttribute('aria-expanded') === 'false', 'aria-expanded 复位');
+        chk(!!tg && /打开/.test(tg.getAttribute('aria-label') || ''), 'aria-label 复位成「打开…」');
         chk(!document.body.classList.contains('nav-locked'), '滚动锁解除');
         return r.join('\\n');
       } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }

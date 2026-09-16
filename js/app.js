@@ -3704,7 +3704,12 @@
     if (!sb) return;
     sb.classList.toggle('open', !!on);
     if (sc) sc.hidden = !on;
-    if (tg) tg.setAttribute('aria-expanded', on ? 'true' : 'false');
+    if (tg) {
+      tg.setAttribute('aria-expanded', on ? 'true' : 'false');
+      /* 只翻 aria-expanded 不够：读屏器会念成「打开导航菜单，已展开」，自相矛盾。
+         名字必须跟着状态走 —— 展开时这个按钮的语义是「关闭」。 */
+      tg.setAttribute('aria-label', on ? '关闭导航菜单' : '打开导航菜单');
+    }
     document.body.classList.toggle('nav-locked', !!on);
     if (on) {
       var first = sb.querySelector('.nav-item');

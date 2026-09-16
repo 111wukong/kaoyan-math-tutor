@@ -324,30 +324,47 @@ function ok(cond, label, extra) {
 
     /* ---------- 7. 抽屉开合闭环 ---------- */
     console.log('\n7. 小屏抽屉开合');
+    /* 等过渡走完再断言，不用固定 sleep 赌它（机器一忙就会间歇性失败） */
+    const waitFor = async (expr, label, timeout) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < (timeout || 4000)) {
+        try { if (await evalJs(expr)) return true; } catch (e) { /* 没就绪就继续等 */ }
+        await sleep(60);
+      }
+      ok(false, '等待超时：' + label);
+      return false;
+    };
+
     await goto('', 375, 812);
     await evalJs('document.getElementById("nav-toggle").click()');
-    await sleep(450);
+    await waitFor('Math.round(document.getElementById("sidebar").getBoundingClientRect().left) >= -1',
+      '抽屉滑入到位');
     const opened = await evalJs(`JSON.stringify({
       locked: document.body.classList.contains('nav-locked'),
       x: Math.round(document.getElementById('sidebar').getBoundingClientRect().left),
-      expanded: document.getElementById('nav-toggle').getAttribute('aria-expanded')
+      expanded: document.getElementById('nav-toggle').getAttribute('aria-expanded'),
+      label: document.getElementById('nav-toggle').getAttribute('aria-label')
     })`);
     const G = JSON.parse(opened);
     ok(G.locked, '展开时 body 锁滚动');
     ok(G.x >= -1, '抽屉已滑出（left=' + G.x + '）');
     ok(G.expanded === 'true', '导航按钮 aria-expanded=true', 'got ' + G.expanded);
+    ok(/关闭/.test(G.label || ''), 'aria-label 变成「关闭…」（否则读屏器念「打开导航菜单，已展开」）', 'got ' + G.label);
 
     await evalJs('document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
-    await sleep(450);
+    await waitFor('document.getElementById("sidebar").getBoundingClientRect().right <= 2',
+      '抽屉收起到位');
     const closed = await evalJs(`JSON.stringify({
       locked: document.body.classList.contains('nav-locked'),
       x: Math.round(document.getElementById('sidebar').getBoundingClientRect().left),
-      expanded: document.getElementById('nav-toggle').getAttribute('aria-expanded')
+      expanded: document.getElementById('nav-toggle').getAttribute('aria-expanded'),
+      label: document.getElementById('nav-toggle').getAttribute('aria-label')
     })`);
     const H = JSON.parse(closed);
     ok(!H.locked, 'Esc 关闭后解除滚动锁');
     ok(H.x < -100, '抽屉已收起（left=' + H.x + '）');
     ok(H.expanded === 'false', '导航按钮 aria-expanded=false', 'got ' + H.expanded);
+    ok(/打开/.test(H.label || ''), 'aria-label 复位成「打开…」', 'got ' + H.label);
 
     /* ---------- 8. 写盘失败横幅（线上真触发一次） ----------
        注意：save() 是 app.js 的模块内私有函数，没有挂到 App 上。
