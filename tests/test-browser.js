@@ -596,7 +596,232 @@ async function waitPort(file, ms) {
     passes += v2Out.filter(l => l.startsWith('✓')).length;
     fails += v2Out.filter(l => l.startsWith('✗')).length;
 
-    const allErr = jsErrs.concat(consoleErrors, cardErrs, v2Errs);
+    /* ================= D. 小屏布局 · 无障碍 · 存档告警 ================= */
+    const dOut = [];
+
+    /* D1 无障碍（桌面宽度） */
+    dOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var skip = document.querySelector('.skip-link');
+        chk(!!skip, '跳过导航链接存在');
+        chk(!!skip && getComputedStyle(skip).position === 'absolute',
+            '★ 跳过链接用移出视口而不是 display:none（后者拿不到焦点，等于没写）');
+        chk(document.getElementById('main').getAttribute('tabindex') === '-1', '#main 可被程序化聚焦');
+        chk(typeof window.App.focusMain === 'function', 'App.focusMain 可调用');
+        chk(typeof window.App.toggleNav === 'function', 'App.toggleNav 可调用');
+        var nav = document.getElementById('nav');
+        chk(!!nav && !!nav.getAttribute('aria-label'), '主导航有 aria-label');
+        chk(document.getElementById('toast-root').getAttribute('aria-live') === 'polite',
+            'toast 容器是 live region');
+        var al = document.getElementById('storage-alert');
+        chk(!!al, '存档告警容器存在');
+        chk(!!al && al.getAttribute('role') === 'alert', '★ 告警用 role=alert（读屏器会打断播报）');
+        var tg = document.getElementById('nav-toggle');
+        chk(!!tg && !!tg.getAttribute('aria-controls'), '导航按钮声明了 aria-controls');
+        /* 图标必须全部 aria-hidden，否则读屏器会把每个 path 都念一遍 */
+        var icons = document.querySelectorAll('#nav svg.ic');
+        var bad = 0;
+        icons.forEach(function (el) { if (el.getAttribute('aria-hidden') !== 'true') bad++; });
+        chk(icons.length > 0 && bad === 0,
+            '★ 侧栏 ' + icons.length + ' 个图标全部 aria-hidden（漏标 ' + bad + ' 个）');
+        var mark = document.querySelector('.brand-mark');
+        chk(!!mark && mark.getAttribute('aria-hidden') === 'true', '品牌标记（装饰性积分号）也标了 aria-hidden');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    /* D2 统计页的图表必须给读屏器一句文字摘要 */
+    await goto('stats');
+    dOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var imgs = document.querySelectorAll('#main svg[role="img"]');
+        chk(imgs.length >= 2, '★ 统计页两张图都标了 role=img（找到 ' + imgs.length + ' 个）');
+        var bad = 0;
+        imgs.forEach(function (s) {
+          if (!s.getAttribute('aria-label') || s.getAttribute('aria-label').length < 8) bad++;
+        });
+        chk(imgs.length > 0 && bad === 0, '★ 每张图都带一句 aria-label 摘要（缺 ' + bad + ' 个）');
+        var trend = document.querySelector('#main svg[role="img"]');
+        chk(!!trend && trend.getAttribute('aria-label').indexOf('正确率') >= 0,
+            '折线图的摘要说的是正确率（' + (trend ? trend.getAttribute('aria-label').slice(0, 40) : '') + '…）');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    /* D3 公式实验室的画布 */
+    await goto('lab');
+    dOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var cv = document.getElementById('lab-canvas');
+        chk(!!cv, '实验室画布存在');
+        chk(!!cv && cv.getAttribute('role') === 'img', '★ 画布标了 role=img');
+        chk(!!cv && (cv.getAttribute('aria-label') || '').length > 10,
+            '★ 画布有 aria-label 说明（画布内容对读屏器完全不可见）');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    /* D4 小屏：375×812（iPhone 尺寸） */
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 375, height: 812, deviceScaleFactor: 2, mobile: true
+    });
+    await sleep(500);
+    dOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var sb = document.getElementById('sidebar');
+        var tg = document.getElementById('nav-toggle');
+        chk(window.innerWidth <= 400, '视口确实切到了 375px（innerWidth=' + window.innerWidth + '）');
+        chk(!!tg && getComputedStyle(tg).display !== 'none', '★ 小屏下导航按钮出现');
+        chk(!!sb && getComputedStyle(sb).position === 'fixed', '★ 侧栏改成固定定位（抽屉模式）');
+        var box = sb.getBoundingClientRect();
+        chk(box.right <= 2, '★ 抽屉默认收在视口外（right=' + Math.round(box.right) + '）');
+        var main = document.getElementById('main');
+        var mw = main.getBoundingClientRect().width;
+        chk(mw > 330, '★ 主内容占满屏宽（' + Math.round(mw) + ' / 375）');
+        chk(document.documentElement.scrollWidth <= window.innerWidth + 1,
+            '★ 没有横向溢出（scrollWidth=' + document.documentElement.scrollWidth + '）');
+        var sc = document.getElementById('nav-scrim');
+        chk(!!sc && sc.hidden, '遮罩默认隐藏');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    /* 点开抽屉 → 滑入 + 遮罩 + aria 同步；Esc 关掉 */
+    await evalVal('document.getElementById("nav-toggle").click()');
+    await sleep(320);
+    dOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var sb = document.getElementById('sidebar');
+        var tg = document.getElementById('nav-toggle');
+        var sc = document.getElementById('nav-scrim');
+        chk(sb.getBoundingClientRect().left >= -1, '★ 点按钮后抽屉滑入（left=' + Math.round(sb.getBoundingClientRect().left) + '）');
+        chk(!!sc && !sc.hidden, '★ 遮罩出现');
+        chk(!!tg && tg.getAttribute('aria-expanded') === 'true', '★ aria-expanded 同步为 true');
+        chk(document.body.classList.contains('nav-locked'), '★ 抽屉打开时锁住背后滚动');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    await evalVal('document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
+    await sleep(320);
+    dOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var sb = document.getElementById('sidebar');
+        var tg = document.getElementById('nav-toggle');
+        var sc = document.getElementById('nav-scrim');
+        chk(sb.getBoundingClientRect().right <= 2, '★ Esc 能收起抽屉');
+        chk(!!sc && sc.hidden, '遮罩跟着收起');
+        chk(!!tg && tg.getAttribute('aria-expanded') === 'false', 'aria-expanded 复位');
+        chk(!document.body.classList.contains('nav-locked'), '滚动锁解除');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    await client.send('Emulation.clearDeviceMetricsOverride');
+    await sleep(300);
+
+    /* D5 存档告警：让 save() 真的失败一次，看横幅会不会出现、恢复后会不会撤掉。
+       这一段必须在最后 —— 它要 monkeypatch localStorage，之后不能再整页导航。 */
+    await goto('settings');
+    const patchRes = await evalVal(`(function () {
+      try {
+        var orig = localStorage.setItem.bind(localStorage);
+        window.__origSetItem = orig;
+        localStorage.setItem = function (k) {
+          if (k === 'kaoyan_math_tutor_v1') {
+            var e = new Error('quota exceeded');
+            e.name = 'QuotaExceededError';
+            throw e;
+          }
+          return orig.apply(localStorage, arguments);
+        };
+        return 1;
+      } catch (e) { return 'patch 失败：' + e.message; }
+    })()`);
+    dOut.push('  ' + (patchRes === 1 ? '✓' : '✗') + ' 已模拟存储写入失败（' + patchRes + '）');
+
+    const triggered = await evalVal(`(function () {
+      var el = document.getElementById('set-exam');
+      if (!el) return 0;
+      el.value = '2026-12-26';
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return 1;
+    })()`);
+    await sleep(300);
+    dOut.push('  ' + (triggered === 1 ? '✓' : '✗') + ' 触发了写盘（改考试日期会调 save()）');
+
+    dOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var al = document.getElementById('storage-alert');
+        chk(!!al && !al.hidden, '★ 写盘失败时常驻横幅出现（不再静默吞掉）');
+        chk(!!al && al.textContent.indexOf('没有保存成功') >= 0, '横幅说清了是什么事');
+        chk(!!al && al.textContent.indexOf('导出备份') >= 0, '★ 横幅里直接给了「导出备份」按钮');
+        chk(document.body.classList.contains('has-storage-alert'), '正文底部让出了横幅的位置');
+        chk(typeof window.App.exportData === 'function', 'App.exportData 可调用');
+        chk(typeof window.App.dismissStorageAlert === 'function', 'App.dismissStorageAlert 可调用');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    /* 恢复写入后再存一次 —— 横幅应该自己撤掉，而不是一直挂着 */
+    await evalVal('(function(){ if (window.__origSetItem) { localStorage.setItem = function (k, v) { return window.__origSetItem(k, v); }; } return 1; })()');
+    await evalVal(`(function () {
+      var el = document.getElementById('set-exam');
+      if (el) { el.value = '2026-12-26'; el.dispatchEvent(new Event('change', { bubbles: true })); }
+      return 1;
+    })()`);
+    await sleep(300);
+    dOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var al = document.getElementById('storage-alert');
+        chk(!!al && al.hidden, '★ 写入恢复后横幅自动撤掉');
+        chk(!document.body.classList.contains('has-storage-alert'), '底部留白也收回了');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    /* D6 设置页上的数据与诊断面板真的渲染出来了 */
+    dOut.push(...(await runProbe(`(function () {
+      try {
+        var r = [], chk = function (o, l) { r.push((o ? '\\u2713 ' : '\\u2717 ') + l); };
+        var txt = document.getElementById('main').textContent;
+        chk(txt.indexOf('数据与备份') >= 0, '设置页有「数据与备份」卡片');
+        chk(txt.indexOf('导出备份') >= 0, '有导出按钮');
+        chk(txt.indexOf('导入并合并') >= 0, '有合并导入按钮');
+        chk(txt.indexOf('覆盖导入') >= 0, '有覆盖导入按钮');
+        chk(!!document.getElementById('data-import-file'), '导入用的文件选择器存在');
+        chk(txt.indexOf('存储用量') >= 0, '显示了存储用量');
+        chk(txt.indexOf('上次备份') >= 0, '显示了上次备份时间');
+        chk(txt.indexOf('诊断') >= 0, '设置页有「诊断」卡片');
+        chk(typeof window.App.copyDiagnostics === 'function', 'App.copyDiagnostics 可调用');
+        chk(typeof window.App.exportDiagnostics === 'function', 'App.exportDiagnostics 可调用');
+        chk(typeof window.App.clearDiagnostics === 'function', 'App.clearDiagnostics 可调用');
+        chk(!!window.Store && typeof window.Store.bundle === 'function', 'Store 模块已加载');
+        chk(!!window.Telemetry && typeof window.Telemetry.report === 'function', 'Telemetry 模块已加载');
+        /* 导出包默认不带 Key —— 用真实 state 验一遍 */
+        var b = window.Store.bundle({ settings: { llm: { cloudKey: 'sk-x' } }, attempts: [] }, {});
+        chk(b.data.settings.llm.cloudKey === '', '★ 导出包里的 API Key 被清空');
+        chk(b.keyStripped === true, '★ 并且标记了已剥离');
+        return r.join('\\n');
+      } catch (e) { return '\\u2717 探针抛异常：' + (e && e.message); }
+    })()`)).split('\n').filter(Boolean));
+
+    const dErrs = JSON.parse(await evalVal('JSON.stringify(window.__errors || [])') || '[]');
+
+    console.log('\n=== 小屏布局 · 无障碍 · 存档告警 ===');
+    dOut.forEach(l => console.log('  ' + l));
+    passes += dOut.filter(l => l.startsWith('✓')).length;
+    fails += dOut.filter(l => l.startsWith('✗')).length;
+
+    const allErr = jsErrs.concat(consoleErrors, cardErrs, v2Errs, dErrs);
     if (allErr.length) {
       fails++;
       console.log('  ✗ 页面有 JS 报错：');

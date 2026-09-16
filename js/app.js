@@ -324,6 +324,7 @@
     game: { xp: 0, achievements: {}, combo: 0, bestCombo: 0, boss: {}, flags: {}, seen: {} },
     settings: {
       examTrack: 'math1', dailyNew: 2, examDate: '', persona: 'strict',
+      lastExportAt: '',
       llm: {
         enabled: true, kind: 'cloud',
         base: 'https://api.deepseek.com', model: 'deepseek-chat',
@@ -371,11 +372,99 @@
       L.model = L.kind === 'cloud' ? L.cloudModel : L.localModel;
       if (!base.settings.examTrack) base.settings.examTrack = 'math1';
       if (!base.settings.dailyNew) base.settings.dailyNew = 2;
+      /* 存档体检：补齐全量聚合（老存档没有 stats），并把明细裁到上限。
+         typeof 守卫不是为了兼容老浏览器 —— 是因为 tests/test-config.js
+         会把 load() 从源码里抽出来单独执行，那个沙箱里没有 window/Store。
+         去掉守卫会让它静默退化成"每次返回默认配置"，测试会以最难查的方式失败。 */
+      if (typeof Store !== 'undefined' && Store && Store.ensure) Store.ensure(base);
       return base;
     } catch (e) { return JSON.parse(JSON.stringify(defaults)); }
   }
+
+  /* ============ 存档写入 ============
+   * 原实现是 `try { setItem } catch (e) { /* 忽略 *\/ }` —— 配额满了用户完全无感，
+   * 一直答到某天发现进度没了。现在写失败必须被看见：
+   *   · toast 提示一次（不刷屏）
+   *   · 常驻横幅一直挂着，直到某次写入成功才撤
+   * 横幅里直接给"导出备份"的按钮 —— 那正是此刻唯一该做的事。
+   */
+  var storage = { ok: true, lastError: '', warned: false, dismissed: false };
+
+  function showStorageAlert(msg) {
+    var el = $('#storage-alert');
+    if (!el || storage.dismissed) return;
+    el.innerHTML =
+      '<div class="sa-body"><b>你的学习进度没有保存成功</b><span>' + esc(msg) + '</span></div>' +
+      '<button type="button" class="btn primary" onclick="App.exportData()">立即导出备份</button>' +
+      '<button type="button" class="btn" onclick="App.dismissStorageAlert()">知道了</button>';
+    el.hidden = false;
+    document.body.classList.add('has-storage-alert');
+  }
+  function clearStorageAlert() {
+    var el = $('#storage-alert');
+    if (el) { el.hidden = true; el.innerHTML = ''; }
+    document.body.classList.remove('has-storage-alert');
+  }
+  function describeStorageError(e, json) {
+    var msg = String((e && e.name) || '') + ' ' + String((e && e.message) || e || '');
+    if (/QuotaExceeded|quota|NS_ERROR_DOM_QUOTA/i.test(msg)) {
+      return '浏览器存储已满（本存档约 ' + Math.round(json.length * 2 / 1024) + ' KB）。' +
+        '新进度写不进去了，请先导出备份，再清理旧数据。';
+    }
+    if (/SecurityError|disabled|denied|blocked/i.test(msg)) {
+      return '浏览器禁用了本地存储（可能是隐私模式或站点设置）。这次会话的进度不会被保存。';
+    }
+    return '存档写入失败：' + msg.slice(0, 80);
+  }
+  function storageFail(msg) {
+    var wasOk = storage.ok;
+    storage.ok = false;
+    storage.lastError = msg;
+    storage.dismissed = false;
+    showStorageAlert(msg);
+    track('storage_fail', { quota: /已满/.test(msg) });
+    trackError('storage', msg);
+    if (wasOk) toast('进度未能保存，请导出备份', 'no');
+  }
+
   function save() {
-    try { localStorage.setItem(DB_KEY, JSON.stringify(state)); } catch (e) { /* 存储满等异常忽略 */ }
+    var json;
+    try { json = JSON.stringify(state); }
+    catch (e) {
+      storageFail('存档序列化失败：' + String((e && e.message) || e).slice(0, 80));
+      return false;
+    }
+    try {
+      localStorage.setItem(DB_KEY, json);
+      if (!storage.ok) {
+        storage.ok = true;
+        storage.lastError = '';
+        storage.dismissed = false;
+        clearStorageAlert();
+        toast('存档已恢复正常', 'ok');
+      }
+      return true;
+    } catch (e) {
+      storageFail(describeStorageError(e, json));
+      return false;
+    }
+  }
+
+  /* 计数一律走全量聚合 —— attempts 明细会被裁剪，遍历明细会得到"最近 2000 条"的口径。 */
+  function statsOf() { return Store.statsOf(state); }
+  function storeStats() {
+    if (!Store.isStats(state.stats)) state.stats = Store.statsFrom(state);
+    return state.stats;
+  }
+
+  /* 本地可观测性。没有服务端，用户说"它坏了"的时候开发者手上什么都没有 ——
+     所以事件和错误留在本机，用户主动复制诊断信息时才交出来（见 js/telemetry.js）。
+     这里包一层 try：诊断本身绝不能把主流程搞崩。 */
+  function track(name, props) {
+    try { if (window.Telemetry) Telemetry.event(name, props); } catch (e) { /* 诊断失败无所谓 */ }
+  }
+  function trackError(kind, msg, stack) {
+    try { if (window.Telemetry) Telemetry.error(kind, msg, stack); } catch (e) { /* 同上 */ }
   }
 
   /* ============ 游戏化：发奖与反馈 ============
@@ -441,11 +530,12 @@
       ? Game.answerXp(state, q.id, q.kid, { today: todayStr(), world: gameWorld() })
       : null;
 
-    state.attempts.push({
+    Store.pushAttempt(state, {
       id: 'a' + Date.now().toString(36) + rand(1e6).toString(36),
       qid: q.id, kid: q.kid, answer: String(userAns == null ? '' : userAns),
       correct: !!correct, context: context || 'practice', date: todayStr(), ts: Date.now()
     });
+    track('answer', { kid: q.kid, correct: !!correct, ctx: context || 'practice' });
     if (!correct) ensureMistakeCard(q);
     // 连击与 XP：所有作答路径（一练 / 课堂 / BOSS / 错题重练）都过这里，一处埋点全站生效
     var cb = Game.comboHit(state, !!correct);
@@ -503,21 +593,27 @@
   }
   function nodeStatus(kid) {
     if (state.cards[kid]) return 'mastered';
-    var has = state.attempts.some(function (a) { return a.kid === kid; });
-    return has ? 'learning' : 'new';
+    return Store.nodeStat(statsOf(), kid).n > 0 ? 'learning' : 'new';
   }
+  /* n 给了就只看最近 n 条（明细一定覆盖得到，因为裁的是最旧的）；
+     n 没给就用全量聚合 —— 老实现遍历明细，裁过之后会偏小。 */
   function correctRateOf(kid, n) {
-    var arr = state.attempts.filter(function (a) { return a.kid === kid; });
-    if (n) arr = arr.slice(-n);
-    if (!arr.length) return null;
-    return arr.filter(function (a) { return a.correct; }).length / arr.length;
+    if (n) {
+      var arr = state.attempts.filter(function (a) { return a.kid === kid; }).slice(-n);
+      if (!arr.length) return null;
+      return arr.filter(function (a) { return a.correct; }).length / arr.length;
+    }
+    var ns = Store.nodeStat(statsOf(), kid);
+    return ns.n ? ns.c / ns.n : null;
   }
 
   /* ============ 每日任务引擎 ============ */
   function nextNewNodes(k) {
     var learned = {};
     Object.keys(state.cards).forEach(function (id) { var c = state.cards[id]; if (c.knowledgeId) learned[c.knowledgeId] = 1; });
-    state.attempts.forEach(function (a) { learned[a.kid] = 1; });
+    /* 用聚合而不是明细：明细被裁过之后，很久以前学过的知识点会被误判成"没学过" */
+    var nodes = statsOf().nodes || {};
+    Object.keys(nodes).forEach(function (kid) { learned[kid] = 1; });
     var out = [];
     flatNodes().forEach(function (n) {
       if (!learned[n.id] && out.length < k) out.push(n.id);
@@ -527,12 +623,14 @@
   function pickDailyQuiz(k) {
     var pool = quesInTrack();
     if (!pool.length) return [];
+    var st = statsOf();
     var scored = pool.map(function (q) {
       var w = 1.5 + Math.random();
       var rate = correctRateOf(q.kid, 10);
       if (rate === null) w += 3;              // 完全没练过的知识点优先
       else w += (1 - rate) * 5;               // 掌握度差优先
-      var wrongs = state.attempts.filter(function (a) { return a.kid === q.kid && !a.correct; }).length;
+      var ns = Store.nodeStat(st, q.kid);
+      var wrongs = ns.n - ns.c;               // 该知识点累计答错次数（全量口径）
       w += Math.min(wrongs * 2, 6);           // 错题多的知识点优先
       return { q: q, w: w };
     });
@@ -681,14 +779,28 @@
   }
 
   /* ============ 错题本 ============ */
+  /* 错题本：每题只看最后一次作答（口径与 Game.projection 一致）。
+     真值来自聚合 stats.qs —— 明细裁过之后仍然准确；
+     展示用的记录（"我的答案"原文）优先从明细里取，取不到就标 archived。 */
   function mistakeList() {
-    var seen = {}, out = [];
-    state.attempts.slice().reverse().forEach(function (a) {
-      if (seen[a.qid]) return;
-      seen[a.qid] = 1;
-      if (!a.correct) out.push(a);
+    var qs = statsOf().qs || {};
+    var rows = [];
+    Object.keys(qs).forEach(function (qid) {
+      var q = qs[qid];
+      if (!q.ok) rows.push({ qid: qid, kid: q.kid, ts: q.ts || 0 });
     });
-    return out;
+    rows.sort(function (a, b) { return b.ts - a.ts; });
+
+    /* 一次倒序扫描建索引，避免每条都回头遍历整个明细 */
+    var latest = {};
+    for (var i = state.attempts.length - 1; i >= 0; i--) {
+      var a = state.attempts[i];
+      if (!latest[a.qid]) latest[a.qid] = a;
+    }
+    return rows.map(function (r) {
+      return latest[r.qid] ||
+        { qid: r.qid, kid: r.kid, correct: false, date: '', ts: r.ts, answer: null, archived: true };
+    });
   }
 
   /* ============ 图表 ============ */
@@ -727,16 +839,27 @@
     }
     return '<div class="heat">' + rows + '</div><div class="heat-meta">最近 26 周 <span class="legend" style="float:right">少 <span class="heat-cell heat-l0" style="display:inline-block"></span><span class="heat-cell heat-l1" style="display:inline-block"></span><span class="heat-cell heat-l2" style="display:inline-block"></span><span class="heat-cell heat-l3" style="display:inline-block"></span><span class="heat-cell heat-l4" style="display:inline-block"></span> 多</span></div>';
   }
+  /* 图表对读屏器是完全不可见的 —— 必须配一句文字摘要，
+     否则"最近 14 天正确率""科目掌握度雷达"这些内容对读屏用户等于不存在。 */
+  function trendSummary(pts) {
+    var have = [];
+    pts.forEach(function (p) { if (p !== null) have.push(p); });
+    if (!have.length) return '最近 14 天没有作答记录';
+    var pct = function (v) { return Math.round(v * 100) + '%'; };
+    var lo = Math.min.apply(null, have), hi = Math.max.apply(null, have);
+    return '有记录 ' + have.length + ' 天，最低 ' + pct(lo) + '，最高 ' + pct(hi) +
+      '，最近一天 ' + pct(have[have.length - 1]);
+  }
   function svgTrend() {
     var days = [], d = new Date();
     for (var i = 13; i >= 0; i--) {
       var dd = new Date(d.getFullYear(), d.getMonth(), d.getDate() - i);
       days.push(dd.getFullYear() + '-' + pad2(dd.getMonth() + 1) + '-' + pad2(dd.getDate()));
     }
+    var st = statsOf();
     var pts = days.map(function (ds) {
-      var arr = state.attempts.filter(function (a) { return a.date === ds; });
-      if (!arr.length) return null;
-      return arr.filter(function (a) { return a.correct; }).length / arr.length;
+      var d = Store.dayStat(st, ds);
+      return d.n ? d.c / d.n : null;
     });
     var W = 640, H = 160, P = 18;
     var maxX = 13;
@@ -754,7 +877,8 @@
       var gy = P + (H - 2 * P) * g / 4;
       grid += '<line x1="' + P + '" y1="' + gy + '" x2="' + (W - P) + '" y2="' + gy + '" stroke="#e4e4dd" stroke-width="1"/>';
     }
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%">' + grid +
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%" role="img" ' +
+      'aria-label="最近 14 天每日正确率折线图：' + esc(trendSummary(pts)) + '">' + grid +
       '<path d="' + poly + '" fill="none" stroke="#1b4d8f" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>' +
       dots + labels + '</svg>';
   }
@@ -788,19 +912,25 @@
       var pv = pt(i, R * c.v);
       labels += '<text x="' + pv.split(',')[0] + '" y="' + (+pv.split(',')[1] - 6) + '" font-size="11" fill="#1b4d8f" font-weight="600" text-anchor="middle">' + Math.round(c.v * 100) + '%</text>';
     });
-    return '<svg viewBox="0 0 260 240" style="width:100%;max-width:340px">' + gridSvg +
+    return '<svg viewBox="0 0 260 240" style="width:100%;max-width:340px" role="img" ' +
+      'aria-label="科目掌握度雷达图：' + esc(cats.map(function (c) {
+        return c.name + ' ' + Math.round(c.v * 100) + '%';
+      }).join('，')) + '">' + gridSvg +
       '<polygon points="' + pp.join(' ') + '" fill="rgba(27,77,143,.14)" stroke="#1b4d8f" stroke-width="1.75"/>' + labels + '</svg>';
   }
   function chapterBars() {
     var html = '';
+    var st = statsOf();
     CATS.forEach(function (cat) {
       cat.chapters.forEach(function (ch) {
         var inTrack = ch.nodes.filter(nodeInTrack);
         if (!inTrack.length) return;
-        var kids = {};
-        inTrack.forEach(function (n) { kids[n.id] = 1; });
-        var arr = state.attempts.filter(function (a) { return kids[a.kid]; });
-        var rate = arr.length ? arr.filter(function (a) { return a.correct; }).length / arr.length : null;
+        var n0 = 0, c0 = 0;
+        inTrack.forEach(function (nd) {
+          var s = Store.nodeStat(st, nd.id);
+          n0 += s.n; c0 += s.c;
+        });
+        var rate = n0 ? c0 / n0 : null;
         var pct = rate === null ? 0 : Math.round(rate * 100);
         html += '<div class="bar-row"><span class="bar-name">' + esc(ch.name) + '</span>' +
           '<span class="bar"><i style="width:' + pct + '%"></i></span>' +
@@ -810,9 +940,8 @@
     return html;
   }
   function todayCorrect() {
-    var arr = state.attempts.filter(function (a) { return a.date === todayStr(); });
-    if (!arr.length) return null;
-    return Math.round(arr.filter(function (a) { return a.correct; }).length / arr.length * 100);
+    var d = Store.dayStat(statsOf(), todayStr());
+    return d.n ? Math.round(d.c / d.n * 100) : null;
   }
 
   /* ============ 页面渲染 ============ */
@@ -944,7 +1073,7 @@
       statBox('连续打卡', calcStreak() + ' 天', streakSub, 'accent') +
       statBox('已学知识点', learnedCount + ' / ' + totalInTrack, '按当前考试范围' + (totalInTrack ? ' · ' + Math.round(learnedCount / totalInTrack * 100) + '%' : ''), '') +
       statBox('待复习卡', dueCards().length + ' 张', '到期卡片与错题', '') +
-      statBox('今日正确率', tc === null ? '—' : tc + '%', tc === null ? '今日暂未答题' : '已答 ' + state.attempts.filter(function (a) { return a.date === t; }).length + ' 题', '') +
+      statBox('今日正确率', tc === null ? '—' : tc + '%', tc === null ? '今日暂未答题' : '已答 ' + Store.dayStat(statsOf(), t).n + ' 题', '') +
       '</div>' +
       '<div class="grid-2 mt16 grid-top">' +
       paceCard +
@@ -1179,6 +1308,23 @@
   /* ============ Agent 工具上下文 ============
    * 把工具需要的真实数据源统一注入。AI 通过它"看见"这名学生。
    */
+
+  /* 给 AI 的作答列表。tools.js 只用 .length 和 .correct 做统计，
+     明细被裁剪之后必须用聚合补齐 —— 否则 AI 看到的"这名学生答过几次"
+     会随着用户用得越久反而越小。补齐出来的记录只承载计数，不参与任何展示。 */
+  function padToStats(arr, kid) {
+    var ns = Store.nodeStat(statsOf(), kid);
+    if (ns.n <= arr.length) return arr;
+    var c = 0;
+    for (var i = 0; i < arr.length; i++) if (arr[i].correct) c++;
+    var out = arr.slice();
+    var addOk = Math.max(0, ns.c - c);
+    var addNo = Math.max(0, (ns.n - arr.length) - addOk);
+    for (var a = 0; a < addOk; a++) out.push({ kid: kid, correct: true, synthesized: true });
+    for (var b = 0; b < addNo; b++) out.push({ kid: kid, correct: false, synthesized: true });
+    return out;
+  }
+
   function createToolContext() {
     return {
       persona: function () { return state.settings.persona || 'strict'; },
@@ -1188,7 +1334,7 @@
       allNodes: flatNodes,
       questionsOf: function (kid) { return AIEngine.questionsOf(kid); },
       attemptsOf: function (kid) {
-        return state.attempts.filter(function (a) { return a.kid === kid; });
+        return padToStats(state.attempts.filter(function (a) { return a.kid === kid; }), kid);
       },
       nodeStatus: nodeStatus,
       correctRate: correctRateOf,
@@ -1221,13 +1367,14 @@
 
       weakNodes: function (limit) {
         var rows = [];
+        var st = statsOf();
         flatNodes().forEach(function (n) {
-          var arr = state.attempts.filter(function (a) { return a.kid === n.id; });
-          if (!arr.length) return;
-          var wrong = arr.filter(function (a) { return !a.correct; }).length;
+          var s = Store.nodeStat(st, n.id);
+          if (!s.n) return;
+          var wrong = s.n - s.c;
           rows.push({
             kid: n.id, title: n.title, wrong: wrong,
-            accuracy: Math.round((arr.length - wrong) / arr.length * 100)
+            accuracy: Math.round(s.c / s.n * 100)
           });
         });
         rows.sort(function (a, b) { return (b.wrong - a.wrong) || (a.accuracy - b.accuracy); });
@@ -1244,14 +1391,16 @@
         });
         var week = [];
         for (var i = 6; i >= 0; i--) week.push(addDaysStr(todayStr(), -i));
-        var recent = state.attempts.filter(function (a) { return week.indexOf(a.date) >= 0; });
+        var st = statsOf();
+        var n7 = 0, c7 = 0;
+        week.forEach(function (ds) { var d = Store.dayStat(st, ds); n7 += d.n; c7 += d.c; });
         var track = state.settings.examTrack || 'math1';
         return {
           trackName: track === 'math1' ? '数学一' : track === 'math2' ? '数学二' : '数学三',
           mastered: mastered, learning: learning, untouched: untouched, total: all.length,
           streak: calcStreak(),
-          accuracy7d: recent.length ? recent.filter(function (a) { return a.correct; }).length / recent.length : null,
-          attempts7d: recent.length,
+          accuracy7d: n7 ? c7 / n7 : null,
+          attempts7d: n7,
           daysLeft: daysUntilExam(),
           examDate: state.settings.examDate || null,
           dueToday: dueCards().length
@@ -2136,7 +2285,7 @@
       '<div class="q-meta"><span class="q-type">' + (q.type === 'choice' ? '选择题' : '填空题') + '</span>' + srcBadge(q) +
       '<span class="q-src">' + esc((NODE[q.kid] || {}).title || '') + ' · 难度 ' + q.difficulty + '</span></div>' +
       '<div class="q-stem">' + md(q.stem) + '</div>' +
-      '<div id="boss-body"></div></div>';
+      '<div id="boss-body" role="status" aria-live="polite"></div></div>';
     renderBossBody(q);
   }
   function renderBossBody(q) {
@@ -2255,7 +2404,7 @@
         '<span class="q-tools"><button class="speak-btn" onclick="App.speakById(\'' + q.id + '\')" title="朗读题干">' + icon('speak', 13) + '</button>' +
         '<button class="speak-btn" onclick="App.similar(\'' + q.kid + '\',\'' + q.id + '\')" title="同类型题推荐">' + icon('puzzle', 13) + '</button></span></div>' +
         '<div class="q-stem">' + md(q.stem) + '</div>' +
-        '<div id="qbody-' + qid + '"></div>';
+        '<div id="qbody-' + qid + '" role="status" aria-live="polite"></div>';
       list.appendChild(box);
       renderQBody(q, box.querySelector('#qbody-' + qid));
     });
@@ -2464,9 +2613,11 @@
     var html = list.map(function (a) {
       var q = QDATA.filter(function (x) { return x.id === a.qid; })[0];
       if (!q) return '';
+      var mine = a.archived ? '<span style="color:var(--ink-3)">（记录已归档，只保留了统计）</span>'
+        : esc(a.answer || '（未作答）');
       return '<div class="mistake-item"><span class="mi-tag">错题</span> ' + srcBadge(q) + ' <span style="font-size:12px;color:var(--ink-3)">' + esc((NODE[q.kid] || {}).title || '') + ' · ' + (a.date || '') + '</span>' +
         '<div class="mt8">' + md(q.stem) + '</div>' +
-        '<div class="q-feedback no mt8"><b>我的答案：</b>' + (a.answer || '（未作答）') + '<br><b>正确答案：</b>' + md(q.answer) + '<br>' + md(q.analysis) + '</div>' +
+        '<div class="q-feedback no mt8"><b>我的答案：</b>' + mine + '<br><b>正确答案：</b>' + md(q.answer) + '<br>' + md(q.analysis) + '</div>' +
         '<div class="mt8">' +
         '<button class="btn small primary" onclick="location.hash=\'#/quiz/r/' + q.id + '\'">重练这题</button> ' +
         '<button class="btn small" onclick="App.similar(\'' + q.kid + '\',\'' + q.id + '\')">练同类题</button> ' +
@@ -2731,7 +2882,7 @@
       '<div class="lab-title">' + esc(mod.title) + '</div>' +
       '<div class="lab-hook">' + md(mod.hook) + '</div>' +
       '<div class="lab-formula">' + md('$$' + mod.tex + '$$') + '</div>' +
-      '<canvas id="lab-canvas" class="lab-canvas"></canvas>' +
+      '<canvas id="lab-canvas" class="lab-canvas" role="img" aria-label="函数图像画布，图像随右侧参数实时重绘；具体读数见下方读数行"></canvas>' +
       '<div class="lab-note">' + md(mod.note) + '</div>' +
       '</div>' +
       '<div class="card lab-side">' +
@@ -2907,7 +3058,7 @@
       '<span class="blitz-combo">' + (blitz.combo >= 3 ? '连对 ' + blitz.combo : '') + '</span></div>' +
       '<div class="q-stem">' + md(q.stem) + '</div>' +
       '<div id="blitz-body">' + body + '</div>' +
-      '<div class="blitz-feedback" id="blitz-feedback"></div>' +
+      '<div class="blitz-feedback" id="blitz-feedback" role="status" aria-live="polite"></div>' +
       '</div>';
     var f = $('#blitz-fill');
     if (f) f.focus();
@@ -3009,13 +3160,13 @@
 
   /* ----- 统计页 ----- */
   function pageStats() {
-    var all = state.attempts;
+    var totalAttempts = statsOf().n || 0;
     var doneCount = flatNodes().filter(function (n) { return state.cards[n.id]; }).length;
     var html = head('学习统计', '数据都存在本机浏览器里');
     html += '<div class="grid-2 grid-top">' +
       '<div class="card"><div class="card-title">学习热力图 <span class="sub">近 26 周</span></div>' + svgHeatmap() + '</div>' +
       '<div class="card"><div class="card-title">最近 14 天正确率</div>' + svgTrend() +
-        '<div style="font-size:12px;color:var(--ink-3);margin-top:8px">共完成 ' + all.length + ' 次作答，累计打卡 ' + Object.keys(state.checkins).filter(function (d) { return checkinOK(d); }).length + ' 天</div></div>' +
+        '<div style="font-size:12px;color:var(--ink-3);margin-top:8px">共完成 ' + totalAttempts + ' 次作答，累计打卡 ' + Object.keys(state.checkins).filter(function (d) { return checkinOK(d); }).length + ' 天</div></div>' +
       '</div>';
     html += '<div class="grid-2 grid-top mt16">' +
       '<div class="card"><div class="card-title">科目掌握度（雷达）</div>' + svgRadar() + '</div>' +
@@ -3108,9 +3259,75 @@
       '<div class="set-row"><div><div class="slabel"> &nbsp; </div><div class="sdesc"><span id="f-count"></span></div></div>' +
         '<button class="btn primary" onclick="App.startFilteredQuiz()">开始练习 →</button></div>' +
       '</div>';
-    html += '<div class="card mt16"><div class="card-title">数据</div>' +
-      '<div class="set-row"><div><div class="slabel">重置全部学习数据</div><div class="sdesc">清空卡片、作答、打卡、聊天记录（不可恢复）</div></div>' +
+    /* ---- 数据与备份 ----
+       纯本地应用最容易踩的坑：用户以为"存在浏览器里"就等于"存着"。
+       所以这里把用量、上次备份时间、备份入口放在同一张卡片里，
+       而不是把"导出"藏进菜单深处。 */
+    var us = Store.usage(state, true);
+    var lastExp = state.settings.lastExportAt || '';
+    var expDays = lastExp ? Math.floor((Date.now() - Date.parse(lastExp)) / 86400000) : -1;
+    var expText = expDays < 0 ? '从未导出过'
+      : expDays === 0 ? '今天'
+        : expDays === 1 ? '昨天'
+          : expDays + ' 天前';
+    var backupUrgent = (us.totalAttempts >= 20) && (expDays < 0 || expDays >= 14);
+    var pctText = us.quotaChars
+      ? Math.round(us.ratio * 100) + '%（约 ' + Math.round(us.quotaChars / 1024) + ' K 字符配额）'
+      : '未探测';
+    html += '<div class="card mt16"><div class="card-title">数据与备份 <span class="sub">纯本地存储，没有云端副本</span></div>' +
+      '<div class="tip-box">作答记录、卡片、课堂与聊天记录都只存在<b>这台浏览器</b>里。' +
+      '清理浏览器数据、换电脑、重装系统都会让它们消失 —— 请定期导出备份。</div>' +
+      (backupUrgent
+        ? '<div class="warn-line">你已经累计作答 ' + us.totalAttempts + ' 次，但备份时间：' + expText + '。建议现在就导出一份。</div>'
+        : '') +
+      '<div class="set-row"><div><div class="slabel">存储用量</div><div class="sdesc">' +
+        '约 ' + us.kb + ' KB · 明细 ' + us.attempts + ' / ' + us.cap + ' 条 · 累计 ' + us.totalAttempts + ' 次作答 · 覆盖 ' + us.days + ' 天</div></div>' +
+        '<div class="store-meter" title="占浏览器配额的比例"><i style="width:' + Math.round((us.ratio || 0) * 100) + '%"></i></div></div>' +
+      '<div class="set-row"><div><div class="slabel">配额占用</div><div class="sdesc">' + pctText +
+        '（明细超过 ' + us.cap + ' 条后自动归档，计数不受影响）</div></div></div>' +
+      '<div class="set-row"><div><div class="slabel">上次备份</div><div class="sdesc">' + esc(expText) + '</div></div></div>' +
+      '<div class="mt8">' +
+        '<button class="btn primary" onclick="App.exportData()">导出备份（JSON）</button> ' +
+        '<button class="btn" onclick="App.pickImport(\'merge\')">导入并合并</button> ' +
+        '<button class="btn danger" onclick="App.pickImport(\'replace\')">覆盖导入</button>' +
+        '<input type="file" id="data-import-file" accept=".json,application/json" style="display:none" onchange="App.importData(this)">' +
+      '</div>' +
+      '<div class="sdesc mt8">导出文件默认不含 API Key。「导入并合并」保留两边全部记录，同一张卡片取复习进度更靠后的那次，本机模型配置不被覆盖。</div>' +
+      '</div>';
+    html += '<div class="card mt16"><div class="card-title">危险操作</div>' +
+      '<div class="set-row"><div><div class="slabel">重置全部学习数据</div><div class="sdesc">清空卡片、作答、打卡、聊天记录（不可恢复，建议先导出）</div></div>' +
         '<button class="btn danger" onclick="App.resetData()">清空数据</button></div>' +
+      '</div>';
+
+    /* ---- 诊断 ----
+       没有服务端 = 没有日志。用户说"它坏了"的时候开发者手上什么都没有。
+       这里的记录只写本机，只有用户主动复制/导出才会离开这台设备。 */
+    var diagErrs = window.Telemetry ? Telemetry.errors() : [];
+    var diagEv = window.Telemetry ? Telemetry.eventCounts() : {};
+    var diagEvN = 0;
+    Object.keys(diagEv).forEach(function (k) { diagEvN += diagEv[k]; });
+    html += '<div class="card mt16"><div class="card-title">诊断 <span class="sub">只写本机，不会自动上报</span></div>' +
+      '<div class="sdesc" style="margin-bottom:12px">本应用没有服务端，出错时开发者拿不到任何信息。' +
+        '下面的错误与事件只存在这台浏览器里，<b>只有你主动复制或导出时才会离开本机</b>；' +
+        '诊断包里不含 API Key、聊天记录、笔记与题目内容。</div>' +
+      '<div class="grid-3">' +
+        '<div class="stat-box"><div class="k">记录到的错误</div><div class="v">' + diagErrs.length + '</div></div>' +
+        '<div class="stat-box"><div class="k">事件条数</div><div class="v">' + diagEvN + '</div></div>' +
+        '<div class="stat-box"><div class="k">存储可用</div><div class="v">' + (Store.available() ? '正常' : '被禁用') + '</div></div>' +
+      '</div>' +
+      (diagErrs.length
+        ? '<div class="diag-list">' + diagErrs.slice(0, 6).map(function (e) {
+          return '<div class="diag-err"><div class="diag-err-head"><span class="tag">' + esc(e.kind) + '</span> x' + e.count +
+            '<span class="diag-when">' + esc(new Date(e.last).toLocaleString()) + '</span></div>' +
+            '<div class="diag-err-body">' + esc(e.msg) + '</div></div>';
+        }).join('') + '</div>'
+        : '<div class="sdesc">暂未记录到错误。</div>') +
+      '<div class="mt8">' +
+        '<button class="btn primary" onclick="App.copyDiagnostics()">复制诊断信息</button> ' +
+        '<button class="btn" onclick="App.exportDiagnostics()">导出诊断文件</button> ' +
+        '<button class="btn" onclick="App.clearDiagnostics()">清空诊断日志</button>' +
+      '</div>' +
+      '<div class="sdesc mt8">公式渲染器（KaTeX）当前' + (katexOK() ? '已加载' : '未加载 —— 页面上的公式会退化成源码，通常是 CDN 被拦截') + '。</div>' +
       '</div>';
     html += '<div class="card mt16"><div class="card-title">关于</div><div class="side-note">研数 v1.0 · 考研数学 AI 自学系统（单人本地 MVP）。' +
       '间隔重复采用 SM-2 算法（开发文档 8.4.3），知识库覆盖数一数二数三核心考点，题库 ' + QDATA.length + ' 题。开发者文档见项目 README。</div></div>';
@@ -3320,11 +3537,199 @@
     }
   };
   App.resetData = function () {
-    if (!confirmDialog('确定清空全部学习数据？此操作不可恢复。')) return;
+    if (!confirmDialog('确定清空全部学习数据？此操作不可恢复。\n\n建议先「导出备份」——清空之后没有任何办法找回。')) return;
     localStorage.removeItem(DB_KEY);
     location.hash = '#/';
     location.reload();
   };
+
+  /* ----- 数据导出 / 导入 -----
+   * 这是纯本地应用唯一的救生艇：没有服务端，浏览器清缓存 = 数据归零。
+   */
+  App.exportData = function () {
+    var b = Store.bundle(state, { version: '1.0' });
+    var json = JSON.stringify(b);
+    var name = Store.fileName();
+    var ok = false;
+    try {
+      var blob = new Blob([json], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      ok = true;
+    } catch (e) { ok = false; }
+    if (!ok) {
+      /* file:// 下个别浏览器会拦 Blob 下载，退回 data URL */
+      var a2 = document.createElement('a');
+      a2.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
+      a2.download = name;
+      document.body.appendChild(a2); a2.click(); document.body.removeChild(a2);
+    }
+    state.settings.lastExportAt = new Date().toISOString();
+    save();
+    track('export', { kb: Math.round(json.length / 1024), attempts: (state.attempts || []).length });
+    toast('已导出 ' + name + (b.keyStripped ? '（不含 API Key）' : ''), 'ok');
+    if ((location.hash || '').indexOf('/settings') >= 0) pageSettings();
+  };
+
+  var importMode = 'merge';
+  App.pickImport = function (mode) {
+    importMode = mode === 'replace' ? 'replace' : 'merge';
+    var f = $('#data-import-file');
+    if (f) { f.value = ''; f.click(); }
+  };
+  App.importData = function (input) {
+    var file = input && input.files && input.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () { App.applyImportText(String(reader.result || ''), importMode); };
+    reader.onerror = function () { toast('读取文件失败', 'no'); };
+    reader.readAsText(file);
+  };
+
+  function importSummaryText(v) {
+    var s = v.summary;
+    var when = s.exportedAt ? s.exportedAt.slice(0, 16).replace('T', ' ') : '未知';
+    return '备份时间：' + when +
+      '\n作答明细：' + s.attempts + ' 条' + (s.totalAttempts !== s.attempts ? '（累计 ' + s.totalAttempts + ' 次）' : '') +
+      '\n学习卡片：' + s.cards + ' 张' +
+      '\n打卡天数：' + s.checkins + ' 天' +
+      '\n自定义题：' + s.customQ + ' 道' +
+      '\n经验值：' + s.xp +
+      (s.firstDay ? '\n记录区间：' + s.firstDay + ' ~ ' + s.lastDay : '');
+  }
+
+  App.applyImportText = function (text, mode) {
+    var obj;
+    try { obj = JSON.parse(text); }
+    catch (e) { toast('不是合法的 JSON 文件', 'no'); return; }
+    var v = Store.validate(obj);
+    if (!v.ok) { toast('导入失败：' + v.errors[0], 'no'); return; }
+
+    var mine = '本机现有：' + (statsOf().n || 0) + ' 次作答、' + Object.keys(state.cards || {}).length + ' 张卡片';
+    var head2 = '备份文件内容：\n' + importSummaryText(v) + '\n\n' + mine + '\n\n';
+    if (mode === 'replace') {
+      if (!confirmDialog(head2 + '【覆盖导入】会用备份完全替换本机数据。\n本机现有的记录将被丢弃，且不可恢复。\n\n确定继续？')) return;
+    } else {
+      if (!confirmDialog(head2 + '【合并导入】两边记录都会保留，同一张卡片取复习进度更靠后的那次。\n本机的模型配置不会被覆盖。\n\n确定继续？')) return;
+    }
+
+    Store.applyBundle(state, obj, mode);
+    save();
+    track('import', { mode: mode, attempts: (state.attempts || []).length });
+    toast(mode === 'replace' ? '已覆盖导入' : '已合并导入', 'ok');
+    /* 整个存档换了，当前页面上渲染的数值已经过时，回仪表盘重建 */
+    if ((location.hash || '#/') === '#/') route();
+    else location.hash = '#/';
+  };
+
+  App.dismissStorageAlert = function () {
+    storage.dismissed = true;
+    clearStorageAlert();
+    toast('提醒已收起。存档仍然写不进去，记得导出备份。');
+  };
+
+  /* ----- 诊断 ----- */
+  function diagExtra() {
+    return {
+      version: '1.0', schema: Store.SCHEMA, statsV: Store.STATS_V,
+      storageOk: Store.available(), katexOk: katexOK(),
+      usage: Store.usage(state, false)
+    };
+  }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast('诊断信息已复制到剪贴板', 'ok'); },
+        function () { legacyCopy(text); });
+      return;
+    }
+    legacyCopy(text);
+  }
+  /* file:// 下 Clipboard API 常被拦，退回 execCommand —— 已废弃但在本地文件场景仍可用 */
+  function legacyCopy(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      toast(ok ? '诊断信息已复制到剪贴板' : '复制失败，请改用「导出诊断文件」', ok ? 'ok' : 'no');
+    } catch (e) {
+      toast('复制失败，请改用「导出诊断文件」', 'no');
+    }
+  }
+  App.copyDiagnostics = function () {
+    if (!window.Telemetry) { toast('诊断模块未加载', 'no'); return; }
+    Telemetry._flush();
+    copyText(Telemetry.report(state, diagExtra()));
+  };
+  App.exportDiagnostics = function () {
+    if (!window.Telemetry) { toast('诊断模块未加载', 'no'); return; }
+    Telemetry._flush();
+    var txt = Telemetry.report(state, diagExtra());
+    var name = '研数诊断-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '') + '.txt';
+    var a = document.createElement('a');
+    a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(txt);
+    a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    toast('已导出 ' + name, 'ok');
+  };
+  App.clearDiagnostics = function () {
+    if (!window.Telemetry) return;
+    Telemetry.clear();
+    toast('诊断日志已清空');
+    pageSettings();
+  };
+
+  /* ----- 无障碍 / 小屏导航 ----- */
+  App.focusMain = function () {
+    var m = $('#main');
+    if (m) { m.focus(); m.scrollIntoView({ block: 'start' }); }
+  };
+  App.toggleNav = function () { navOpen(!navIsOpen()); };
+  App.closeNav = function () { navOpen(false); };
+
+  function navIsOpen() {
+    var sb = $('#sidebar');
+    return !!(sb && sb.classList.contains('open'));
+  }
+  function navOpen(on) {
+    var sb = $('#sidebar'), sc = $('#nav-scrim'), tg = $('#nav-toggle');
+    if (!sb) return;
+    sb.classList.toggle('open', !!on);
+    if (sc) sc.hidden = !on;
+    if (tg) tg.setAttribute('aria-expanded', on ? 'true' : 'false');
+    document.body.classList.toggle('nav-locked', !!on);
+    if (on) {
+      var first = sb.querySelector('.nav-item');
+      if (first) first.focus();
+    }
+  }
+  /* Esc 关抽屉；抽屉开着时 Tab 只在侧栏内循环（简易焦点陷阱）。
+     不做陷阱的话键盘用户 Tab 十几下会跑到背后被遮住的内容里。 */
+  document.addEventListener('keydown', function (e) {
+    if (!navIsOpen()) return;
+    if (e.key === 'Escape' || e.keyCode === 27) { navOpen(false); var tg = $('#nav-toggle'); if (tg) tg.focus(); return; }
+    if (e.key !== 'Tab' && e.keyCode !== 9) return;
+    var sb = $('#sidebar');
+    var items = sb.querySelectorAll('a[href], button:not([disabled])');
+    if (!items.length) return;
+    var first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+  /* 抽屉里点了导航就收起来，否则小屏上会挡住刚打开的页面 */
+  document.addEventListener('click', function (e) {
+    if (!navIsOpen()) return;
+    var a = e.target && e.target.closest ? e.target.closest('.nav-item') : null;
+    if (a) navOpen(false);
+  });
 
   /* ----- 路由 ----- */
   function route() {
@@ -3332,6 +3737,8 @@
     /* 离开闪电战就停掉计时器 —— 不然切走后 setInterval 还在跑，
        回来会看到倒计时凭空少了一截。 */
     if (h.indexOf('/blitz') !== 0) blitzStop();
+    navOpen(false);          /* 小屏抽屉：换页就收起来 */
+    track('page', { route: h.replace(/\/[^/]*$/, '') || '/' });
     setActiveNav(h);
     refreshBadges();
     if (h === '/' || h === '') return pageDashboard();
@@ -3381,7 +3788,11 @@
     var lab = $('#side-sfx-label');
     if (lab) lab.textContent = '音效 ' + (on ? '开' : '关');
     var btn = $('#side-sfx');
-    if (btn) btn.classList.toggle('off', !on);
+    if (btn) {
+      btn.classList.toggle('off', !on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.setAttribute('aria-label', '音效开关，当前' + (on ? '开启' : '关闭'));
+    }
   }
   App.toggleSfx = function () {
     if (!window.SFX) return;
@@ -3402,6 +3813,17 @@
     st.textContent = Cards.CARD_CSS;
     document.head.appendChild(st);
   })();
+
+  /* 存储不可用（隐私模式、站点设置禁用 localStorage）必须一进来就说清楚。
+     否则用户答一晚上题，第二天打开发现什么都没留下 —— 而且没有任何提示。 */
+  if (!Store.available()) {
+    storageFail('浏览器禁用了本地存储（可能是隐私模式或站点设置）。这次会话的进度不会被保存，' +
+      '请改用普通窗口打开，或先导出已有数据。');
+  }
+  if (window.Telemetry) {
+    Telemetry.install();
+    track('boot', { schema: Store.SCHEMA, storageOk: Store.available() });
+  }
 
   state = load();
   mergeCustomQ();

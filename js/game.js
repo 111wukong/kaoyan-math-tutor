@@ -12,6 +12,22 @@
 window.Game = (function () {
   'use strict';
 
+  /* ---------- 计数口径 ----------
+   * 所有"答了多少次 / 对了几次 / 哪道题最后答错"都读 Store 的全量聚合，
+   * 而不是自己遍历 state.attempts —— 因为 attempts 明细会被裁剪
+   * （见 js/store.js），遍历明细会得到"最近 2000 条"的口径，
+   * 掌握度会在用户用了几个月之后莫名其妙地退回去。
+   *
+   * 硬依赖：js/store.js 必须先加载。缺了就抛错，不要退化成"只算明细"——
+   * 那会静悄悄地给出偏小的数字，比直接报错难查得多。
+   */
+  function statsOf(state) {
+    if (!window.Store || !window.Store.statsOf) {
+      throw new Error('game.js 依赖 js/store.js，请检查脚本加载顺序');
+    }
+    return window.Store.statsOf(state);
+  }
+
   /* ---------- XP 表 ---------- */
   var XP = {
     learn: 20,                    // 学完一个知识点
@@ -232,16 +248,16 @@ window.Game = (function () {
     var cards = state.cards || {};
     var learned = nodes.filter(function (n) { return cards[n.id]; }).length;
 
-    var attempts = (state.attempts || []).filter(function (a) { return nodeIds[a.kid]; });
-    var correct = attempts.filter(function (a) { return a.correct; }).length;
+    var st = statsOf(state);
+    var attemptCount = 0, correct = 0;
+    nodes.forEach(function (n) {
+      var ns = window.Store.nodeStat(st, n.id);
+      attemptCount += ns.n;
+      correct += ns.c;
+    });
 
     /* 错题本口径跟 app.js 的 mistakeList 一致：每题只看最后一次作答 */
-    var seenQ = {}, wrong = 0;
-    attempts.slice().reverse().forEach(function (a) {
-      if (seenQ[a.qid]) return;
-      seenQ[a.qid] = 1;
-      if (!a.correct) wrong++;
-    });
+    var wrong = window.Store.wrongLastCount(st, function (kid) { return !!nodeIds[kid]; });
 
     var checkins = state.checkins || {};
     var maxMinutes = 0;
@@ -279,7 +295,7 @@ window.Game = (function () {
       bestStreak: sk.best,
       learned: learned,
       total: nodes.length,
-      attempts: attempts.length,
+      attempts: attemptCount,
       correct: correct,
       wrong: wrong,
       mistakes: wrong,
@@ -475,16 +491,20 @@ window.Game = (function () {
     state = state || {};
     world = world || defaultWorld();
     opts = opts || {};
-    var attempts = (state.attempts || []).filter(function (a) { return a.kid === nodeId; });
-    var n = attempts.length;
-    var correct = attempts.filter(function (a) { return a.correct; }).length;
+    var st = statsOf(state);
+    var ns = window.Store.nodeStat(st, nodeId);
+    var n = ns.n, correct = ns.c;
     var accuracy = n ? correct / n : 0;
 
-    /* 该节点下每道题的最后一次作答 —— attempts 按时间追加，后面覆盖前面 */
-    var last = {}, seenQ = {};
-    attempts.forEach(function (a) { last[a.qid] = a; seenQ[a.qid] = 1; });
+    /* 该节点下每道题的最后一次作答 —— stats.qs[qid].ok 存的就是这个，
+       所以裁剪明细之后「每道题都答对过」这个口径仍然成立。 */
+    var qs = st.qs || {};
+    var seenQ = 0;
+    for (var qk in qs) {
+      if (qs.hasOwnProperty(qk) && qs[qk].kid === nodeId) seenQ++;
+    }
     var qIds = world.questions.filter(function (q) { return q.kid === nodeId; }).map(function (q) { return q.id; });
-    var allRight = qIds.length > 0 && qIds.every(function (id) { return last[id] && last[id].correct; });
+    var allRight = qIds.length > 0 && qIds.every(function (id) { return qs[id] && qs[id].ok; });
 
     /* 精通 = 该节点下**每道题**都至少答对过一次，且整体正确率达标。
      * 注意这里刻意不采用「最近三次全对」这种更松的口径 ——
@@ -498,7 +518,7 @@ window.Game = (function () {
     return {
       nodeId: nodeId, level: level, label: MASTERY_LABEL[level],
       attempts: n, correct: correct, accuracy: accuracy,
-      questions: qIds.length, questionsSeen: Object.keys(seenQ).length,
+      questions: qIds.length, questionsSeen: seenQ,
       allRight: allRight
     };
   }
@@ -547,9 +567,7 @@ window.Game = (function () {
     opts = opts || {};
     var today = opts.today || fmtToday();
     var world = opts.world || defaultWorld();
-    var todayN = (state.attempts || []).filter(function (a) {
-      return a.qid === qid && a.date === today;
-    }).length;
+    var todayN = window.Store.todayCount(statsOf(state), qid, today);
     var nth = opts.recorded ? Math.max(1, todayN) : todayN + 1;
 
     var m = nodeMastery(state, world, kid);

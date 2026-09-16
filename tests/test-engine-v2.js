@@ -19,6 +19,7 @@ const path = require('path');
 const BASE = path.join(__dirname, '..');
 
 global.window = {};
+require(path.join(BASE, 'js/store.js'));
 require(path.join(BASE, 'js/game.js'));
 require(path.join(BASE, 'js/lab.js'));
 const Game = global.window.Game;

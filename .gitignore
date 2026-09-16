@@ -33,6 +33,7 @@ tmp/
 coverage/
 .nyc_output/
 tests/.smoke.html
+tests/.shot.html
 tests/.probe.html
 
 # Environment
