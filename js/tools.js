@@ -265,8 +265,9 @@ window.Tools = (function () {
       parts.push('<text x="' + (axisX - 6).toFixed(1) + '" y="' + (sy(gy) + 3.5).toFixed(1) + '" text-anchor="end" font-size="10.5" fill="#8b93a7" font-family="system-ui,sans-serif">' + fmtTick(gy) + '</text>');
     }
 
-    // 曲线
-    if (d) parts.push('<path d="' + d + '" fill="none" stroke="#3b5bdb" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round"/>');
+    // 曲线。pathLength="1" 把路径长度归一化，UI 层就能用 stroke-dashoffset 从 1 到 0
+    // 做「一笔描出来」的动画，不必去测量真实路径长度。
+    if (d) parts.push('<path class="c-graph-line" pathLength="1" d="' + d + '" fill="none" stroke="#3b5bdb" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round"/>');
 
     parts.push('<text x="' + (W - PAD) + '" y="' + (PAD - 12) + '" text-anchor="end" font-size="12" fill="#5a6478" font-family="ui-monospace,Menlo,monospace">y = ' + String(expr).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</text>');
     parts.push('</svg>');
@@ -461,7 +462,95 @@ window.Tools = (function () {
         return {
           ok: true,
           data: { expr: expr, xmin: xmin, xmax: xmax, plotted: true, note: '图像已显示给学生' },
-          render: { type: 'svg', html: svg }
+          render: { type: 'board', item: { kind: 'graph', expr: expr, svg: svg } }
+        };
+      }
+    },
+
+    /* ---------- 黑板动作族 ----------
+     * 黑板不是「一次性贴一张图」，而是一串**有时序的动作**。每个动作只带数据，
+     * 由 UI 层决定怎么画、按什么节奏画（见 app.js 的 boardHtml / renderBoard）。
+     * 这样工具层保持零依赖、可在 node 里断言，渲染层可以自由升级动画。 */
+
+    write_steps: {
+      description: '在黑板上写下解题步骤，一条一条出现。讲多步推导、解题模板、分类讨论时用它——比整段文字清楚得多。',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: '这一步块的小标题，如「求 lim (tan x - sin x)/x³」' },
+          steps: {
+            type: 'array',
+            description: '步骤列表，每项一句话。可以带行内公式 $...$',
+            items: { type: 'string' }
+          }
+        },
+        required: ['steps']
+      },
+      run: function (a) {
+        var raw = a.steps;
+        var steps = (Array.isArray(raw) ? raw : String(raw == null ? '' : raw).split('\n'))
+          .map(function (s) { return String(s == null ? '' : s).trim(); })
+          .filter(Boolean)
+          .slice(0, 8);
+        if (!steps.length) return { ok: false, error: 'steps 不能为空' };
+        var title = String(a.title || '').trim();
+        return {
+          ok: true,
+          data: { steps: steps.length, title: title, note: '步骤已写到黑板上' },
+          render: { type: 'board', item: { kind: 'steps', title: title, steps: steps } }
+        };
+      }
+    },
+
+    write_latex: {
+      description: '在黑板上写一行独立的公式或推导（居中、大字号）。要点出一个关键式子、一个中间结果时用它，比把公式埋在句子里醒目。',
+      parameters: {
+        type: 'object',
+        properties: {
+          tex: { type: 'string', description: '公式本体，不带 $ 定界符。如 \\lim_{x\\to 0}\\frac{\\tan x-\\sin x}{x^3}' },
+          note: { type: 'string', description: '这行公式下面的一句小字说明（可选）' }
+        },
+        required: ['tex']
+      },
+      run: function (a) {
+        var tex = String(a.tex || '').trim().replace(/^\$\$?|\$\$?$/g, '').trim();
+        if (!tex) return { ok: false, error: 'tex 不能为空' };
+        return {
+          ok: true,
+          data: { tex: tex, note: '公式已写到黑板上' },
+          render: { type: 'board', item: { kind: 'latex', tex: tex, note: String(a.note || '').trim() } }
+        };
+      }
+    },
+
+    highlight: {
+      description: '把黑板上已经写着的某一块圈出来，吸引学生的注意力。当你正在说「看这一步」「问题出在这里」时调用——只说"看第二步"学生是找不到的。',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: { type: 'string', description: '要圈出来的那一段文字里的关键词，能和黑板上已有内容对上就行' }
+        },
+        required: ['target']
+      },
+      run: function (a) {
+        var target = String(a.target || '').trim();
+        if (!target) return { ok: false, error: 'target 不能为空' };
+        return {
+          ok: true,
+          data: { target: target, note: '已圈出黑板上的对应内容' },
+          render: { type: 'board', item: { kind: 'highlight', target: target } }
+        };
+      }
+    },
+
+    clear_board: {
+      description: '擦掉黑板上之前写的东西。换话题、或者要开始写新的一块时用，别让黑板越堆越乱。',
+      parameters: { type: 'object', properties: {} },
+      run: function () {
+        return {
+          ok: true,
+          data: { cleared: true, note: '黑板已擦干净' },
+          render: { type: 'board', item: { kind: 'clear' } }
         };
       }
     },
@@ -568,16 +657,21 @@ window.Tools = (function () {
   }
 
   /* 老师的工具集。注意不含「举手 / 弃权」——那是学生专属动作，
-     发给老师只会让模型有机会做荒唐的事。 */
+     发给老师只会让模型有机会做荒唐的事。
+     黑板动作族（draw_graph / write_steps / write_latex / highlight / clear_board）
+     老师全都有：讲课的主力是他。 */
   var TEACHER_TOOLS = [
     'query_weakness', 'get_mistakes', 'pick_question', 'get_node', 'search_nodes',
-    'get_progress', 'draw_graph', 'save_note', 'mark_mastered'
+    'get_progress', 'draw_graph', 'write_steps', 'write_latex', 'highlight', 'clear_board',
+    'save_note', 'mark_mastered'
   ];
   var SCHEMA = TEACHER_TOOLS.map(toSchema);
 
   /* 学生 agent 的工具白名单：能翻书、能回忆错题、能在黑板上画图、
-     能举手、能弃权 —— 但改不了学生的学情数据（不能标掌握、不能记笔记）。 */
-  var STUDENT_TOOLS = ['look_up', 'recall_mistake', 'draw_graph', 'raise_hand', 'pass'];
+     能圈出黑板上的一处来支持自己的说法、能举手、能弃权 ——
+     但**不能** write_steps / write_latex：那是"写完整解答"，学生不该做这件事。
+     也改不了学生的学情数据（不能标掌握、不能记笔记）。 */
+  var STUDENT_TOOLS = ['look_up', 'recall_mistake', 'draw_graph', 'highlight', 'raise_hand', 'pass'];
   var STUDENT_SCHEMA = STUDENT_TOOLS.map(toSchema);
 
   function execute(name, args, ctx) {
@@ -602,6 +696,10 @@ window.Tools = (function () {
     search_nodes: '检索考点',
     get_progress: '看学习进度',
     draw_graph: '画函数图像',
+    write_steps: '写解题步骤',
+    write_latex: '写公式',
+    highlight: '圈出黑板一处',
+    clear_board: '擦黑板',
     save_note: '记笔记',
     mark_mastered: '标记已掌握',
     look_up: '翻书',

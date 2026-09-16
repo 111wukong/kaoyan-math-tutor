@@ -1564,6 +1564,11 @@
     if (!state.classrooms) state.classrooms = {};
     return state.classrooms[kid] || null;
   }
+
+  /* 正在跑的那一节。刷新页面后它归 null —— 存档里 session.awaiting 只是残留数据，
+     里面的 resolve 早随旧页面一起没了，不能再拿它去接用户的答案。 */
+  var classLive = null;
+  function isLive(session) { return !!session && classLive === session; }
   function scrollStream() {
     var s = $('#c-stream');
     if (s) s.scrollTop = s.scrollHeight;
@@ -1586,11 +1591,49 @@
   }
   function statusTextOf(s) {
     if (!s) return '未开始';
-    if (s.stage === 'running') return '进行中';
+    if (s.stage === 'running') return isLive(s) ? '进行中' : '已中断';
     if (s.stage === 'failed') return '中断了';
     return '已结束';
   }
   function modeName(m) { return m === 'lesson' ? '课堂模式' : '讨论模式'; }
+
+  /* 老师的教学动作统计。MathDial 的结论是 telling 占比高 → 学生学不会；
+     有了这个计数，"这节课是在引导还是在念答案"就是可量化的，不用凭感觉。 */
+  function movesHtml(session) {
+    var st = Classroom.moveStats(session);
+    if (!st.total) {
+      return '<div class="side-note">这节课还没开始。开课后这里会统计老师的教学动作——' +
+        '<b>引导</b>（指位置、追问）多还是<b>直接告知</b>多。</div>';
+    }
+    var rows = [
+      ['引导 · 指位置', st.focus],
+      ['引导 · 追问', st.probing],
+      ['直接告知', st.telling]
+    ].map(function (r) {
+      return '<div class="c-mv-row"><span>' + r[0] + '</span><b>' + r[1] + '</b></div>';
+    }).join('');
+    var cls = st.guiding >= 60 ? 'c-mv-good' : st.guiding >= 35 ? 'c-mv-mid' : 'c-mv-bad';
+    return '<div class="c-mv">' + rows +
+      '<div class="c-mv-bar"><div class="c-mv-fill" style="width:' + st.guiding + '%"></div></div>' +
+      '<div class="c-mv-sum ' + cls + '">引导占 <b>' + st.guiding + '%</b>　' +
+      (st.guiding >= 60 ? '这节课是你在想' : st.guiding >= 35 ? '一半引导一半代劳' : '告知太多，等于替你做题') +
+      '</div></div>';
+  }
+
+  /* 答题卡：课堂会在这里**停下来等**。不交答案就不往下走。 */
+  function askHtml(session) {
+    var a = session && session.awaiting;
+    if (!a || !isLive(session)) return '';
+    var answered = session.userTurns && session.userTurns.length;
+    return '<div class="c-ask" id="c-ask">' +
+      '<div class="c-ask-tag">轮到你了' + (answered ? '（第 ' + (answered + 1) + ' 次）' : '') + '</div>' +
+      '<div class="c-ask-q">' + esc(a.prompt || '') + '</div>' +
+      '<textarea id="c-ask-input" rows="3" placeholder="' + esc(a.placeholder || '写下你的答案') + '"></textarea>' +
+      '<div class="c-ask-row">' +
+        '<button type="button" class="btn primary" onclick="App.classAnswer()">交答案</button>' +
+        '<button type="button" class="btn" onclick="App.classSkip()">先跳过</button>' +
+      '</div></div>';
+  }
 
   function appendClassMsg(stream, role, text, opts) {
     opts = opts || {};
@@ -1657,22 +1700,118 @@
     }).join('');
   }
 
-  function boardHtml(session) {
+  /* ---------- 黑板 ----------
+   * 黑板是一串**按序出现的动作**，不是一次性贴上去的图片。
+   * kind：graph | steps | latex | highlight | clear
+   *   · clear 之前的内容全部作废（擦黑板）
+   *   · 这一轮新增的块带 .c-fresh，由 CSS 做入场动画；steps 逐条错开
+   *   · highlight 找到文字能对上的那一块，打上 .c-board-hit
+   * 「一笔一笔写出来」和「啪一下全出现」信息量完全一样，但只有前者有节奏。
+   */
+  function boardClearIndex(session) {
     var items = (session && session.board) || [];
-    if (!items.length) return '<div class="c-board-empty">还没人在黑板上写东西。<br>学生讲不清时会自己画图。</div>';
-    return items.map(function (b) {
+    var lastClear = -1;
+    for (var i = 0; i < items.length; i++) if (items[i].kind === 'clear') lastClear = i;
+    return lastClear;
+  }
+
+  function boardVisible(session) {
+    var items = (session && session.board) || [];
+    return items.slice(boardClearIndex(session) + 1);
+  }
+
+  /* 真正会画成一块内容的（highlight 只是给已有块打光，不占号）。
+     data-blocks 和动画的"新块起点"都用这个口径，否则记账和渲染对不上。 */
+  function boardRenderable(session) {
+    return boardVisible(session).filter(function (b) { return b.kind !== 'highlight'; });
+  }
+
+  function boardTextOf(b) {
+    if (!b) return '';
+    if (b.kind === 'steps') return String(b.title || '') + ' ' + (b.steps || []).join(' ');
+    if (b.kind === 'latex') return String(b.tex || '') + ' ' + String(b.note || '');
+    if (b.kind === 'graph') return String(b.expr || '');
+    return '';
+  }
+
+  function boardHtml(session, freshFrom) {
+    var blocks = boardVisible(session);
+    if (!blocks.length) {
+      return '<div class="c-board-empty">黑板还是空的。<br>讲到关键处，老师会自己往上写。</div>';
+    }
+    if (typeof freshFrom !== 'number') freshFrom = boardRenderable(session).length;
+
+    /* 最后一条 highlight 决定谁被圈出来（后面的覆盖前面的） */
+    var hit = -1;
+    blocks.forEach(function (b) {
+      if (b.kind !== 'highlight') return;
+      var t = String(b.target || '').trim();
+      if (!t) return;
+      for (var i = 0; i < blocks.length; i++) {
+        if (blocks[i].kind === 'highlight') continue;
+        if (boardTextOf(blocks[i]).indexOf(t) >= 0) { hit = i; return; }
+      }
+    });
+
+    var html = '';
+    var drawn = 0;                                   // 已画出来的块数（highlight 不占号）
+    for (var k = 0; k < blocks.length; k++) {
+      var b = blocks[k];
+      if (b.kind === 'highlight') continue;          // 高亮是效果，不是一块内容
       var who = (Classroom.AGENTS[b.by] || {}).name || b.by;
-      return '<div class="c-board-item">' +
-        '<div class="c-board-who">' + esc(who) + ' 画的</div>' +
-        '<div class="c-board-graph">' + (b.svg || '') + '</div>' +
-        (b.expr ? '<div class="c-board-expr">$y = ' + esc(b.expr) + '$</div>' : '') +
+      var fresh = drawn >= freshFrom ? ' c-fresh' : '';
+      drawn++;
+      var cls = 'c-board-item c-board-' + b.kind + fresh + (k === hit ? ' c-board-hit' : '');
+      var inner = '';
+
+      if (b.kind === 'steps') {
+        inner = (b.title ? '<div class="c-board-title">' + inlineMd(b.title) + '</div>' : '') +
+          '<ol class="c-board-steps">' +
+          (b.steps || []).map(function (s, i) {
+            return '<li style="animation-delay:' + (i * 140) + 'ms">' + inlineMd(s) + '</li>';
+          }).join('') +
+          '</ol>';
+      } else if (b.kind === 'latex') {
+        inner = '<div class="c-board-latex">' + renderFormula(b.tex || '', true) + '</div>' +
+          (b.note ? '<div class="c-board-note">' + inlineMd(b.note) + '</div>' : '');
+      } else {
+        /* graph（默认分支）：兼容早期只存了 svg 的老存档 */
+        inner = '<div class="c-board-graph">' + (b.svg || '') + '</div>' +
+          (b.expr ? '<div class="c-board-expr">' + renderFormula('y = ' + b.expr, false) + '</div>' : '');
+      }
+
+      html += '<div class="' + cls + '">' +
+        '<div class="c-board-who">' + esc(who) + '</div>' +
+        inner +
         '</div>';
-    }).join('');
+    }
+    return html || '<div class="c-board-empty">黑板还是空的。</div>';
   }
 
   function renderBoard(session) {
     var box = $('#c-board');
-    if (box) box.innerHTML = boardHtml(session);
+    if (!box) return;
+    var blocks = boardVisible(session);
+    var drawn = boardRenderable(session);
+    var lastClear = boardClearIndex(session);
+
+    var prevBlocks = parseInt(box.getAttribute('data-blocks'), 10);
+    var prevClear = parseInt(box.getAttribute('data-clear'), 10);
+    if (isNaN(prevBlocks)) prevBlocks = drawn.length;    // 初次渲染没有标记 → 全是旧的
+    if (isNaN(prevClear)) prevClear = lastClear;
+
+    /* 擦过黑板 → 之前画的全没了，剩下的都算新的；否则只有新追加的才算新。 */
+    var freshFrom = (lastClear !== prevClear) ? 0 : prevBlocks;
+
+    box.setAttribute('data-blocks', drawn.length);
+    box.setAttribute('data-clear', lastClear);
+    box.innerHTML = boardHtml(session, freshFrom);
+  }
+
+  /* 黑板容器的初始标记。页面第一次画黑板时就要把"已经画了几块"记在 DOM 上，
+     否则第一次收到新动作时 prevBlocks 读不到，老内容会被当成新内容重播一遍动画。 */
+  function boardAttrs(session) {
+    return ' data-blocks="' + boardRenderable(session).length + '" data-clear="' + boardClearIndex(session) + '"';
   }
 
   function pageClass(kid) {
@@ -1683,6 +1822,9 @@
     }
     var session = classOf(kid);
     var live = !!(session && session.turns && session.turns.length);
+    /* 课堂停下来等他作答时，插话入口要关掉 —— 那会让老师同时回应两条线，
+       而且他此刻该做的是交答案，不是闲聊。 */
+    var canInterject = live && isLive(session) && !session.awaiting;
     var mode = (session && session.mode) || 'debate';
     var chap = chapOf(n) || { cat: { name: '' } };
     var deck = (state.cardDeck && state.cardDeck[kid]) || [];
@@ -1702,10 +1844,12 @@
             (deck.length ? '<a class="btn" style="width:100%;margin-top:8px;display:block;text-align:center;box-sizing:border-box" href="#/cards/' + esc(kid) + '">卡片库（' + deck.length + ' 张）</a>' : '') +
             (session ? '<button class="btn" style="width:100%;margin-top:8px" onclick="App.clearClass()">清空记录</button>' : '') +
           '</div>' +
+          '<div class="card"><div class="sub-title">老师的教学动作</div><div id="c-mv-host">' + movesHtml(session) + '</div></div>' +
           '<div class="card"><div class="sub-title">他们为什么不一样</div><div class="side-note">' +
             '甲掌握完整正文 + 例题 + 关联考点；乙只有正文 + 例题；丙只记得第一句定义 —— ' +
             '而且丙调工具去查，也只能查到那一句。<br><br>' +
-            '四个人各自独立调用模型、各自有记忆。丙犯的错是从你的错题本和题目干扰项里挖的。' +
+            '三个人**都会犯错**，但错法各不相同：甲结论下得太早，乙条件用错，丙概念混淆。' +
+            '一道题的三个干扰项正好分给三个人，谁也不重复。' +
           '</div></div>' +
         '</div>' +
         '<div class="class-main">' +
@@ -1717,14 +1861,14 @@
             '</div>' +
             '<div class="c-stream" id="c-stream"></div>' +
             '<div class="c-input-row">' +
-              '<input id="c-input" placeholder="插话 —— 老师会当场回应你" autocomplete="off"' + (live ? '' : ' disabled') + '>' +
-              '<button id="c-send" onclick="App.classInterject()"' + (live ? '' : ' disabled') + '>插话</button>' +
-              '<button id="c-hand" onclick="App.raiseMyHand()"' + (live ? '' : ' disabled') + ' title="抢话筒：预填一句话，你可以改">举手</button>' +
+              '<input id="c-input" placeholder="插话 —— 老师会当场回应你" autocomplete="off"' + (canInterject ? '' : ' disabled') + '>' +
+              '<button id="c-send" onclick="App.classInterject()"' + (canInterject ? '' : ' disabled') + '>插话</button>' +
+              '<button id="c-hand" onclick="App.raiseMyHand()"' + (canInterject ? '' : ' disabled') + ' title="抢话筒：预填一句话，你可以改">举手</button>' +
             '</div>' +
           '</div>' +
         '</div>' +
         '<div class="class-board">' +
-          '<div class="card"><div class="sub-title">黑板</div><div class="c-board" id="c-board">' + boardHtml(session) + '</div></div>' +
+          '<div class="card"><div class="sub-title">黑板</div><div class="c-board" id="c-board"' + boardAttrs(session) + '>' + boardHtml(session) + '</div></div>' +
         '</div>' +
       '</div>';
 
@@ -1733,6 +1877,13 @@
       session.turns.forEach(function (t) {
         appendClassMsg(stream, t.role, t.text, { note: t.note });
       });
+      /* 正在等他作答 → 把答题卡接在流末尾，并自动聚焦。
+         刷新过页面的话 isLive 为 false，askHtml 返回空串，不会给出一个按了没反应的框。 */
+      if (isLive(session) && session.awaiting) {
+        stream.insertAdjacentHTML('beforeend', askHtml(session));
+        var ta = $('#c-ask-input');
+        if (ta) ta.focus();
+      }
       if (session.stage === 'done') {
         var el = document.createElement('div');
         el.className = 'c-endnote';
@@ -1767,11 +1918,13 @@
       question: topic.question, reason: topic.reason,
       steps: 2,
       turns: [], spoken: [], userTurns: [], board: [], memory: {},
+      moves: { focus: 0, probing: 0, telling: 0 },
       profile: Agent.learningProfile(ctx, topic.kid),
       rosterStatus: {}, stage: 'running', ts: Date.now()
     };
     if (!state.classrooms) state.classrooms = {};
     state.classrooms[kid] = session;
+    classLive = session;
     save();
     pageClass(kid);
 
@@ -1830,6 +1983,18 @@
           renderBoard(session);
           return;
         }
+        /* 课堂在这里停下来等他。把答题卡接到流末尾，关掉插话入口，
+           并把焦点送进输入框 —— 不能让他盯着一动不动等。 */
+        if (ev.type === 'ask') {
+          var inp0 = $('#c-input');
+          if (inp0) inp0.disabled = true;
+          var b0 = $('#c-send'); if (b0) b0.disabled = true;
+          var b1 = $('#c-hand'); if (b1) b1.disabled = true;
+          stream.insertAdjacentHTML('beforeend', askHtml(session));
+          var ta = $('#c-ask-input');
+          if (ta) { ta.focus(); scrollStream(); }
+          return;
+        }
         if (ev.type === 'error') {
           var e2 = pending[ev.role || 'teacher'];
           if (e2) { e2.querySelector('.c-bubble').innerHTML = '<span class="c-err">' + esc(ev.message) + '</span>'; delete pending[ev.role]; }
@@ -1854,13 +2019,64 @@
       setClassStatus('中断了');
       toast('课堂中断：' + String(e.message || e).slice(0, 70), 'no');
       save();
+    } finally {
+      classLive = null;
+      /* 结束后重画一遍侧栏，把这一节课的教学动作统计落下来。
+         它同时是「他到底做了几道题」的凭证。 */
+      var mv = $('#c-mv-host');
+      if (mv) mv.innerHTML = movesHtml(session);
+      var ask = $('#c-ask');
+      if (ask) ask.remove();
+      var inp1 = $('#c-input');
+      if (inp1) inp1.disabled = false;
+      var b2 = $('#c-send'); if (b2) b2.disabled = false;
+      var b3 = $('#c-hand'); if (b3) b3.disabled = false;
     }
+  };
+
+  /* 交答案。这是整堂课真正的那一下 —— 他不交，课堂就停在这。 */
+  App.classAnswer = function () {
+    var kid = window.__curKid;
+    var session = classOf(kid);
+    if (!session) return;
+    var ta = $('#c-ask-input');
+    var text = ta ? ta.value.trim() : '';
+    if (!text) { toast('写点什么再交，或者点「先跳过」', 'no'); return; }
+    if (!Classroom.submitAnswer(session, text)) {
+      toast('这一节已经接不上了，重开一节吧', 'no');
+      return;
+    }
+    var ask = $('#c-ask');
+    if (ask) ask.remove();
+    var inp = $('#c-input');
+    if (inp) inp.disabled = false;
+    var b = $('#c-send'); if (b) b.disabled = false;
+    var b2 = $('#c-hand'); if (b2) b2.disabled = false;
+    save();
+  };
+
+  /* 跳过。不逼他答，但也不假装他答过 —— 老师会知道他是跳过的。 */
+  App.classSkip = function () {
+    var kid = window.__curKid;
+    var session = classOf(kid);
+    if (!session) return;
+    if (!Classroom.skipAnswer(session)) { toast('这一节已经接不上了', 'no'); return; }
+    var ask = $('#c-ask');
+    if (ask) ask.remove();
+    var inp = $('#c-input');
+    if (inp) inp.disabled = false;
+    var b = $('#c-send'); if (b) b.disabled = false;
+    var b2 = $('#c-hand'); if (b2) b2.disabled = false;
+    save();
   };
 
   App.classInterject = async function () {
     var kid = window.__curKid;
     var session = classOf(kid);
     if (!session || session.stage !== 'running') { toast('这一节已经结束了', 'no'); return; }
+    /* 他在等你交答案时，老师不该同时回应另一条线。 */
+    if (session.awaiting) { toast('先把上面那道题交了，再插话', 'no'); return; }
+    if (!isLive(session)) { toast('这一节已经中断了，重开一节吧', 'no'); return; }
     var inp = $('#c-input');
     var text = inp.value.trim();
     if (!text) return;
@@ -1894,6 +2110,7 @@
     var kid = window.__curKid;
     if (!state.classrooms || !state.classrooms[kid]) return;
     if (!confirmDialog('清空这个考点的课堂记录？')) return;
+    if (state.classrooms[kid] === classLive) classLive = null;
     delete state.classrooms[kid];
     save();
     pageClass(kid);

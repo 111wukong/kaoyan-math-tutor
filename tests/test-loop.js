@@ -38,7 +38,9 @@ const server = http.createServer(function (req, res) {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
 
       if (callCount === 1) {
-        toolsSeenOnFirstCall = !!(j.tools && j.tools.length === 9);
+        /* 数量从白名单推出来，不写死 —— 加一个工具就改一次测试是纯负担，
+           而且会让「工具被漏发」这种真问题淹死在噪音里。 */
+        toolsSeenOnFirstCall = !!(j.tools && j.tools.length === Tools.TEACHER_TOOLS.length);
         systemPromptSeen = (j.messages[0] && j.messages[0].content) || '';
         // 第一轮：先说话，再调工具
         res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: '我先看看你的错题本。' } }] }) + '\n\n');
@@ -93,7 +95,7 @@ server.listen(PORT, '127.0.0.1', async function () {
     events.forEach(function (e) { console.log('  · ' + e); });
 
     console.log('');
-    truthy('模型收到了 9 个工具的 schema', toolsSeenOnFirstCall);
+    truthy('模型收到了 ' + Tools.TEACHER_TOOLS.length + ' 个工具的 schema（与白名单一致）', toolsSeenOnFirstCall);
     truthy('模型收到了学情 system prompt（含薄弱考点）', systemPromptSeen.indexOf('无穷小与等价代换') >= 0 && systemPromptSeen.indexOf('连续打卡') >= 0);
     truthy('人设生效（段子手）', systemPromptSeen.indexOf('段子手') >= 0);
     truthy('调用了 get_mistakes 工具', events.indexOf('tool:start:get_mistakes') >= 0);

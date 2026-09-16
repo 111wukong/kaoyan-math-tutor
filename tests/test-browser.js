@@ -251,6 +251,8 @@ async function waitPort(file, ms) {
         chk(typeof window.App.startClass === 'function', 'App.startClass 可调用');
         chk(typeof window.Classroom.run === 'function', 'Classroom 引擎已加载');
         chk(!!document.querySelector('.c-board-empty'), '黑板初始占位正常');
+        chk(!!document.getElementById('c-mv-host'), '教学动作统计卡挂在侧栏');
+        chk(!document.getElementById('c-ask'), '没开课时不出现答题框');
         var lay = document.querySelector('.class-layout');
         chk(!!lay && getComputedStyle(lay).display === 'flex', '三栏布局样式生效');
         var side = document.querySelector('.class-side');
@@ -307,7 +309,17 @@ async function waitPort(file, ms) {
             { role: 'teacher', text: '学生丙把等价代换当成了普通约分，这是典型混淆。加减中不能随便代换。' },
             { role: 'teacher', text: '这节课记住两件事：\n1. 等价代换只能用于乘除因子，加减中慎用。\n2. 遇到 tan x - sin x 要先提取公因式。' }
           ],
-          spoken: [], userTurns: [], board: [], memory: {}
+          spoken: [], userTurns: [], memory: {},
+          moves: { focus: 4, probing: 2, telling: 1 },
+          board: [
+            {
+              by: 'teacher', kind: 'steps', title: '求 lim (tan x − sin x)/x³',
+              steps: ['提取公因式 tan x', '用 1−cos x ~ x²/2', '得极限 1/2']
+            },
+            { by: 'teacher', kind: 'latex', tex: '\\lim_{x\\to 0}\\frac{\\sin x}{x}=1', note: '第一个重要极限' },
+            { by: 'weak', kind: 'graph', expr: 'sin(x)/x', svg: '<svg viewBox="0 0 10 10"><path class="c-graph-line" pathLength="1" d="M0 5 L10 5" fill="none" stroke="#3b5bdb"/></svg>' },
+            { by: 'teacher', kind: 'highlight', target: '提取公因式' }
+          ]
         }
       }
     };
@@ -336,6 +348,32 @@ async function waitPort(file, ms) {
         chk(/重开一节/.test(side ? side.textContent : ''), '★ 认出了已有的课堂记录（按钮变成「重开一节」）');
         chk(!!side && /整理成复习卡片/.test(side.textContent), '课堂页出现「整理成复习卡片」入口');
         chk(typeof window.Cards.distill === 'function', 'Cards 引擎已加载');
+        /* ---- 黑板动作族 ---- */
+        chk(document.querySelectorAll('.c-board-item').length === 3,
+          '黑板渲染出 3 块（highlight 是效果，不算一块内容）');
+        chk(!!document.querySelector('.c-board-steps'), '步骤块渲染出来了');
+        chk(document.querySelectorAll('.c-board-steps li').length === 3, '步骤逐条渲染');
+        chk(!!document.querySelector('.c-board-latex'), '公式块渲染出来了');
+        chk(!!document.querySelector('.c-board-graph svg'), '图像块渲染出来了');
+        var hit = document.querySelector('.c-board-hit');
+        chk(!!hit, '★ highlight 圈到了对应的那一块');
+        chk(!!hit && hit.className.indexOf('c-board-steps') >= 0, '★ 圈中的正是含目标文字的步骤块');
+        chk(document.querySelectorAll('.c-board-item.c-fresh').length === 0,
+          '★ 重画时不重播入场动画（旧内容不该带 c-fresh）');
+        var cb = document.getElementById('c-board');
+        chk(!!cb && cb.getAttribute('data-blocks') === '3',
+          '★ 黑板容器记下了已渲染块数（' + (cb ? cb.getAttribute('data-blocks') : '无') + '）');
+        chk(!!cb && cb.getAttribute('data-blocks') === String(document.querySelectorAll('.c-board-item').length),
+          '★ 记账口径和渲染口径一致（highlight 不算一块）');
+        /* ---- 教学动作统计 ---- */
+        var mv = document.getElementById('c-mv-host');
+        chk(!!mv, '教学动作统计卡存在');
+        chk(!!mv && /引导占/.test(mv.textContent), '★ 统计卡算出了引导占比');
+        chk(!!mv && /直接告知/.test(mv.textContent), '统计卡列出了直接告知的次数');
+        /* ---- 不能给出一个按了没反应的答题框 ---- */
+        chk(!document.getElementById('c-ask'), '★ 没有残留的答题框（刷新后不该出现死框）');
+        chk(typeof window.App.classAnswer === 'function', 'App.classAnswer 可调用');
+        chk(typeof window.App.classSkip === 'function', 'App.classSkip 可调用');
         chk(!!document.getElementById('pk-card-css'), '★ 卡片样式已注入 head（只有一份来源）');
         chk(!!document.getElementById('print-root'), '打印容器存在于 body 直接子级');
         chk(getComputedStyle(document.getElementById('print-root')).display === 'none', '屏幕上打印容器是隐藏的');

@@ -858,7 +858,57 @@ body {
 .c-board-graph svg { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); }
 .c-board-expr { font-size: 12px; color: var(--ink); margin-top: 6px; text-align: center; font-family: var(--serif); }
 
+/* ---------- 黑板动作族 ----------
+   黑板是「一笔一笔写出来」的，不是一次性铺满。新追加的块带 .c-fresh 才播动画，
+   否则每次重画整块黑板都会重播一遍，像坏了。 */
+.c-board-title { font-size: 12px; color: var(--ink-2); margin-bottom: 6px; line-height: 1.6; }
+.c-board-steps { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.72; color: var(--ink); }
+.c-board-steps li { margin-bottom: 4px; }
+.c-board-steps li::marker { color: var(--ink-3); font-size: 11px; }
+.c-board-latex { text-align: center; font-size: 13px; padding: 4px 0; overflow-x: auto; }
+.c-board-latex .katex { font-size: 1.05em; }
+.c-board-note { font-size: 11.5px; color: var(--ink-3); text-align: center; margin-top: 4px; line-height: 1.6; }
+
+.c-board-item.c-fresh { animation: cIn .26s ease-out both; }
+.c-board-item.c-fresh .c-board-steps li { animation: cStep .26s ease-out both; }
+.c-board-item.c-board-hit { border-color: var(--brand); border-left-width: 3px; background: var(--brand-soft); animation: cHit .5s ease-out both; }
+
+/* 曲线用 pathLength="1" 归一化过，所以 dashoffset 从 1 到 0 就是"一笔描出来"，
+   不必去测真实路径长度。 */
+.c-board-graph svg .c-graph-line { stroke-dasharray: 1; stroke-dashoffset: 0; }
+.c-board-item.c-fresh .c-board-graph svg .c-graph-line { animation: cDraw 1.15s ease-out both; }
+
+/* ---------- 答题卡：课堂在这里停下来等他 ---------- */
+.c-ask {
+  border: 1px solid var(--brand-line); border-radius: var(--radius); background: var(--brand-soft);
+  padding: 14px; animation: cIn .24s ease-out both;
+}
+.c-ask-tag { font-size: 11px; font-weight: 600; color: var(--brand); letter-spacing: .04em; margin-bottom: 6px; }
+.c-ask-q { font-size: 13.5px; color: var(--ink); line-height: 1.7; margin-bottom: 10px; }
+.c-ask textarea {
+  width: 100%; box-sizing: border-box; padding: 10px 12px; font-size: 13px; font-family: var(--font);
+  line-height: 1.7; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line-2); border-radius: var(--radius-sm); outline: none; resize: vertical;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.c-ask textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.c-ask-row { display: flex; gap: 8px; margin-top: 10px; }
+
+/* ---------- 老师的教学动作统计 ---------- */
+.c-mv { font-size: 12px; }
+.c-mv-row { display: flex; justify-content: space-between; padding: 3px 0; color: var(--ink-2); }
+.c-mv-row b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.c-mv-bar { height: 5px; border-radius: 999px; background: var(--sunken); overflow: hidden; margin: 9px 0 7px; }
+.c-mv-fill { height: 100%; background: var(--brand); transition: width .3s ease; }
+.c-mv-sum { font-size: 11.5px; color: var(--ink-3); line-height: 1.6; }
+.c-mv-sum.c-mv-good { color: var(--green); }
+.c-mv-sum.c-mv-mid { color: var(--amber); }
+.c-mv-sum.c-mv-bad { color: var(--red); }
+
 @keyframes cIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes cStep { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes cDraw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes cHit { from { background: var(--panel); } to { background: var(--brand-soft); } }
 
 @media (max-width: 1180px) {
   .class-layout { flex-wrap: wrap; }
@@ -1325,6 +1375,15 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 }
 @media (prefers-reduced-motion: reduce) {
   .pace-bar > i, .blitz-track > i, .life, .blitz-mult { transition: none; }
+  /* 黑板与答题卡的入场动画全关掉。注意曲线要同时去掉 dasharray ——
+     否则动画一停，虚线状态会把曲线整条藏起来。 */
+  .c-board-item.c-fresh,
+  .c-board-item.c-fresh .c-board-steps li,
+  .c-board-item.c-board-hit,
+  .c-board-item.c-fresh .c-board-graph svg .c-graph-line,
+  .c-ask { animation: none; }
+  .c-board-graph svg .c-graph-line { stroke-dasharray: none; }
+  .c-mv-fill { transition: none; }
 }
 
 /* ============================================================

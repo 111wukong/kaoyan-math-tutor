@@ -26,6 +26,9 @@ function ok(cond, label, extra) {
 function eq(a, b, label) { ok(a === b, label, { got: a, want: b }); }
 function has(s, sub, label) { ok(String(s).indexOf(sub) >= 0, label, { got: String(s).slice(0, 200) }); }
 function notHas(s, sub, label) { ok(String(s).indexOf(sub) < 0, label, { got: String(s).slice(0, 200) }); }
+function teacherTurnsText(sess) {
+  return (sess.turns || []).filter(t => t.role === 'teacher').map(t => String(t.text));
+}
 
 /* ---------------- 假的学情数据 ---------------- */
 const NODES = {
@@ -73,6 +76,7 @@ function makeCtx(conf) {
 /* ---------------- mock 模型服务 ---------------- */
 let studentTools = true;          // 学生是否调用工具
 let directorQueue = [];           // 调度器依次返回什么
+let teacherMove = 'focus';        // 老师发言带的动作标签（null = 不带标签）
 const log = { calls: [], toolResults: [], studentMsgs: {} };
 
 function classify(messages) {
@@ -138,9 +142,11 @@ const server = http.createServer((req, res) => {
       return json(res, { choices: [{ message: { content: said } }] });
     }
 
-    // 老师
+    // 老师。默认带一个教学动作标签 —— 真实模型会按 prompt 要求加上，
+    // 这里跟着加上，整条「标签 → 剥离 → 计数」的链路才真的被测到。
     const isLesson = (body.messages.find(m => m.role === 'system') || {}).content.indexOf('第 ') >= 0;
-    return sse(res, isLesson ? '这一步讲完了。谁能说说这里为什么要小心？' : '这道题我们来看一下：tan x 减 sin x 除以 x 的三次方。大家觉得是多少？');
+    const head = teacherMove ? '(' + teacherMove + ')\n' : '';
+    return sse(res, head + (isLesson ? '这一步讲完了。谁能说说这里为什么要小心？' : '这道题我们来看一下：tan x 减 sin x 除以 x 的三次方。大家觉得是多少？'));
   });
 });
 
@@ -263,45 +269,187 @@ function reset(conf) { log.calls = []; log.toolResults = []; log.studentMsgs = {
   has(memSess.memory.weak.join(' '), '老师点评到我', '★ 丙记住了被点名');
   has(memSess.memory.smart.join(' '), '老师点评到我', '★ 甲也记住了被点名');
 
-  console.log('\n=== 13. 端到端：讨论模式 ===');
+  console.log('\n=== 13. ★ 三个学生各自绑定不同的错误（不是只有丙会错）===');
+  const topic = { kid: 'c1n4', question: QS.c1n4[0] };
+  const miscSmart = Classroom.misconceptions(ctx, topic, 'smart');
+  const miscAvg = Classroom.misconceptions(ctx, topic, 'average');
+  const miscWeak = Classroom.misconceptions(ctx, topic, 'weak');
+  ok(miscSmart.length > 0, '甲也有错误来源（不再只是正确答案的复读机）');
+  ok(miscAvg.length > 0, '乙也有错误来源');
+  ok(miscWeak.length > 0, '丙有错误来源');
+  ok(miscSmart.join(' ') !== miscAvg.join(' '), '★ 甲和乙的错误来源不同');
+  ok(miscAvg.join(' ') !== miscWeak.join(' ') || miscSmart.join(' ') !== miscWeak.join(' '), '★ 丙的错误来源和别人不同');
+  has(miscSmart.join(' '), '结论下得太早', '★ 甲绑定的是「结论下得太早」');
+  has(miscAvg.join(' '), '条件用错了', '★ 乙绑定的是「条件用错了」');
+  has(miscWeak.join(' '), '概念混淆', '★ 丙绑定的是「概念混淆」');
+  has(miscWeak.join(' '), '干扰项', '错误来源仍是真实干扰项');
+  /* 三个干扰项分给三个人：B(0) 给丙、C(1) 给乙、甲也落在 C（这道题只有两个干扰项） */
+  has(miscWeak.join(' '), '$0$', '丙分到干扰项 B');
+  notHas(miscSmart.join(' '), '正确答案是', '★ 不再把正确答案直接写进学生的提示里');
+  notHas(miscWeak.join(' '), '正确答案是', '★ 丙也不知道答案——错误要是推出来的，不是演的');
+
+  const sysSmart3 = Classroom.buildStudentSystem('smart', sess, ctx);
+  const sysAvg3 = Classroom.buildStudentSystem('average', sess, ctx);
+  has(sysSmart3, '干扰项', '★ 甲的系统提示里也有错误来源（去掉了 level<=0 的门槛）');
+  has(sysAvg3, '干扰项', '★ 乙的系统提示里也有错误来源');
+  has(sysSmart3, '绝对不要说出正确答案', '★ 学生被明令禁止抢答');
+
+  console.log('\n=== 14. 三条硬规则写进了老师的 system ===');
+  const tOpen = Classroom.buildTeacherSystem(sess, ctx, 'open');
+  const tHint = Classroom.buildTeacherSystem(sess, ctx, 'hint');
+  const tVerify = Classroom.buildTeacherSystem(sess, ctx, 'verify');
+  has(tOpen, '不许抢答', '★ 规则一：用户没答之前不许出答案');
+  has(tHint, '不要讲正确答案', '★ 规则二：答错先给最小提示');
+  has(tVerify, '不要给出答案', '★ 规则三：新题不给答案');
+  has(tHint, '你再想一次', '★ 提示要把他推回题目，而不是替他做');
+  has(tHint, '不要讲正确答案', '★ 最小提示不许越界成报答案');
+  has(tVerify, '必须和刚才那道题不一样', '新题不能和原题同答案');
+  has(tOpen, '不能违反', '三条规则被标为硬性');
+
+  console.log('\n=== 15. 教学动作标签：可解析、可统计 ===');
+  eq(Classroom.parseMove('(focus)\n看这一步，为什么？').move, 'focus', '解析出 focus');
+  eq(Classroom.parseMove('(focus)\n看这一步，为什么？').text, '看这一步，为什么？', '标签被剥离');
+  eq(Classroom.parseMove('(FOCUS)\n大写也能认').move, 'focus', '大写标签也认');
+  eq(Classroom.parseMove('(probing)\n\n追问').move, 'probing', '标签后有空行也能解析');
+  eq(Classroom.parseMove('没有标签的正文').move, null, '没有标签 → null');
+  eq(Classroom.parseMove('没有标签的正文').text, '没有标签的正文', '没有标签时正文原样返回');
+  eq(Classroom.parseMove('(unknown)\n正文').move, null, '不认识的标签不当标签');
+  const mvSess = { moves: { focus: 0, probing: 0, telling: 0 } };
+  Classroom.countMove(mvSess, 'focus'); Classroom.countMove(mvSess, 'focus');
+  Classroom.countMove(mvSess, 'telling');
+  Classroom.countMove(mvSess, null);
+  eq(Classroom.moveStats(mvSess).focus, 2, '计数正确');
+  eq(Classroom.moveStats(mvSess).telling, 1, 'telling 计数正确');
+  eq(Classroom.moveStats(mvSess).guiding, 67, '★ 引导占比算得对（2/3）');
+  eq(Classroom.moveStats({}).total, 0, '空会话不炸');
+  eq(Classroom.moveStats({}).guiding, null, '没数据时占比是 null 而不是 NaN');
+  has(Classroom.buildTeacherSystem(sess, ctx, 'open'), '(focus)', '★ 标签格式写进了老师的提示词');
+  has(Classroom.buildTeacherSystem(sess, ctx, 'open'), '少用 telling', '提示老师少用直接告知');
+
+  console.log('\n=== 16. 用户先答：会停下来等，也会被唤醒 ===');
+  const aSess = { kid: 'c1n4', turns: [], userTurns: [] };
+  const pending = Classroom.askUser(aSess, {}, { phase: 'first', prompt: '先答' });
+  ok(!!aSess.awaiting, '★ 抛出问题后进入等待状态');
+  eq(aSess.awaiting.prompt, '先答', '问题被记住');
+  eq(Classroom.submitAnswer(aSess, '我选 B'), true, '提交返回 true');
+  eq(aSess.awaiting, null, '提交后清掉等待状态');
+  eq(Classroom.submitAnswer(aSess, '再来一次'), false, '重复提交返回 false');
+  const got = await pending;
+  eq(got.text, '我选 B', '★ promise 收到用户的答案');
+  eq(got.skipped, false, '不算跳过');
+
+  const bSess = { kid: 'c1n4', turns: [], userTurns: [] };
+  const pending2 = Classroom.askUser(bSess, {}, { prompt: '再答' });
+  eq(Classroom.skipAnswer(bSess), true, '跳过返回 true');
+  eq((await pending2).skipped, true, '★ 跳过被标记出来');
+
+  const cSess = { kid: 'c1n4', turns: [], userTurns: [] };
+  const pending3 = Classroom.askUser(cSess, {}, { prompt: '空答案' });
+  Classroom.submitAnswer(cSess, '   ');
+  eq((await pending3).skipped, true, '空白答案算跳过');
+
+  /* 存档会把 resolve 丢掉，刷新页面后不能再拿残留的 awaiting 去接答案 */
+  const deadSess = { awaiting: { prompt: '旧问题', phase: 'first' } };
+  eq(Classroom.submitAnswer(deadSess, 'x'), false, '★ 刷新后的残留 awaiting 接不上，返回 false');
+
+  const auto = await Classroom.askUser({}, { onAsk: () => ({ text: '自动答案', skipped: false }) }, { prompt: 'p' });
+  eq(auto.text, '自动答案', '★ onAsk 直通（测试/无人值守不挂起）');
+  const auto2 = await Classroom.askUser({}, { onAsk: () => '' }, { prompt: 'p' });
+  eq(auto2.skipped, true, 'onAsk 返回空 → 算跳过');
+
+  console.log('\n=== 17. 用户的答案会进课堂记录，并成为讨论的靶子 ===');
+  const uSess = { kid: 'c1n4', mode: 'debate', question: QS.c1n4[0], turns: [], spoken: [], memory: {} };
+  const askEv = [];
+  await Classroom.waitForUser(uSess, ctx, {
+    onEvent: (e) => askEv.push(e),
+    onAsk: () => ({ text: '我觉得是 B，因为两个都换成 x 就减没了', skipped: false })
+  }, { phase: 'first', prompt: '先答' });
+  eq(uSess.userAnswer, '我觉得是 B，因为两个都换成 x 就减没了', '答案被记到会话上');
+  ok(uSess.turns.some(t => t.role === 'me'), '★ 答案进了课堂记录（老师能看见）');
+  ok(askEv.some(e => e.type === 'say' && e.item.role === 'me'), '★ 发出了「用户发言」事件给 UI');
+  const stuUser = Classroom.buildStudentUser('weak', uSess, ctx);
+  has(stuUser, '学生本人（用户）刚刚自己答的是', '★ 学生的上下文里有他的答案');
+  has(stuUser, '我觉得是 B', '★ 具体内容带过去了');
+  has(stuUser, '不要绕开他', '★ 学生被要求针对他的说法回应，而不是自说自话');
+  const tHint2 = Classroom.buildTeacherUser(uSess, ctx, 'hint');
+  has(tHint2, '学生本人（用户）自己答的是', '★ 老师给提示时也看得到他的答案');
+  has(tHint2, '由你自己判断', '老师自己判对错（不预先喂判定）');
+  eq(uSess.userAnswerSkipped, false, '不是跳过');
+
+  const skipSess = { kid: 'c1n4', mode: 'debate', question: QS.c1n4[0], turns: [], spoken: [], memory: {} };
+  await Classroom.waitForUser(skipSess, ctx, { onAsk: () => '' }, { phase: 'first', prompt: 'p' });
+  eq(skipSess.userAnswerSkipped, true, '跳过被记录');
+  has(Classroom.buildStudentUser('weak', skipSess, ctx), '跳过了这道题', '★ 学生知道他是跳过的');
+  has(Classroom.buildTeacherUser(skipSess, ctx, 'hint'), '别追问', '★ 老师被告知不要追问');
+
+  console.log('\n=== 18. 端到端：讨论模式（含用户先答 + 新题验证）===');
   studentTools = false;
   directorQueue = ['weak', 'END'];
-  const dbg = { kid: 'c1n4', mode: 'debate', question: QS.c1n4[0], reason: '测试', steps: 2, turns: [], spoken: [], userTurns: [], board: [], memory: {}, profile: '测试学情' };
+  const dbg = { kid: 'c1n4', mode: 'debate', question: QS.c1n4[0], reason: '测试', steps: 2, turns: [], spoken: [], userTurns: [], board: [], memory: {}, moves: { focus: 0, probing: 0, telling: 0 }, profile: '测试学情' };
   reset(conf);
   const events = [];
-  await Classroom.run(dbg, ctx, { onEvent: (e) => events.push(e), onStatus: () => { } });
+  const asks = [];
+  await Classroom.run(dbg, ctx, {
+    onEvent: (e) => events.push(e), onStatus: () => { },
+    onAsk: (spec) => { asks.push(spec); return { text: '我算出来是 B，把两个都换成 x 就减没了', skipped: false }; }
+  });
   eq(dbg.stage, 'done', '跑完了');
   eq(dbg.turns[0].role, 'teacher', '老师先抛题');
-  eq(dbg.turns[dbg.turns.length - 1].role, 'teacher', '老师最后点评');
-  const stuTurns = dbg.turns.filter(t => t.role !== 'teacher');
+  eq(dbg.turns[dbg.turns.length - 1].role, 'teacher', '老师最后收尾');
+  eq(asks.length, 2, '★ 停了两次等他：先答原题 + 独立做新题');
+  eq(asks[0].phase, 'first', '第一次是原题');
+  eq(asks[1].phase, 'verify', '★ 第二次是新题验证');
+  eq(dbg.userAnswer, '我算出来是 B，把两个都换成 x 就减没了', '★ 他的答案被记住');
+  ok(dbg.turns.filter(t => t.role === 'me').length === 2, '★ 课堂记录里有两次作答', dbg.turns.filter(t => t.role === 'me').length);
+  ok(events.some(e => e.type === 'ask'), '★ 向 UI 发出了「该你了」事件');
+  ok(events.some(e => e.type === 'say' && e.item.role === 'me'), '★ 他的作答也进了对话流');
+  const stuTurns = dbg.turns.filter(t => t.role !== 'teacher' && t.role !== 'me');
   ok(stuTurns.length >= 4, '学生至少说了 4 次（首轮 3 + 调度器 1）', stuTurns.length);
   ok(Classroom.STUDENT_KEYS.every(k => dbg.spoken.some(s => s.role === k)), '★ 三个学生都开过口');
   ok(events.some(e => e.type === 'thinking'), '发出了"三人同时在读题"事件');
   ok(log.calls.filter(c => c.startsWith('student:')).length >= 4, '★ 学生是多次独立调用，不是一次批量生成');
   ok(log.calls.includes('director'), '调度器被调用过');
+  ok(dbg.turns.some(t => t.role === 'teacher' && t.phase === 'verify'), '★ 老师出过新题');
+  ok(dbg.turns.some(t => t.role === 'teacher' && t.phase === 'final'), '★ 老师讲过评新题');
+  eq(dbg.awaiting, null, '结束后不留等待状态');
+  ok(dbg.moves.focus > 0, '★ 教学动作被统计（标签 → 剥离 → 计数 全链路）', dbg.moves);
+  eq(dbg.moves.telling, 0, '这一轮全是 focus，没有直接告知');
+  ok(teacherTurnsText(dbg).every(t => t.indexOf('(focus)') < 0), '★ 存下来的老师发言里没有标签残留');
 
-  console.log('\n=== 14. 端到端：课堂模式（老师分步讲）===');
+  console.log('\n=== 19. 端到端：课堂模式（先动手，再听讲）===');
   studentTools = false;
   directorQueue = ['END'];
-  const les = { kid: 'c1n4', mode: 'lesson', question: QS.c1n4[0], reason: '测试', steps: 2, turns: [], spoken: [], userTurns: [], board: [], memory: {}, profile: '测试学情' };
+  const les = { kid: 'c1n4', mode: 'lesson', question: QS.c1n4[0], reason: '测试', steps: 2, turns: [], spoken: [], userTurns: [], board: [], memory: {}, moves: { focus: 0, probing: 0, telling: 0 }, profile: '测试学情' };
   reset(conf);
-  await Classroom.run(les, ctx, { onEvent: () => { }, onStatus: () => { } });
+  const lesAsks = [];
+  await Classroom.run(les, ctx, {
+    onEvent: () => { }, onStatus: () => { },
+    onAsk: (spec) => { lesAsks.push(spec); return { text: '等价代换只能用在乘除里', skipped: false }; }
+  });
   eq(les.stage, 'done', '课堂跑完');
+  eq(lesAsks.length, 2, '★ 课堂模式也停两次：讲完第一步 + 新题验证');
   const teacherTurns = les.turns.filter(t => t.role === 'teacher');
-  ok(teacherTurns.length >= 3, '★ 老师至少讲了 3 次（2 步 + 小结）', teacherTurns.length);
+  ok(teacherTurns.length >= 4, '★ 老师发言变多（讲授 + 回应 + 小结 + 出题 + 讲评）', teacherTurns.length);
   has(teacherTurns[0].text, '这一步', '老师讲的是知识点不是题目');
+  ok(les.turns.some(t => t.role === 'teacher' && t.phase === 'hint'), '★ 讲完第一步后回应了他的答案');
   ok(les.spoken.length >= 3, '学生也参与了讨论', les.spoken.length);
+  /* 顺序：他先动手，学生才开始讨论 —— 不是三个 AI 先聊完再轮到他 */
+  const firstMe = les.turns.findIndex(t => t.role === 'me');
+  const firstStu = les.turns.findIndex(t => t.role !== 'teacher' && t.role !== 'me');
+  ok(firstMe >= 0 && firstStu >= 0 && firstMe < firstStu, '★ 他的作答排在学生讨论之前', { firstMe, firstStu });
 
-  console.log('\n=== 15. 老师发言是流式的 ===');
+  console.log('\n=== 20. 老师发言是流式的，且流里就剥掉了标签 ===');
   let deltaSeen = false;
-  const les2 = { kid: 'c1n4', mode: 'lesson', question: QS.c1n4[0], steps: 1, turns: [], spoken: [], board: [], memory: {}, profile: '' };
+  const les2 = { kid: 'c1n4', mode: 'lesson', question: QS.c1n4[0], steps: 1, turns: [], spoken: [], board: [], memory: {}, moves: { focus: 0, probing: 0, telling: 0 }, profile: '' };
   studentTools = false;
   directorQueue = ['END'];
   await Classroom.run(les2, ctx, {
     onEvent: () => { },
-    onDelta: () => { deltaSeen = true; }
+    onDelta: () => { deltaSeen = true; },
+    onAsk: () => ({ text: '答案', skipped: false })
   });
   ok(deltaSeen, '★ 收到了流式增量回调');
+  ok(les2.turns.filter(t => t.role === 'teacher').every(t => String(t.text).indexOf('(focus)') !== 0), '★ 存下来的老师发言不带标签前缀');
 
   server.close();
   console.log('\n──────────────────────────────');

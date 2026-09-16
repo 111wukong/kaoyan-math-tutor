@@ -82,14 +82,47 @@ T.names.forEach(function (name) {
   const args = {
     query_weakness: { limit: 3 }, get_mistakes: { limit: 3 }, pick_question: { kid: 'c1n2' },
     get_node: { kid: 'c1n2' }, search_nodes: { query: '极限' }, get_progress: {},
-    draw_graph: { expr: 'sin(x)/x' }, save_note: { kid: 'c1n2', text: '笔记' }, mark_mastered: { kid: 'c1n2' }
+    draw_graph: { expr: 'sin(x)/x' }, save_note: { kid: 'c1n2', text: '笔记' }, mark_mastered: { kid: 'c1n2' },
+    write_steps: { title: '求极限', steps: ['两边同除 x', '取极限'] },
+    write_latex: { tex: '\\lim_{x\\to 0}\\frac{\\sin x}{x}=1', note: '重要极限' },
+    highlight: { target: '两边同除 x' },
+    clear_board: {}
   }[name];
   const r = T.execute(name, args, mockCtx);
-  if (r.ok) { pass++; console.log('  ✓ ' + name + '  -> ' + JSON.stringify(r.data).slice(0, 78) + (r.render ? ' [+SVG渲染]' : '')); }
+  if (r.ok) { pass++; console.log('  ✓ ' + name + '  -> ' + JSON.stringify(r.data).slice(0, 78) + (r.render ? ' [' + r.render.type + ':' + (r.render.item ? r.render.item.kind : r.render.type) + ']' : '')); }
   else { fail++; console.log('  ✗ ' + name + '  -> ' + r.error); }
 });
 const bad = T.execute('不存在的工具', {}, mockCtx);
 truthy('未知工具返回友好错误', bad.ok === false && bad.error.indexOf('可用工具') > 0);
+
+console.log('\n=== 3b. 黑板动作族（黑板不是一张图，是一串动作）===');
+const boardArgs = {
+  draw_graph: { expr: 'x^2' }, write_steps: { steps: ['第一步', '第二步'] },
+  write_latex: { tex: 'a^2+b^2=c^2' }, highlight: { target: '第一步' }, clear_board: {}
+};
+['draw_graph', 'write_steps', 'write_latex', 'highlight', 'clear_board'].forEach(function (n) {
+  const r = T.execute(n, boardArgs[n], mockCtx);
+  truthy(n + ' 产出 board 动作', !!(r.ok && r.render && r.render.type === 'board' && r.render.item && r.render.item.kind));
+});
+eq('draw_graph 的 kind', T.execute('draw_graph', { expr: 'x^2' }, mockCtx).render.item.kind, 'graph');
+eq('write_steps 的 kind', T.execute('write_steps', { steps: ['a'] }, mockCtx).render.item.kind, 'steps');
+eq('write_steps 保留 3 步', T.execute('write_steps', { steps: ['a', 'b', 'c'] }, mockCtx).render.item.steps.length, 3);
+eq('空步骤被剔掉', T.execute('write_steps', { steps: ['a', '', '   ', 'b'] }, mockCtx).render.item.steps.length, 2);
+truthy('write_steps 空输入被拦', T.execute('write_steps', { steps: [] }, mockCtx).ok === false);
+eq('write_latex 剥掉 $$ 定界符', T.execute('write_latex', { tex: '$$E=mc^2$$' }, mockCtx).render.item.tex, 'E=mc^2');
+eq('write_latex 剥掉单 $ 定界符', T.execute('write_latex', { tex: '$E=mc^2$' }, mockCtx).render.item.tex, 'E=mc^2');
+truthy('write_latex 空输入被拦', T.execute('write_latex', { tex: '  ' }, mockCtx).ok === false);
+truthy('highlight 空 target 被拦', T.execute('highlight', {}, mockCtx).ok === false);
+truthy('clear_board 返回 clear', T.execute('clear_board', {}, mockCtx).render.item.kind === 'clear');
+truthy('曲线带 pathLength="1"（描线动画的前提）', T.drawGraphSVG('sin(x)', {}).indexOf('pathLength="1"') > 0);
+
+console.log('\n=== 3c. 学生不该拿到「写完整解答」的工具 ===');
+['write_steps', 'write_latex', 'clear_board'].forEach(function (n) {
+  truthy('学生白名单不含 ' + n, T.STUDENT_TOOLS.indexOf(n) < 0);
+});
+truthy('学生能圈黑板（highlight）', T.STUDENT_TOOLS.indexOf('highlight') >= 0);
+truthy('老师能写步骤', T.TEACHER_TOOLS.indexOf('write_steps') >= 0);
+truthy('老师能写公式', T.TEACHER_TOOLS.indexOf('write_latex') >= 0);
 
 console.log('\n=== 4. system prompt 构建（学情是否真的进去了）===');
 const sys = Agent.buildSystem({ kid: 'c1n2', history: [] }, mockCtx);
