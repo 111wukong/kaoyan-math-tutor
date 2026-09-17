@@ -6,6 +6,7 @@ import {
   Zap, Layers, MessagesSquare, Users, ChartNoAxesColumn, Trophy, Settings,
   Menu, X, Volume2, VolumeX, Flame, ChevronsUpDown, LogOut,
 } from 'lucide-react';
+import { CyberGrid } from '@/components/fx/CyberGrid';
 import { Starfield } from '@/components/fx/Starfield';
 import { Meter } from '@/components/fx/Motion';
 import { Toaster } from '@/components/ui/Toaster';
@@ -85,6 +86,12 @@ export function AppShell() {
 
   return (
     <div className="relative flex min-h-dvh">
+      {/* 三层背景，从后往前：
+       *   CyberGrid(-z-20) 赛博网格地平线 —— 唯一有"地面"的层，负责纵深
+       *   CSS 光晕/静态网格   由 body::before / ::after 画，负责色彩与降级
+       *   Starfield(-z-10)   星尘 —— 浮在最前，天空里要有星星
+       * 顺序不能换：星星在网格后面就变成"地上的星星"了。 */}
+      <CyberGrid />
       <Starfield />
 
       {/* 移动端遮罩 */}

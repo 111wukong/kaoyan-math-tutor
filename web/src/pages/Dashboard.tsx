@@ -8,8 +8,9 @@ import {
 import { api } from '@/lib/api';
 import { useAsync, useCountdown } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
-import { Panel, StatCard, SectionTitle, Badge, Button, Skeleton, EmptyState } from '@/components/ui/Primitives';
+import { Panel, SectionTitle, Badge, Button, Skeleton, EmptyState } from '@/components/ui/Primitives';
 import { NumberTicker, ProgressRing, Meter, TiltCard } from '@/components/fx/Motion';
+import { HudPanel, HudStatCard, HudSectionTitle, TickRule, Readout } from '@/components/fx/Hud';
 import { Heatmap } from '@/components/Heatmap';
 import { announceAchievements } from '@/components/ui/Toaster';
 import { cn, pct } from '@/lib/utils';
@@ -60,7 +61,13 @@ export default function Dashboard() {
     <div className="space-y-6">
       {/* ---------- Hero ---------- */}
       <section className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
-        <Panel className="rise-in overflow-hidden p-5 sm:p-6">
+        <HudPanel
+          index="SYS"
+          tag="DAILY SCHEDULER"
+          sweep
+          ticks
+          className="rise-in overflow-hidden rounded-2xl p-5 sm:p-6"
+        >
           <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-cyan/10 blur-[90px]" />
           <div className="relative">
             <div className="flex flex-wrap items-center gap-2">
@@ -90,7 +97,7 @@ export default function Dashboard() {
                 : '先按下面的建议开始，或者直接去知识树挑一个考点。'}
             </p>
 
-            <div className="mt-5 flex flex-wrap gap-2.5">
+            <div className="mt-5 flex flex-wrap items-center gap-2.5">
               <Button onClick={() => nav('/quiz')} shimmer>
                 开始今日一练 <ArrowRight size={15} />
               </Button>
@@ -98,11 +105,30 @@ export default function Dashboard() {
                 浏览知识树
               </Button>
             </div>
+
+            {/* 底部读数条：把"今天的状态"压成一行仪器读数，
+                比再堆一个卡片省地方，也更能坐实"控制台"的观感。 */}
+            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-hairline pt-3.5">
+              <Readout label="今日任务" value={String(next.data?.items?.length ?? 0).padStart(2, '0')} unit="项" />
+              <Readout label="待复习" value={String(snap?.dueCount ?? 0).padStart(2, '0')} unit="张" tone="violet" />
+              <Readout label="错题" value={String(snap?.wrong ?? 0).padStart(2, '0')} unit="道" tone="rose" />
+              <Readout
+                label="正确率"
+                value={`${snap ? pct(snap.correct, snap.attempts) : 0}%`}
+                tone="emerald"
+              />
+            </div>
           </div>
-        </Panel>
+        </HudPanel>
 
         {/* 等级环 */}
-        <Panel className="rise-in flex items-center gap-5 p-5" style={{ animationDelay: '80ms' }}>
+        <HudPanel
+          index="LV"
+          tag="PROGRESS"
+          sweep
+          className="rise-in flex items-center gap-5 rounded-2xl p-5"
+          style={{ animationDelay: '80ms' }}
+        >
           <ProgressRing
             value={snap?.levelInfo?.pct ?? 0}
             size={104}
@@ -124,22 +150,23 @@ export default function Dashboard() {
             <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[11.5px]">
               <div>
                 <div className="text-fg-mute">总 XP</div>
-                <div className="mt-0.5 font-semibold text-fg tabular">
+                <div className="mt-0.5 font-mono font-semibold text-fg tabular">
                   <NumberTicker value={snap?.xp ?? 0} />
                 </div>
               </div>
               <div>
                 <div className="text-fg-mute">最长连击</div>
-                <div className="mt-0.5 font-semibold text-fg tabular">{snap?.bestCombo ?? 0}</div>
+                <div className="mt-0.5 font-mono font-semibold text-fg tabular">{snap?.bestCombo ?? 0}</div>
               </div>
             </div>
           </div>
-        </Panel>
+        </HudPanel>
       </section>
 
       {/* ---------- 今日任务 ---------- */}
       <section>
-        <SectionTitle
+        <HudSectionTitle
+          index={1}
           title="今日任务"
           desc="按优先级排好，每件事都写清了理由"
           right={
@@ -187,49 +214,63 @@ export default function Dashboard() {
       </section>
 
       {/* ---------- 统计卡 ---------- */}
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="知识树覆盖"
-          value={<><NumberTicker value={snap?.learned ?? 0} /><span className="text-[15px] text-fg-mute"> / {snap?.total ?? 68}</span></>}
-          sub={<Meter value={masteryPct} height={4} className="mt-1.5" />}
-          icon={<Target size={16} />}
-          accent="cyan"
-          delay={0}
-        />
-        <StatCard
-          label="累计作答"
-          value={<NumberTicker value={snap?.attempts ?? 0} />}
-          sub={`答对 ${snap?.correct ?? 0} 次 · 正确率 ${snap ? pct(snap.correct, snap.attempts) : 0}%`}
-          icon={<TrendingUp size={16} />}
-          accent="emerald"
-          delay={60}
-        />
-        <StatCard
-          label="待复习"
-          value={<NumberTicker value={snap?.dueCount ?? 0} />}
-          sub={snap?.dueCount ? '到期未复习的卡片' : '队列是空的'}
-          icon={<Layers size={16} />}
-          accent="violet"
-          delay={120}
-        />
-        <StatCard
-          label="错题本"
-          value={<NumberTicker value={snap?.wrong ?? 0} />}
-          sub={snap?.wrong ? '答对后自动移出' : '干净，继续保持'}
-          icon={<CircleAlert size={16} />}
-          accent="rose"
-          delay={180}
-        />
+      <section>
+        <HudSectionTitle index={2} title="学习数据" desc="四个通道的当前读数" tone="emerald" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <HudStatCard
+            index={1}
+            label="知识树覆盖"
+            value={<NumberTicker value={snap?.learned ?? 0} />}
+            unit={`/ ${snap?.total ?? 68}`}
+            meter={masteryPct}
+            icon={<Target size={14} />}
+            tone="cyan"
+            delay={0}
+          />
+          <HudStatCard
+            index={2}
+            label="累计作答"
+            value={<NumberTicker value={snap?.attempts ?? 0} />}
+            unit="次"
+            sub={`答对 ${snap?.correct ?? 0} 次 · 正确率 ${snap ? pct(snap.correct, snap.attempts) : 0}%`}
+            meter={snap ? pct(snap.correct, snap.attempts) : 0}
+            icon={<TrendingUp size={14} />}
+            tone="emerald"
+            delay={60}
+          />
+          <HudStatCard
+            index={3}
+            label="待复习"
+            value={<NumberTicker value={snap?.dueCount ?? 0} />}
+            unit="张"
+            sub={snap?.dueCount ? '到期未复习的卡片' : '队列是空的'}
+            icon={<Layers size={14} />}
+            tone="violet"
+            delay={120}
+          />
+          <HudStatCard
+            index={4}
+            label="错题本"
+            value={<NumberTicker value={snap?.wrong ?? 0} />}
+            unit="道"
+            sub={snap?.wrong ? '答对后自动移出' : '干净，继续保持'}
+            icon={<CircleAlert size={14} />}
+            tone="rose"
+            delay={180}
+          />
+        </div>
       </section>
 
       {/* ---------- 热力图 + 掌握度 ---------- */}
       <section className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-        <Panel className="rise-in p-5" style={{ animationDelay: '220ms' }}>
-          <SectionTitle
-            title="学习热力图"
-            desc="近 26 周每天做了多少题"
-            className="mb-3"
-          />
+        <HudPanel
+          index={3}
+          tag="HEATMAP · 26W"
+          sweep
+          className="rise-in rounded-2xl p-5"
+          style={{ animationDelay: '220ms' }}
+        >
+          <SectionTitle title="学习热力图" desc="近 26 周每天做了多少题" className="mb-3" />
           <div className="heatmap-host relative">
             {stats.data ? (
               <Heatmap data={stats.data.heatmap || []} />
@@ -237,9 +278,15 @@ export default function Dashboard() {
               <Skeleton className="h-[110px] w-full" />
             )}
           </div>
-        </Panel>
+        </HudPanel>
 
-        <Panel className="rise-in p-5" style={{ animationDelay: '280ms' }}>
+        <HudPanel
+          index={4}
+          tag="MASTERY"
+          sweep
+          className="rise-in rounded-2xl p-5"
+          style={{ animationDelay: '280ms' }}
+        >
           <SectionTitle title="掌握度分布" desc="按考点计数" className="mb-3" />
           {stats.data ? (
             <div className="space-y-3">
@@ -258,7 +305,7 @@ export default function Dashboard() {
                         <span className="h-2 w-2 rounded-full" style={{ background: color }} />
                         {label}
                       </span>
-                      <span className="text-fg-mute tabular">{n} 个 · {pct(n, total)}%</span>
+                      <span className="font-mono text-fg-mute tabular">{n} 个 · {pct(n, total)}%</span>
                     </div>
                     <Meter value={pct(n, total)} height={5} from={color} to={color} />
                   </div>
@@ -268,12 +315,18 @@ export default function Dashboard() {
           ) : (
             <Skeleton className="h-[150px] w-full" />
           )}
-        </Panel>
+        </HudPanel>
       </section>
 
       {/* ---------- 薄弱点 + 专注 ---------- */}
       <section className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-        <Panel className="rise-in p-5" style={{ animationDelay: '340ms' }}>
+        <HudPanel
+          index={5}
+          tag="WEAK SPOTS"
+          sweep
+          className="rise-in rounded-2xl p-5"
+          style={{ animationDelay: '340ms' }}
+        >
           <SectionTitle
             title="最该补的地方"
             desc="按「正确率低 × 难度高 × 错题多」排序"
@@ -288,8 +341,8 @@ export default function Dashboard() {
                   to={`/learn/${w.nodeId}`}
                   className="group flex items-center gap-3 rounded-xl border border-white/6 bg-white/3 px-3 py-2.5 transition-all duration-250 hover:border-cyan/25 hover:bg-white/6"
                 >
-                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-white/6 text-[11px] font-semibold text-fg-mute tabular">
-                    {i + 1}
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-white/6 font-mono text-[11px] font-semibold text-fg-mute tabular">
+                    {String(i + 1).padStart(2, '0')}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-[13px] text-fg-soft group-hover:text-fg">
                     {w.title}
@@ -307,7 +360,7 @@ export default function Dashboard() {
               className="py-8"
             />
           )}
-        </Panel>
+        </HudPanel>
 
         <FocusTimer onDone={() => next.reload()} pushToast={pushToast} />
       </section>
@@ -351,10 +404,38 @@ function FocusTimer({ onDone, pushToast }: { onDone: () => void; pushToast: any 
   };
 
   return (
-    <Panel className="rise-in flex flex-col p-5" style={{ animationDelay: '400ms' }}>
+    <HudPanel
+      index={6}
+      tag="FOCUS TIMER"
+      sweep
+      tone="violet"
+      className="rise-in flex flex-col rounded-2xl p-5"
+      style={{ animationDelay: '400ms' }}
+    >
       <SectionTitle title="专注计时" desc="满 30 分钟自动打卡" className="mb-3" />
       <div className="flex flex-1 flex-col items-center justify-center gap-4 py-2">
         <div className="relative grid h-32 w-32 place-items-center">
+          {/* 仪表刻度圈：36 根刻度把"计时"变成"读数"。
+              用 SVG line 而不是 CSS，因为要跟着圆环精确旋转。 */}
+          <svg className="absolute inset-0" viewBox="0 0 128 128" aria-hidden>
+            {Array.from({ length: 36 }).map((_, i) => {
+              const major = i % 6 === 0;
+              const a = (i / 36) * Math.PI * 2 - Math.PI / 2;
+              const r1 = major ? 50 : 53;
+              const r2 = 57;
+              return (
+                <line
+                  key={i}
+                  x1={64 + Math.cos(a) * r1}
+                  y1={64 + Math.sin(a) * r1}
+                  x2={64 + Math.cos(a) * r2}
+                  y2={64 + Math.sin(a) * r2}
+                  stroke={major ? 'rgba(168,85,247,0.55)' : 'rgba(168,85,247,0.22)'}
+                  strokeWidth={major ? 1.4 : 1}
+                />
+              );
+            })}
+          </svg>
           <svg className="absolute inset-0 -rotate-90" viewBox="0 0 128 128" aria-hidden>
             <circle cx="64" cy="64" r="58" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="5" />
             <circle
@@ -372,7 +453,7 @@ function FocusTimer({ onDone, pushToast }: { onDone: () => void; pushToast: any 
             </defs>
           </svg>
           <div className="text-center">
-            <div className={cn('text-[30px] font-semibold tabular leading-none text-fg', running && 'text-spectrum')}>
+            <div className={cn('font-mono text-[30px] font-semibold leading-none tabular text-fg', running && 'text-spectrum')}>
               {mm}:{ss}
             </div>
             <div className="mt-1 text-[10.5px] text-fg-mute">{running ? '专注中' : '未开始'}</div>
@@ -390,10 +471,11 @@ function FocusTimer({ onDone, pushToast }: { onDone: () => void; pushToast: any 
           )}
         </div>
       </div>
-      <p className="mt-3 text-center text-[11.5px] leading-relaxed text-fg-faint">
+      <TickRule tone="violet" className="mt-3 opacity-30" />
+      <p className="mt-2.5 text-center text-[11.5px] leading-relaxed text-fg-faint">
         计时结束会写入今日专注时长，满 30 分钟自动算作打卡
       </p>
-    </Panel>
+    </HudPanel>
   );
 }
 

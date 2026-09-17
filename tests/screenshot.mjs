@@ -157,6 +157,11 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'yanshu-shot-'));
 const args = [
   '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
   '--no-first-run', '--no-default-browser-check', '--disable-extensions',
+  /* ★ 软件 WebGL2。没有这三个参数，headless 下 getContext('webgl2') 直接返回 null，
+   * 于是截出来的全是 CSS 降级背景 —— 而"降级态长得对"不代表"WebGL 态长得对"。
+   * 这是踩过的坑：第一次跑完看着截图以为背景没生效，其实是被降级了。
+   * SwiftShader 是纯 CPU 实现，慢，但确定性好（CI 上也一样）。 */
+  '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
   `--window-size=${W},${H}`,
   '--remote-debugging-port=0',
   `--user-data-dir=${profile}`,
@@ -241,12 +246,29 @@ try {
       await sleep(180);
     }
     await sleep(settle);   // 让动画 / canvas / 图表跑几帧
+
+    /* 每一张都报一次"背景到底走的是哪条路"。
+     * 不报的话，WebGL 悄悄降级了也看不出来 —— 截图依旧是"有背景"的样子，
+     * 只是那背景是 CSS 备胎，而备胎长得像不代表主胎装上了。
+     *
+     * ⚠️ 选择器必须点名 cybergrid，不能用 'canvas[aria-hidden="true"]'。
+     * 后者抓的是**DOM 里第一个** canvas —— 知识树页上那是星系自己的连线画布
+     * （1224×765），于是那一张会报出一个跟别张对不上的尺寸，
+     * 看起来像"背景尺寸错了"，其实是探针抓错了对象。 */
+    const fx = await ev(`(() => {
+      const gl = document.documentElement.classList.contains('fx-webgl');
+      const c = document.querySelector('canvas[data-fx=cybergrid]');
+      return gl + '|' + (c ? c.width + 'x' + c.height : 'none');
+    })()`);
+    const [fxAlive, fxSize] = String(fx.value || '?|?').split('|');
+
     const shot = await client.send('Page.captureScreenshot', { format: 'png' });
     const file = path.join(OUT, `${name}.png`);
     fs.writeFileSync(file, Buffer.from(shot.data, 'base64'));
     const kb = (fs.statSync(file).size / 1024).toFixed(0);
     const title = (await ev('document.title')).value || '';
-    console.log(`   ✓ ${name.padEnd(16)} ${route.padEnd(16)} ${kb} KB  「${title}」`);
+    const flag = fxAlive === 'true' ? '\x1b[36mWebGL\x1b[0m' : '\x1b[33mCSS降级\x1b[0m';
+    console.log(`   ✓ ${name.padEnd(16)} ${route.padEnd(16)} ${kb.padStart(4)} KB  ${flag} ${fxSize.padEnd(11)} 「${title}」`);
   }
 
   /* 未登录状态：登录 / 注册页 —— 第一印象 */

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { motion } from 'motion/react';
+import { CyberGrid } from '@/components/fx/CyberGrid';
 import { Starfield } from '@/components/fx/Starfield';
 import { InlineMath } from '@/components/ui/Math';
 import { Brain, CalendarCheck, LineChart, Sparkles } from 'lucide-react';
@@ -12,10 +13,19 @@ import { Brain, CalendarCheck, LineChart, Sparkles } from 'lucide-react';
 export function AuthLayout({ children, mode }: { children: ReactNode; mode: 'login' | 'register' }) {
   return (
     <div className="relative grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
+      {/* 认证页内容少、留白大，是唯一可以"放肆"的地方 —— 亮度给到 0.72。
+       * 仪表盘那边同样这个效果但要压到 0.62，因为那边满屏都是要读的字。 */}
+      <CyberGrid intensity={0.72} />
       <Starfield density={0.00013} />
 
       {/* 左：品牌 */}
       <section className="relative hidden flex-col justify-between overflow-hidden border-r border-hairline px-10 py-12 lg:flex xl:px-16">
+        {/* 文案区的暗色渐隐。为什么必须有：地平线光带是整张图最亮的一条，
+         * 而左侧文案正好横跨它的高度 —— 白字压在浅蓝光晕上，对比度直接掉一半。
+         * 这层从左边暗到右边透明，把光带"推"到右半屏去，
+         * 既保住了效果，也保住了文字。 */}
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-[62%] bg-gradient-to-r from-ink-1000/85 via-ink-1000/50 to-transparent" />
+
         <div className="pointer-events-none absolute -left-32 top-1/4 h-96 w-96 rounded-full bg-cyan/12 blur-[120px]" />
         <div className="pointer-events-none absolute -bottom-20 right-0 h-80 w-80 rounded-full bg-violet/12 blur-[110px]" />
 

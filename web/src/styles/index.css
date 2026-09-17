@@ -60,12 +60,26 @@
 html {
   color-scheme: dark;
   -webkit-text-size-adjust: 100%;
+  /* ★ 底色必须挂在 html 上，不能挂在 body 上。
+   *
+   * CSS 绘制顺序（CSS 2.1 附录 E）：根元素背景 → 负 z-index 子元素 →
+   * 普通流块级元素的背景 → …… 也就是说 body 的背景画在负 z-index 之后。
+   *
+   * 之前底色写在 body 上，于是 body 那层不透明的 #05060c 把
+   * -z-20 的赛博网格和 -z-10 的星尘**整层盖住**了 ——
+   * 着色器跑得好好的，画布尺寸也对，就是看不见。
+   * 诊断时把 canvas 临时提到 z-index:99999 才露出真容，一眼就明白。
+   *
+   * 挂在 html 上则是作为"画布底色"绘制，永远在最底层，负 z-index 层才能浮上来。
+   * 视觉结果一模一样，但层次顺序对了。 */
+  background: var(--color-ink-950);
 }
 
 body {
   margin: 0;
   min-height: 100dvh;
-  background: var(--color-ink-950);
+  /* 这里**不能**有 background，原因见上面 html 的注释。
+   * 需要改底色就改 --color-ink-950，别在这里补。 */
   color: var(--color-fg);
   font-family: var(--font-sans);
   font-feature-settings: "tnum" 1;   /* 表格与数字等宽，避免跳动 */
@@ -88,7 +102,13 @@ body::before {
     radial-gradient(1100px 700px at 50% 108%, rgba(59, 130, 246, 0.09), transparent 66%);
 }
 
-/* 极细网格：给"深空"一个尺度参照，纯渐变会显得空 */
+/* 极细网格：给"深空"一个尺度参照，纯渐变会显得空。
+ *
+ * ⚠️ 这层是**降级备胎**，不是主视觉。WebGL 赛博网格（CyberGrid）能跑的时候，
+ * html 上会挂 fx-webgl 类，这里就把正交网格压到几乎看不见 ——
+ * 一层平铺的正交网格叠在透视网格上，两套网格互相打架，谁都看不清。
+ * 只有 WebGL 挂了（老显卡 / 禁用了硬件加速 / 上下文丢失），
+ * 它才顶上来当背景的"尺度参照"。 */
 body::after {
   content: "";
   position: fixed;
@@ -101,7 +121,14 @@ body::after {
     linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, #000 20%, transparent 78%);
+  transition: opacity 0.6s ease;
 }
+html.fx-webgl body::after { opacity: 0.07; }
+
+/* WebGL 活着的另一个连带影响：径向光晕是"深空"的补光，
+ * 但赛博网格自带地平线光带，两者叠加会把屏幕中部推得过亮 ——
+ * 而屏幕中部正是正文所在。压一档，留给文字。 */
+html.fx-webgl body::before { opacity: 0.55; }
 
 ::selection {
   background: rgba(34, 211, 238, 0.3);
@@ -128,9 +155,17 @@ body::after {
 
 /* ============================================================
    玻璃拟态
+   ============================================================
+   ⚠️ 卡片底下那层暗底（rgba(6,8,16,.58)）不是可选项，是必需品。
+   背景只有静态渐变时，玻璃可以很透（纯白高光就够）；
+   但现在背后是**会动的透视网格 + 星尘**，纯白高光压不住它 ——
+   网格线会直接穿过卡片里的正文。加上这层暗底，卡片才有"面"，
+   背景退到后面去。改动前请先在仪表盘上看一眼正文对比度。
    ============================================================ */
 .glass {
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.022));
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.022)),
+    rgba(6, 8, 16, 0.58);
   backdrop-filter: blur(18px) saturate(150%);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
   border: 1px solid var(--color-hairline);
@@ -140,7 +175,9 @@ body::after {
 }
 
 .glass-strong {
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.035));
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.035)),
+    rgba(8, 11, 20, 0.72);
   backdrop-filter: blur(26px) saturate(160%);
   -webkit-backdrop-filter: blur(26px) saturate(160%);
   border: 1px solid var(--color-hairline-strong);
@@ -295,6 +332,62 @@ body::after {
 }
 .tilt-layer { transform: translateZ(38px); }
 
+/* ============================================================
+   HUD 装饰（配合 fx/Hud.tsx）
+   ============================================================
+   两条都是"指针跟随"的效果，靠 JS 把指针坐标写进 --mx / --my。
+   都用 mask 挖掉中间只留 1px，所以是"发光边"而不是"发光块" ——
+   整块发光会盖住内容，只有描边发光才既显眼又不干扰。 */
+
+/* 悬停时卡片边线在指针附近亮起来 */
+.hud-edge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(
+    240px circle at var(--mx, 50%) var(--my, 50%),
+    var(--hud-glow, rgba(34, 211, 238, 0.55)),
+    transparent 62%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+.hud-edge:hover::after { opacity: 1; }
+
+/* 悬停时自上而下扫过一条光带（仪器"扫描"的暗示） */
+.hud-sweep {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  overflow: hidden;
+  background-image: linear-gradient(180deg, transparent, var(--hud-glow, rgba(34, 211, 238, 0.55)), transparent);
+  background-repeat: no-repeat;
+  background-size: 100% 26px;
+  background-position: 0 -40px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.hud-edge:hover .hud-sweep {
+  opacity: 0.5;
+  animation: hud-sweep-move 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+/* 动的是 background-position 而不是 transform：
+   这是一条 1px 高、需要跨整张卡片高度的光带，transform 的百分比
+   是相对元素自身尺寸的（1px 的 100% 还是 1px），动不了。
+   改高度或用 top 都会触发布局，background-position 只重绘。 */
+@keyframes hud-sweep-move {
+  0%   { background-position: 0 -40px; }
+  100% { background-position: 0 calc(100% + 40px); }
+}
+
 /* 鼠标跟随光晕：位置由 JS 写进 --mx / --my */
 .spotlight { position: relative; }
 .spotlight::before {
@@ -368,7 +461,8 @@ input:-webkit-autofill:focus {
 
 @media print {
   body::before, body::after { display: none !important; }
-  body { background: #fff !important; color: #111 !important; }
+  /* 底色挂在 html 上（见上面），打印时两处都要翻白，否则纸张边角会漏出深色 */
+  html, body { background: #fff !important; color: #111 !important; }
   body > *:not(#print-portal) { display: none !important; }
   #print-portal { display: block !important; }
 
