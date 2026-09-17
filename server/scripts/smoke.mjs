@@ -509,6 +509,69 @@ section('13b. AI 正常路径（对着本地 stub 模型跑通）');
       JSON.stringify(cls.data?.prompt)?.slice(0, 60));
     ok('课堂没有 parseFailed 标记', cls.data?.parseFailed !== true);
 
+    /* ---------- ★ 小模型的不完美输出 ----------
+     * 提示词里写着「role 用 teacher|xiaoming|xiaohong|xiaogang」
+     * 和「不要 markdown 代码块」，但 9B 级别的小模型基本不听。
+     * 这些不是理论情况，是实测会出现的。前端用 `ROLES[turn.role]` 取样式的，
+     * 所以角色一旦被压成同一个，「三个学生各错各的」这个卖点就看不见了。 */
+    const GOOD = '{"board":["用夹逼"],"turns":['
+      + '{"role":"teacher","name":"老师","text":"先看定义"},'
+      + '{"role":"xiaoming","name":"小明","text":"是0吧"},'
+      + '{"role":"xiaohong","name":"小红","text":"是1但我说不清"},'
+      + '{"role":"xiaogang","name":"小刚","text":"去掉条件还成立吗"}'
+      + '],"prompt":"你怎么想？"}';
+    const roleOf = (d) => (d.turns || []).map((t) => t.role).join(',');
+
+    const MALFORMED = [
+      ['包在 ```json 围栏里 + 前后废话',
+        '好的，这是课堂内容：\n\n```json\n' + GOOD + '\n```\n\n希望对你有帮助！',
+        (d) => d.turns.length === 4],
+      ['尾逗号',
+        '{"board":["用夹逼",],"turns":[{"role":"teacher","text":"先看定义"},{"role":"xiaoming","text":"是0吧"},{"role":"xiaohong","text":"是1"},{"role":"xiaogang","text":"为什么"},],"prompt":"你怎么想？",}',
+        (d) => d.turns.length === 4],
+      ['role 写成中文',
+        GOOD.replace(/"role":"teacher"/g, '"role":"老师"').replace(/"role":"xiaoming"/g, '"role":"小明"')
+            .replace(/"role":"xiaohong"/g, '"role":"小红"').replace(/"role":"xiaogang"/g, '"role":"小刚"'),
+        (d) => new Set(d.turns.map((t) => t.role)).size === 4],
+      ['只给 name 不给 role',
+        GOOD.replace(/"role":"(teacher|xiaoming|xiaohong|xiaogang)",/g, ''),
+        (d) => new Set(d.turns.map((t) => t.role)).size === 4],
+      ['turns 写成字符串数组（带名字前缀）',
+        '{"board":["用夹逼"],"turns":["老师：先看定义","小明：是0吧","小红：是1","小刚：去掉条件呢"],"prompt":"你怎么想？"}',
+        (d) => d.turns.length === 4 && new Set(d.turns.map((t) => t.role)).size === 4],
+    ];
+
+    for (const [label, payload, check] of MALFORMED) {
+      stub.setRaw(payload);
+      const r = await POST('/api/ai/classroom', { kid, mode: 'lesson' });
+      const d = r.data || {};
+      ok(`★ 能救回「${label}」`, r.status === 200 && check(d),
+        `turns=${d.turns?.length} roles=${roleOf(d)} parseFailed=${d.parseFailed === true}`);
+    }
+
+    /* 救不回来的，必须明确报 parseFailed ——
+     * 以前「模型给了 turns 但一条都救不回」时会返回 parseFailed=false，
+     * 前端拿到「有板书、有问题、没有讨论」的半个课堂，看不出哪里坏了。 */
+    for (const [label, payload] of [
+      ['纯散文（完全不按格式）', '同学们，今天我们来讲极限。首先大家回忆一下……'],
+      ['turns 全是空对象', '{"board":["x"],"turns":[{},{},{}],"prompt":"q"}'],
+    ]) {
+      stub.setRaw(payload);
+      const r = await POST('/api/ai/classroom', { kid, mode: 'lesson' });
+      ok(`★ 救不回的「${label}」明确报 parseFailed`,
+        r.status === 200 && r.data?.parseFailed === true && (r.data?.turns || []).length === 0,
+        `parseFailed=${r.data?.parseFailed} turns=${r.data?.turns?.length}`);
+    }
+
+    /* 字符串数组、但没有名字前缀 —— 兜成老师可以接受，
+     * 但绝不能整条丢掉（那是静默丢内容）。 */
+    stub.setRaw('{"board":["用夹逼"],"turns":["先看定义","是0吧"],"prompt":"你怎么想？"}');
+    const noPrefix = await POST('/api/ai/classroom', { kid, mode: 'lesson' });
+    ok('★ 字符串数组没前缀也不丢内容', (noPrefix.data?.turns || []).length === 2,
+      `turns=${noPrefix.data?.turns?.length}`);
+
+    stub.setRaw(null);
+
     /* ---------- 错误路径 ---------- */
     stub.setMode('401');
     const bad = await POST('/api/ai/classroom', { kid, mode: 'lesson' });

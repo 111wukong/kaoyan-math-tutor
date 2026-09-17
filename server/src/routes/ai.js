@@ -353,12 +353,14 @@ export default async function aiRoutes(fastify) {
         return { turns: [], board: [], prompt: '', raw: content.slice(0, 800), parseFailed: true };
       }
 
-      const ROLE_NAME = { teacher: '老师', xiaoming: '小明', xiaohong: '小红', xiaogang: '小刚' };
-      const turns = parsed.turns.slice(0, 6).map((t) => ({
-        role: ['teacher', 'xiaoming', 'xiaohong', 'xiaogang'].includes(t.role) ? t.role : 'teacher',
-        name: ROLE_NAME[t.role] || t.name || '老师',
-        text: String(t.text || '').slice(0, 1200),
-      })).filter((t) => t.text);
+      const turns = normalizeTurns(parsed.turns);
+
+      /* 模型给了 turns，但一条都没能救回来 —— 说明格式完全不对。
+       * 以前这里照样返回 parseFailed=false，前端拿到「有板书、有问题、没有讨论」
+       * 的半个课堂，看不出哪里坏了。宁可明确报出来。 */
+      if (!turns.length) {
+        return { turns: [], board: [], prompt: '', raw: content.slice(0, 800), parseFailed: true };
+      }
 
       return {
         turns,
@@ -375,6 +377,50 @@ export default async function aiRoutes(fastify) {
   fastify.get('/api/ai/personas', async () => ({
     personas: Object.entries(PERSONAS).map(([id, p]) => ({ id, name: p.name, desc: p.desc })),
   }));
+}
+
+/* ---------- 课堂发言的归一化 ----------
+ * 提示词里把 role 写成了枚举 "teacher|xiaoming|xiaohong|xiaogang"，
+ * 但 9B 级别的小模型基本不听这一条，实测会给出：
+ *   · role 写成中文（"老师" / "小明"）
+ *   · 干脆不给 role，只给 name
+ *   · turns 直接写成字符串数组（"小明：是 0 吧"）
+ * 以前这三种都兜成 teacher，而前端是 `ROLES[turn.role] || ROLES.teacher` 取样式的 ——
+ * 于是四个人全长成老师的样子，「三个学生各错各的」这个核心卖点直接看不出来。
+ * 这里做宽容归一化：宁可按名字猜，也别把四个角色压成一个。
+ */
+const ROLE_BY_KEY = {
+  teacher: 'teacher', 老师: 'teacher', 教师: 'teacher', 讲师: 'teacher',
+  xiaoming: 'xiaoming', 小明: 'xiaoming',
+  xiaohong: 'xiaohong', 小红: 'xiaohong',
+  xiaogang: 'xiaogang', 小刚: 'xiaogang',
+};
+const NAME_BY_ROLE = { teacher: '老师', xiaoming: '小明', xiaohong: '小红', xiaogang: '小刚' };
+
+function normRole(t) {
+  const key = String(t.role ?? '').trim().toLowerCase();
+  if (ROLE_BY_KEY[key]) return ROLE_BY_KEY[key];
+  const byName = ROLE_BY_KEY[String(t.name ?? '').trim()];
+  if (byName) return byName;
+  return 'teacher';
+}
+
+function normalizeTurns(list) {
+  return list.slice(0, 6).map((t) => {
+    // 字符串形式："小明：是 0 吧" —— 按第一个全角/半角冒号切开，前缀当名字
+    if (typeof t === 'string') {
+      const s = t.trim();
+      const m = s.match(/^([^：:]{1,8})[：:]\s*(.+)$/);
+      const role = m ? (ROLE_BY_KEY[m[1].trim()] || 'teacher') : 'teacher';
+      return { role, name: NAME_BY_ROLE[role], text: (m ? m[2] : s).slice(0, 1200) };
+    }
+    const role = normRole(t || {});
+    return {
+      role,
+      name: NAME_BY_ROLE[role] || String(t?.name || '老师').slice(0, 20),
+      text: String(t?.text || '').slice(0, 1200),
+    };
+  }).filter((t) => t.text);
 }
 
 /* 模型经常把 JSON 包在 ```json 里，或者前后加一句话 —— 这里宽容地把它抠出来 */

@@ -43,6 +43,14 @@ const CHAT_TEXT = '先别急着套公式。你把 $x=0$ 代进去看看分子分
 export async function startLlmStub() {
   const captured = { last: null, count: 0 };
   let mode = 'ok';
+  /* 设了 rawOverride 就直接把这段文本当成模型输出吐出去 ——
+   * 用来喂「真实小模型会给出的那些不完美格式」：
+   * 包在 ```json 里、带前后废话、中文角色名、turns 写成字符串数组、干脆不按格式来。
+   * 提示词里写着「不要 markdown 代码块」，但 9B 级别的小模型基本不听这条。
+   * ★ 变量名别叫 raw：请求处理函数里已经有一个 `let raw`（请求体），
+   *   重名会被内层遮蔽，结果是「模型输出」变成请求体本身 ——
+   *   接口那边解析失败，症状看着像产品坏了。这个坑我踩过一次。 */
+  let rawOverride = null;
 
   const server = http.createServer((req, res) => {
     const send = (code, body, headers = {}) => {
@@ -73,7 +81,7 @@ export async function startLlmStub() {
          *   报出「课堂发言 0 条」这种看着像产品 bug 的假失败。
          * 这是 stub 自己的判断，不是接口约定。 */
         const isClassroom = JSON.stringify(body.messages || []).includes('turns');
-        const content = isClassroom ? CLASSROOM_JSON : CHAT_TEXT;
+        const content = rawOverride !== null ? rawOverride : (isClassroom ? CLASSROOM_JSON : CHAT_TEXT);
 
         if (!body.stream) {
           return send(200, JSON.stringify({
@@ -108,6 +116,8 @@ export async function startLlmStub() {
     base: `http://127.0.0.1:${port}/v1`,
     captured,
     setMode: (m) => { mode = m; },
+    /** 传一段文本 → 之后所有响应都用它当模型输出；传 null 恢复默认 */
+    setRaw: (t) => { rawOverride = t; },
     stop: () => new Promise((r) => server.close(r)),
   };
 }
