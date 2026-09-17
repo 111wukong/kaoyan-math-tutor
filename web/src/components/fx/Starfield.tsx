@@ -186,6 +186,8 @@ export function Starfield({
     <canvas
       ref={ref}
       aria-hidden="true"
+      /* 稳定的测试抓手，理由见 CyberGrid.tsx 里同名属性的注释 */
+      data-fx="starfield"
       className={`pointer-events-none fixed inset-0 -z-10 h-full w-full ${className}`}
     />
   );

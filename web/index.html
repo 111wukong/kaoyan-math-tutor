@@ -8,8 +8,15 @@
   <meta name="description" content="研数 · 考研数学 AI 自学系统：知识树、每日一练、SM-2 间隔重复、错题本、公式实验室、多智能体课堂。" />
   <title>研数 · 考研数学 AI 自学系统</title>
   <style>
-    /* 首屏防闪白：在 CSS 加载前就把底色铺上，否则深空主题会先闪一下白 */
-    html, body { margin: 0; background: #05060c; }
+    /* 首屏防闪白：在 CSS 加载前就把底色铺上，否则深空主题会先闪一下白。
+     *
+     * ⚠️ 底色只能挂在 html 上，**不要**给 body 也设 background。
+     * 按 CSS 绘制顺序，body 的背景画在负 z-index 子元素之后 ——
+     * 而赛博网格(-z-20)和星尘(-z-10)正是负 z-index 层，
+     * body 一有背景就把它们整层盖住（着色器照跑，就是看不见）。
+     * 这段内联样式在 bundle 之前生效，比 index.css 更早，所以坑就在这里。 */
+    html { background: #05060c; }
+    body { margin: 0; }
     #boot { position: fixed; inset: 0; display: grid; place-items: center; background: #05060c; z-index: 9999; transition: opacity .5s ease; }
     #boot.gone { opacity: 0; pointer-events: none; }
     #boot .ring {

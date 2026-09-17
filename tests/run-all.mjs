@@ -45,6 +45,7 @@ const SUITES = [
   { name: '渲染管线漏屏检查', file: 'tests/pipeline-leak.mjs' },
   { name: '接口冒烟', file: 'server/scripts/smoke.mjs' },
   { name: '浏览器冒烟', file: 'tests/browser-smoke.mjs' },
+  { name: '近黑渐变色带检测', file: 'tests/banding.mjs' },
 ];
 
 const results = [];

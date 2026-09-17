@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, ChevronRight, Circle, Lock, Network, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Circle, LayoutList, Lock, Network, Orbit, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { Panel, Skeleton, Badge, Segmented, EmptyState } from '@/components/ui/Primitives';
 import { Meter } from '@/components/fx/Motion';
+import { HudPanel } from '@/components/fx/Hud';
+import { KnowledgeGalaxy } from '@/components/fx/KnowledgeGalaxy';
 import { cn, pct, DIFFICULTY, MASTERY_STYLE } from '@/lib/utils';
 
 const TRACKS = [
@@ -17,6 +19,20 @@ const TRACKS = [
 export default function Knowledge() {
   const [track, setTrack] = useState<'math1' | 'math2' | 'math3'>('math1');
   const [query, setQuery] = useState('');
+  /* 星系是"看"的入口，列表是"用"的入口。
+   * 两个都要：星系负责一眼看出哪里空、哪里亮；
+   * 列表负责搜索、逐条读、键盘操作。默认给星系，因为它更像这个产品。
+   *
+   * ★ 但窄屏例外。68 个标签铺在球面上，桌面宽 1140 时前后层次拉得开；
+   * 手机宽 390 时整颗球挤成一片，标签互相压、外圈还被 overflow 切掉 ——
+   * 那就不叫"看"了，叫"猜"。窄屏默认给列表，星系仍在切换器里，
+   * 想看的随手就能切过去。
+   *
+   * 只在挂载时判一次：这是"默认值"不是"锁定"。用户手动切过之后，
+   * 不该再因为窗口宽度被改回去。 */
+  const [view, setView] = useState<'galaxy' | 'list'>(
+    () => (window.innerWidth < 768 ? 'list' : 'galaxy'),
+  );
   const [openChapters, setOpenChapters] = useState<Record<string, boolean>>({});
   const { data, loading } = useAsync(() => api.catalog.tree(track), [track]);
 
@@ -37,6 +53,9 @@ export default function Knowledge() {
   }, [categories, query]);
 
   const searching = query.trim().length > 0;
+  /* 搜索时强制回列表 —— 星系里没法"高亮匹配项"，
+   * 让人在球上找一个小圆点是折磨。 */
+  const showGalaxy = view === 'galaxy' && !searching && categories.length > 0;
 
   if (loading && !data) {
     return (
@@ -50,7 +69,7 @@ export default function Knowledge() {
   return (
     <div className="space-y-5">
       {/* 总览 */}
-      <Panel className="relative overflow-hidden p-5">
+      <HudPanel index="NAV" tag="KNOWLEDGE MAP" sweep className="relative overflow-hidden rounded-2xl p-5">
         <div className="pointer-events-none absolute -right-20 -top-20 h-52 w-52 rounded-full bg-cyan/10 blur-[90px]" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -77,7 +96,7 @@ export default function Knowledge() {
                   <div key={k} className="flex items-center gap-2">
                     <span className={cn('h-2 w-2 rounded-full', MASTERY_STYLE[k].dot)} />
                     <span className="text-[12px] text-fg-mute">{label}</span>
-                    <span className="text-[12.5px] font-medium text-fg-soft tabular">{mastery.dist[k] ?? 0}</span>
+                    <span className="font-mono text-[12.5px] font-medium text-fg-soft tabular">{mastery.dist[k] ?? 0}</span>
                   </div>
                 ))}
               </div>
@@ -85,12 +104,23 @@ export default function Knowledge() {
           </div>
 
           <div className="flex flex-col items-end gap-3">
-            <Segmented value={track} onChange={setTrack} options={TRACKS.map((t) => ({ value: t.value, label: t.label }))} />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Segmented value={track} onChange={setTrack} options={TRACKS.map((t) => ({ value: t.value, label: t.label }))} />
+              <Segmented
+                value={view}
+                onChange={setView}
+                size="sm"
+                options={[
+                  { value: 'galaxy', label: <span className="flex items-center gap-1.5"><Orbit size={12} /> 星系</span> },
+                  { value: 'list', label: <span className="flex items-center gap-1.5"><LayoutList size={12} /> 列表</span> },
+                ]}
+              />
+            </div>
             {mastery && (
               <div className="w-full min-w-[180px]">
                 <div className="mb-1.5 flex justify-between text-[11.5px] text-fg-mute">
                   <span>覆盖率</span>
-                  <span className="tabular">{pct(mastery.learned, mastery.total)}%</span>
+                  <span className="font-mono tabular">{pct(mastery.learned, mastery.total)}%</span>
                 </div>
                 <Meter value={pct(mastery.learned, mastery.total)} height={5} />
               </div>
@@ -108,25 +138,34 @@ export default function Knowledge() {
             className="h-10 w-full rounded-xl border border-hairline bg-white/4 pl-10 pr-3.5 text-[13.5px] text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45 focus:bg-white/6"
           />
         </div>
-      </Panel>
+      </HudPanel>
 
-      {/* 分类 */}
-      {filtered.length === 0 ? (
-        <Panel>
-          <EmptyState icon={<Search size={22} />} title="没找到匹配的考点" desc={`「${query}」在${TRACKS.find((t) => t.value === track)?.label}考纲里没有匹配项。`} />
-        </Panel>
-      ) : (
-        <div className="space-y-4">
-          {filtered.map((cat) => (
-            <CategoryBlock
-              key={cat.id}
-              cat={cat}
-              openChapters={openChapters}
-              setOpenChapters={setOpenChapters}
-              forceOpen={searching}
-            />
-          ))}
-        </div>
+      {/* 星系视图 */}
+      {showGalaxy && (
+        <HudPanel index={1} tag={`GALAXY · ${TRACKS.find((t) => t.value === track)?.label}`} corners={false} className="overflow-hidden rounded-2xl">
+          <KnowledgeGalaxy categories={categories} />
+        </HudPanel>
+      )}
+
+      {/* 列表视图 */}
+      {!showGalaxy && (
+        filtered.length === 0 ? (
+          <Panel>
+            <EmptyState icon={<Search size={22} />} title="没找到匹配的考点" desc={`「${query}」在${TRACKS.find((t) => t.value === track)?.label}考纲里没有匹配项。`} />
+          </Panel>
+        ) : (
+          <div className="space-y-4">
+            {filtered.map((cat) => (
+              <CategoryBlock
+                key={cat.id}
+                cat={cat}
+                openChapters={openChapters}
+                setOpenChapters={setOpenChapters}
+                forceOpen={searching}
+              />
+            ))}
+          </div>
+        )
       )}
     </div>
   );

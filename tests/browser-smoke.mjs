@@ -21,6 +21,11 @@ const HEIGHT = 900;
 
 let pass = 0;
 let fail = 0;
+/* 「因环境跳过」是第三态：既不算通过也不算失败。
+ * 但它必须在日志里出声、并在汇总行里带出来 ——
+ * 这个项目的教训是「0 项」和「全绿」在汇总里长得一样，
+ * 所以任何跳过都不许静默。 */
+let skipped = 0;
 const failures = [];
 const consoleErrors = [];
 const exceptions = [];
@@ -28,6 +33,10 @@ const exceptions = [];
 function ok(name, cond, extra = '') {
   if (cond) { pass++; console.log(`  \x1b[32m✓\x1b[0m ${name}`); }
   else { fail++; failures.push(name); console.log(`  \x1b[31m✗\x1b[0m ${name}${extra ? '  ' + extra : ''}`); }
+}
+function skip(name, why) {
+  skipped++;
+  console.log(`  \x1b[33m⚠ 跳过\x1b[0m ${name}  \x1b[90m（${why}）\x1b[0m`);
 }
 const section = (t) => console.log(`\n\x1b[36m【${t}】\x1b[0m`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -127,6 +136,11 @@ try {
   const args = [
     '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
     '--no-first-run', '--no-default-browser-check', '--disable-extensions',
+    /* ★ 软件 WebGL2。没有这三个参数，headless 下 getContext('webgl2') 直接返回 null，
+     * 赛博网格背景会静默降级成 CSS 备胎 —— 于是「背景画出来了」这条断言
+     * 测的其实是备胎，主胎装没装上根本不知道。
+     * SwiftShader 是纯 CPU 实现，慢但确定性好。 */
+    '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
     `--window-size=${WIDTH},${HEIGHT}`,
     '--remote-debugging-port=0',
     '--user-data-dir=' + profile,
@@ -229,23 +243,151 @@ try {
     const d = JSON.parse(info);
     ok('视口是桌面宽度（没误中响应式断点）', d.w >= 1400, `innerWidth=${d.w}`);
     ok('设计 token 已注入（--color-ink-1000）', /#03040a/i.test(d.bg), `实得 "${d.bg}"`);
-    ok('星尘 canvas 已挂载', d.canvas >= 1, `实得 ${d.canvas}`);
+    ok('背景画布已挂载（赛博网格 + 星尘 = 2）', d.canvas >= 2, `实得 ${d.canvas}`);
     ok('页面标题正确', /研数/.test(d.title), d.title);
   }
 
-  section('1. 星尘 canvas 真的画了东西');
+  section('1. 背景三层：赛博网格（WebGL）/ 星尘（Canvas2D）/ 层次顺序');
   {
+    /* ---- 0. 先探这个浏览器到底能不能拿到 WebGL2 ----
+     *
+     * 拿不到的话，赛博网格会走 CSS 降级路径 —— 那三条针对 WebGL 的断言
+     * 就没有意义了。此时**显式跳过并出声**，而不是让它们假绿或假红。
+     * 启动参数里已经带了 SwiftShader，正常情况下一定拿得到；
+     * 拿不到说明这个内核不带软件 WebGL，需要单独处理。 */
+    const hasWebGL2 = await probe(
+      `var c = document.createElement('canvas');
+       try { return !!c.getContext('webgl2'); } catch (e) { return false; }`,
+    );
+    if (hasWebGL2 !== true) {
+      console.log('  \x1b[33m⚠ 这个内核拿不到 WebGL2 —— 赛博网格会走 CSS 降级路径。\x1b[0m');
+      console.log('  \x1b[33m  启动参数必须带：--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader\x1b[0m');
+    }
+
+    /* ---- 1a. 赛博网格的着色器真的编译链接成功了 ---- */
+    /* fx-webgl 这个类只在 createShaderRenderer 返回非 null 时挂上，
+     * 也就是「顶点+片元着色器编译通过、程序链接通过」。
+     * 这一条是必须的：着色器挂掉时组件会**静默降级**成 CSS 背景，
+     * 页面照常好看，只是那个最贵的功能死了。
+     * 实测踩过：把 `const float HORIZON` 写成 `const HORIZON`，
+     * 编译报错 → 降级 → 15 张截图张张"看着没问题"。 */
+    if (hasWebGL2 === true) {
+      const glOk = await probe(`return document.documentElement.classList.contains('fx-webgl')`);
+      ok('赛博网格着色器编译链接成功（fx-webgl 已挂上）', glOk === true,
+        `实得 ${JSON.stringify(glOk)} —— 页面会静默降级为 CSS 背景，先看控制台里的 [fx] 警告`);
+
+      const glCanvas = await probe(`
+        var c = document.querySelector('canvas[data-fx=cybergrid]');
+        if (!c) return JSON.stringify({ missing: true });
+        var cs = getComputedStyle(c);
+        return JSON.stringify({
+          w: c.width, h: c.height, cssW: Math.round(c.getBoundingClientRect().width),
+          z: cs.zIndex, pos: cs.position, vis: cs.visibility, op: cs.opacity,
+        });`);
+      const gc = JSON.parse(glCanvas);
+      ok('赛博网格 canvas 已挂载且按 DPR 放大', !gc.missing && gc.w > gc.cssW,
+        `后备缓冲 ${gc.w}×${gc.h} / CSS ${gc.cssW}px —— 未放大说明 resize 没跑`);
+      ok('赛博网格压在星尘之下（-z-20 < -z-10）', gc.z === '-20', `z-index=${gc.z}`);
+      ok('赛博网格铺满视口且可见', gc.pos === 'fixed' && gc.vis === 'visible' && gc.op === '1',
+        `${gc.pos} / ${gc.vis} / opacity ${gc.op}`);
+    } else {
+      skip('赛博网格着色器编译链接成功（fx-webgl 已挂上）', '本内核无 WebGL2');
+      skip('赛博网格 canvas 已挂载且按 DPR 放大', '本内核无 WebGL2');
+      skip('赛博网格压在星尘之下（-z-20 < -z-10）', '本内核无 WebGL2');
+      skip('赛博网格铺满视口且可见', '本内核无 WebGL2');
+    }
+
+    /* ---- 1b. 星尘 canvas 真的画了东西 ---- */
     await sleep(900);   // 让粒子跑几帧
     const r = await probe(`
-      var cv = document.querySelector('canvas');
+      var cv = document.querySelector('canvas[data-fx=starfield]');
       if (!cv) return JSON.stringify({ w: 0, h: 0, painted: 0 });
-      var d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      var ctx = cv.getContext('2d');
+      if (!ctx) return JSON.stringify({ w: cv.width, h: cv.height, painted: -1 });
+      var d = ctx.getImageData(0, 0, cv.width, cv.height).data;
       var painted = 0;
       for (var i = 3; i < d.length; i += 4) if (d[i] !== 0) painted++;
       return JSON.stringify({ w: cv.width, h: cv.height, painted: painted });`);
     const d = JSON.parse(r);
-    ok('canvas 有实际尺寸', d.w > 200 && d.h > 200, `${d.w}×${d.h}`);
-    ok('canvas 上真的画了粒子（非透明像素）', d.painted > 500, `${d.painted} 个非透明像素`);
+    ok('星尘 canvas 有实际尺寸', d.w > 200 && d.h > 200, `${d.w}×${d.h}`);
+    ok('星尘 canvas 上真的画了粒子（非透明像素）', d.painted > 500,
+      d.painted === -1 ? 'getContext("2d") 返回 null —— 选错画布了？' : `${d.painted} 个非透明像素`);
+
+    /* ---- 1c. 层次顺序：负 z-index 的层没有被不透明祖先盖住 ----
+     *
+     * ★ 这条是踩出来的，不是想出来的。
+     * CSS 绘制顺序（CSS 2.1 附录 E）：根元素背景 → 负 z-index 子元素 →
+     * 普通流块级元素的背景 → ……。所以只要 body（或中间任何一层）
+     * 画了不透明的 background，就会把 -z-20 / -z-10 整层盖掉。
+     * 症状极具欺骗性：着色器在跑、画布尺寸正确、控制台干净、页面"有背景"
+     * （那是 CSS 备胎），就是看不见主背景。当时排查了四十分钟，
+     * 最后是把 canvas 临时提到 z-index:99999 才一眼看穿。
+     * 现在把「canvas 到 html 之间没有任何不透明背景」变成断言。 */
+    const chain = await probe(`
+      var el = document.querySelector('canvas[data-fx=cybergrid]');
+      var bad = [];
+      /* 走到 html 为止但不含 html —— html 的背景是"画布底色"，
+       * 绘制顺序里排在负 z-index 之前，是**该有**的，不算遮挡。 */
+      while (el && el !== document.documentElement) {
+        var bg = getComputedStyle(el).backgroundColor;
+        var m = bg.match(/rgba?\\(([^)]+)\\)/);
+        if (m) {
+          var p = m[1].split(',').map(function(s){return parseFloat(s)});
+          var a = p.length > 3 ? p[3] : 1;
+          if (a > 0.02) bad.push((el.tagName || '?') + '.' + String(el.className || '').split(' ')[0] + ' bg=' + bg);
+        }
+        el = el.parentElement;
+      }
+      var htmlBg = getComputedStyle(document.documentElement).backgroundColor;
+      var bodyBg = getComputedStyle(document.body).backgroundColor;
+      return JSON.stringify({ bad: bad, htmlBg: htmlBg, bodyBg: bodyBg });`);
+    const ch = JSON.parse(chain);
+    ok('canvas 到 html 之间没有任何不透明背景（否则会盖住负 z-index 层）',
+      ch.bad.length === 0, ch.bad.join(' / '));
+    ok('body 自己不能有背景（body 背景画在负 z-index 之后）',
+      /rgba?\(0, 0, 0, 0\)/.test(ch.bodyBg), `body bg=${ch.bodyBg}`);
+    ok('底色挂在 html 上（画布底色，永远在最底层）',
+      /rgb\(5, 6, 12\)/.test(ch.htmlBg), `html bg=${ch.htmlBg}`);
+
+    /* ---- 1d. 端到端：背景层真的改变了屏幕上的像素 ----
+     *
+     * 1a~1c 查的是"该有的东西在不在"，这条查的是"它到底有没有出现在屏幕上"。
+     * 做法：截两次图，一次带着赛博网格、一次把它藏掉，比较全图平均亮度。
+     * 用全图均值而不是某个点，是因为星尘在闪烁、星星是孤立亮点 ——
+     * 单点采样会撞上星星造成假阳性，全图均值里那点噪声不到 0.01，
+     * 而网格贡献是 1 以上，差三个数量级。 */
+    if (hasWebGL2 === true) {
+      const meanBrightness = async () => {
+        const shot = await client.send('Page.captureScreenshot', { format: 'png' });
+        const res = await ev(`(async function(){
+          var img = new Image();
+          img.src = 'data:image/png;base64,${shot.data}';
+          await img.decode();
+          var c = document.createElement('canvas');
+          c.width = img.width; c.height = img.height;
+          var g = c.getContext('2d');
+          g.drawImage(img, 0, 0);
+          var d = g.getImageData(0, 0, c.width, c.height).data;
+          var sum = 0;
+          for (var i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2];
+          return sum / (d.length / 4) / 3;
+        })()`);
+        return res.value;
+      };
+
+      const withBg = await meanBrightness();
+      await probe(`document.querySelector('canvas[data-fx=cybergrid]').style.display='none'; return 1`);
+      await sleep(320);
+      const withoutBg = await meanBrightness();
+      await probe(`document.querySelector('canvas[data-fx=cybergrid]').style.display=''; return 1`);
+
+      const delta = withBg - withoutBg;
+      console.log(`  全图平均亮度：带网格 ${withBg.toFixed(3)} / 藏掉 ${withoutBg.toFixed(3)} / 差 ${delta.toFixed(3)}`);
+      ok('藏掉赛博网格后屏幕确实变暗（说明它真的画在屏幕上，不是被盖住）',
+        delta > 0.5, `亮度差仅 ${delta.toFixed(3)} —— 太小，背景很可能被某层盖住了`);
+    } else {
+      skip('藏掉赛博网格后屏幕确实变暗', '本内核无 WebGL2');
+    }
   }
 
   section('2. 注册流程（走真实 UI，不调后门）');
@@ -330,6 +472,202 @@ try {
       ok(`${label} 标题正确`, !d.title || d.title.length > 0, `h1="${d.title}"`);
     }
   }
+
+  /* 知识星系是本轮唯一的"全新交互"—— 68 个节点每帧在 JS 里算投影。
+   * 它此前一条断言都没有：主循环死掉、节点全挤在球心、切视图不生效，
+   * 三种坏法都不会让页面报错，截图里也"看着有东西"。
+   * 所以这里必须验三件事：节点齐、主循环在动、两个视图能互相切。 */
+  section('3b. 知识星系：节点齐 / 主循环在动 / 视图可切');
+  {
+    await nav('/learn');
+    await waitFor('!!document.querySelector("[data-galaxy=host]")', '星系容器就位');
+    await sleep(900);
+
+    const gal = await probe(`
+      var nodes = document.querySelectorAll('[data-galaxy=node]');
+      var canvas = document.querySelector('[data-galaxy=host] canvas');
+      return JSON.stringify({ n: nodes.length, canvas: !!canvas });`);
+    const g = JSON.parse(gal);
+    ok('星系默认渲染出考点节点', g.n > 50, `${g.n} 个节点`);
+    ok('星系连线画布已挂载', g.canvas === true);
+
+    /* 主循环是否在跑 —— 不能用"等 350ms 看自转有没有动"来验。
+     * headless Chrome 默认上报 prefers-reduced-motion: reduce，
+     * 而组件是遵守这个偏好的（不自动旋转），所以那种写法在 CI 上必红，
+     * 而它红的原因跟代码好坏毫无关系。
+     *
+     * 正确验法是**真的拖一下**：拖动是用户主动操作，任何偏好下都必须生效。
+     * 顺带它还把「投影算完 → 写进 style.transform」这条链路整条打通验证了，
+     * 比只看自转强。 */
+    const box = JSON.parse(await probe(`
+      var h = document.querySelector('[data-galaxy=host]');
+      if (!h) return 'null';
+      var r = h.getBoundingClientRect();
+      return JSON.stringify({
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(Math.min(r.top + r.height / 2, innerHeight - 80)),
+      });`));
+    ok('星系容器在视口内，可拖拽', !!box && box.y > 0, box ? `落点 ${box.x},${box.y}` : '容器不在视口内');
+
+    const t1 = await probe(`
+      var n = document.querySelectorAll('[data-galaxy=node]')[0];
+      return n ? n.style.transform : '';`);
+
+    if (box) {
+      /* 用 CDP 的真鼠标事件，不用 JS 造 PointerEvent ——
+       * 组件里调了 setPointerCapture，合成事件的 pointerId 是假的，会抛异常。 */
+      await client.send('Input.dispatchMouseEvent',
+        { type: 'mousePressed', x: box.x, y: box.y, button: 'left', clickCount: 1, buttons: 1 });
+      for (const dx of [30, 70, 110]) {
+        await client.send('Input.dispatchMouseEvent',
+          { type: 'mouseMoved', x: box.x + dx, y: box.y + 12, button: 'left', buttons: 1 });
+        await sleep(40);
+      }
+      await client.send('Input.dispatchMouseEvent',
+        { type: 'mouseReleased', x: box.x + 110, y: box.y + 12, button: 'left', clickCount: 1, buttons: 0 });
+      await sleep(220);
+    }
+
+    const t2 = await probe(`
+      var n = document.querySelectorAll('[data-galaxy=node]')[0];
+      return n ? n.style.transform : '';`);
+    ok('★ 拖动后节点位置真的变了（投影主循环在跑）', !!t2 && t1 !== t2,
+      t1 === t2 ? `拖动前后都是 ${String(t1).slice(0, 44)}` : '');
+
+    /* 深度雾化：远处的节点必须比近处暗，否则球心会糊成一团。
+     * 断言"不透明度确实分了两档以上"，而不是只看有没有值。 */
+    const depths = await probe(`
+      var ns = Array.from(document.querySelectorAll('[data-galaxy=node]'));
+      var ops = ns.map(function (n) { return parseFloat(n.style.opacity || '1'); })
+                  .filter(function (v) { return !isNaN(v); });
+      ops.sort(function (a, b) { return a - b; });
+      return JSON.stringify({ min: ops[0], max: ops[ops.length - 1], n: ops.length });`);
+    const dp = JSON.parse(depths);
+    ok('★ 深度雾化生效（最暗/最亮拉开差距）', dp.max - dp.min > 0.5,
+      `不透明度 ${dp.min} → ${dp.max}（共 ${dp.n} 个）`);
+
+    /* 切到列表视图：星系必须整块消失，不然两个视图会叠在一起 */
+    const switched = await probe(`
+      var btns = Array.from(document.querySelectorAll('[role=tablist] button'));
+      var b = btns.find(function (x) { return x.textContent.indexOf('列表') >= 0; });
+      if (!b) return 'NO_BTN';
+      b.click();
+      return 'ok';`);
+    ok('能找到"列表"视图切换按钮', switched === 'ok', String(switched));
+    await sleep(600);
+    const afterList = await probe(`
+      return JSON.stringify({
+        host: !!document.querySelector('[data-galaxy=host]'),
+        cats: document.querySelectorAll('#main-scroll h2').length,
+      });`);
+    const al = JSON.parse(afterList);
+    ok('切到列表视图后星系消失', al.host === false, `host 仍存在=${al.host}`);
+    ok('列表视图按科目分了块', al.cats >= 1, `${al.cats} 个科目头`);
+
+    /* 章节默认是**收起的** —— 这是设计，不是 bug。
+     * 所以「有没有考点链接」不能直接断言，得先展开一章。
+     * 章节行的判别特征：是 <button> 且内部有个 span.truncate。
+     * 科目头是 button 但用 <h2>；考点行是 <a>（Link）不是 button —— 三者不会混。 */
+    const opened = await probe(`
+      var bs = Array.from(document.querySelectorAll('#main-scroll button'));
+      var ch = bs.find(function (b) { return b.querySelector('span.truncate'); });
+      if (!ch) return 'NO_CH';
+      ch.click();
+      return ch.textContent.trim().slice(0, 24);`);
+    ok('能展开一个章节', opened !== 'NO_CH', String(opened));
+    await sleep(700);
+    const links = await probe(`
+      return document.querySelectorAll('#main-scroll a[href^="/learn/"]').length;`);
+    ok('展开后列出该章的考点链接', Number(links) > 0, `${links} 条`);
+
+    /* 切回星系 —— 切回来坏掉（比如 canvas 尺寸没重算）是很常见的一种 */
+    const back = await probe(`
+      var btns = Array.from(document.querySelectorAll('[role=tablist] button'));
+      var b = btns.find(function (x) { return x.textContent.indexOf('星系') >= 0; });
+      if (!b) return 'NO_BTN';
+      b.click();
+      return 'ok';`);
+    ok('能切回星系视图', back === 'ok', String(back));
+    await sleep(900);
+    const backNodes = await probe(`
+      var h = document.querySelector('[data-galaxy=host]');
+      if (!h) return -1;
+      var c = h.querySelector('canvas');
+      return JSON.stringify({
+        n: document.querySelectorAll('[data-galaxy=node]').length,
+        cw: c ? c.width : 0,
+      });`);
+    const bn = JSON.parse(backNodes);
+    ok('★ 切回星系后节点与画布尺寸都回来了', bn !== -1 && bn.n > 50 && bn.cw > 100,
+      `节点 ${bn.n} 个 / 画布宽 ${bn.cw}px`);
+  }
+
+  /* 窄屏。桌面 1440 下一切正常，不代表 390 下也正常 ——
+   * 星系的球半径、HUD 的刻度尺、全屏着色器，三样都是按桌面比例调的。
+   * 实测就是这么漏的：390 宽下星系外圈标签被 overflow 整排切掉，
+   * 中间糊成一片，而所有桌面断言全绿。 */
+  section('3c. 窄屏（390×844）：布局不溢出、星系不默认出场但仍在');
+  {
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 390, height: 844, deviceScaleFactor: 2, mobile: true,
+    });
+    await nav('/learn');
+    await waitFor('!!document.querySelector("#main-scroll")', '知识树就位（窄屏）');
+    await sleep(1000);
+
+    const narrow = await probe(`
+      return JSON.stringify({
+        host: !!document.querySelector('[data-galaxy=host]'),
+        cats: document.querySelectorAll('#main-scroll h2').length,
+        wide: document.documentElement.scrollWidth > innerWidth + 1,
+      });`);
+    const nw = JSON.parse(narrow);
+    ok('窄屏下不默认渲染星系', nw.host === false, `host 存在=${nw.host}`);
+    ok('窄屏下默认给列表视图（有科目分块）', nw.cats >= 1, `${nw.cats} 个科目头`);
+    ok('★ 窄屏下页面没有横向溢出', nw.wide === false, '有内容把页面撑宽了');
+
+    /* 星系仍在切换器里 —— 窄屏是「不默认出场」，不是「砍掉」 */
+    const toGalaxy = await probe(`
+      var bs = Array.from(document.querySelectorAll('[role=tablist] button'));
+      var b = bs.find(function (x) { return x.textContent.indexOf('星系') >= 0; });
+      if (!b) return 'NO_BTN';
+      b.click();
+      return 'ok';`);
+    ok('窄屏下仍能手动切到星系', toGalaxy === 'ok', String(toGalaxy));
+    await sleep(1100);
+
+    /* ★ 这条就是抓「外圈被切掉」的。
+     * overflow-hidden 是**视觉裁剪**，不影响 getBoundingClientRect ——
+     * 所以溢出的标签在几何上照样量得出来，不用截图比对像素。 */
+    const gNarrow = await probe(`
+      var h = document.querySelector('[data-galaxy=host]');
+      if (!h) return JSON.stringify({ ok: false });
+      var r = h.getBoundingClientRect();
+      var ns = Array.from(document.querySelectorAll('[data-galaxy=node]'));
+      var out = ns.filter(function (n) {
+        var b = n.getBoundingClientRect();
+        return b.left < r.left - 1 || b.right > r.right + 1;
+      });
+      return JSON.stringify({
+        ok: true, n: ns.length, out: out.length,
+        sample: out.slice(0, 2).map(function (x) { return x.textContent.trim(); }),
+      });`);
+    const gn = JSON.parse(gNarrow);
+    ok('窄屏下星系仍能渲染出节点', gn.ok === true && gn.n > 50, `节点 ${gn.n} 个`);
+    ok('★ 窄屏下没有节点被容器切掉', gn.out === 0,
+      `${gn.out} 个标签溢出：${JSON.stringify(gn.sample)}`);
+  }
+
+  /* ★ 视口必须还原。
+   * 后面每一节的断言都是按 1440 宽写的（比如「视口是桌面宽度」、
+   * 「星系默认渲染」），不还原就会从第 4 节开始报一堆莫名其妙的失败，
+   * 而你会去查那些页面，不会想到是这里没收拾干净。 */
+  await client.send('Emulation.setDeviceMetricsOverride', {
+    width: WIDTH, height: HEIGHT, deviceScaleFactor: 2, mobile: false,
+  });
+  await nav('/');
+  await waitFor('!!document.querySelector("#main-scroll")', '还原桌面视口');
+  await sleep(400);
 
   section('4. 公式实验室：切模块后画布真的重画');
   {
@@ -519,11 +857,26 @@ try {
 }
 
 console.log('\n' + '─'.repeat(46));
+
+/* 「跳过」必须在汇总行里留下痕迹。
+ * 原因：run-all.mjs 是用正则抓这行数字的，跳过项不在 pass 里也不在 fail 里 ——
+ * 如果汇总行只报 pass，那么「本机跑不了 WebGL、4 条断言被跳过」和
+ * 「4 条断言真跑绿了」在父进程看来一模一样。这个项目已经被
+ * 「0 项」和「全绿」长得一样坑过一次了，不能再来第二次。
+ * 所以：跳过数直接写进汇总行（正则仍能抓到开头的 pass 数），
+ * 并在下面单独出一行黄字点名。 */
+const tail = skipped ? `（其中 ${skipped} 项因环境跳过）` : '';
+
 if (fail) {
-  console.log(`\x1b[31m❌ 浏览器冒烟：${pass} 项通过，失败 ${fail} 项\x1b[0m`);
+  console.log(`\x1b[31m❌ 浏览器冒烟：${pass} 项通过，失败 ${fail} 项${tail}\x1b[0m`);
   failures.forEach((f) => console.log(`  · ${f}`));
+  if (skipped) console.log(`\x1b[33m   ⚠ 另有 ${skipped} 项被跳过，不等于验证过。\x1b[0m`);
   process.exit(1);
 } else {
-  console.log(`\x1b[32m✅ 浏览器冒烟：${pass} 项全部通过\x1b[0m`);
+  console.log(`\x1b[32m✅ 浏览器冒烟：${pass} 项全部通过${tail}\x1b[0m`);
+  if (skipped) {
+    console.log(`\x1b[33m   ⚠ 这 ${skipped} 项没跑 —— 通常是本内核拿不到 WebGL2（缺 SwiftShader）。\x1b[0m`);
+    console.log(`\x1b[33m     本机验收请用 Chrome + --use-angle=swiftshader；CI 上出现属正常，但别当成全绿。\x1b[0m`);
+  }
   process.exit(0);
 }
