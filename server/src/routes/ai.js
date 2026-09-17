@@ -318,8 +318,15 @@ export default async function aiRoutes(fastify) {
       '要求：turns 3-5 条；board 2-4 条且是**数学步骤**（可含 LaTeX，用 $...$ 包裹），不是标题；prompt 是一个具体的问题。',
     ].filter(Boolean).join('\n');
 
+    /* 网络失败要单独 catch：fetch 连不上时 e.message 就是一句
+     * "fetch failed"（undici 的原始措辞），直接回给前端等于没说。
+     * 以前这里和答疑接口不一致 —— 那边有「连不上模型服务：」前缀，这边没有，
+     * 同一个故障用户看到两种说法。现在统一。
+     * 也不能把整段 try 的 catch 都加上这个前缀：那会把「上游返回了坏 JSON」
+     * 这类错误也说成「连不上」，反而误导。 */
+    let res;
     try {
-      const res = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+      res = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
         body: JSON.stringify({
@@ -329,6 +336,11 @@ export default async function aiRoutes(fastify) {
           stream: false,
         }),
       });
+    } catch (e) {
+      return reply.code(502).send({ error: `连不上模型服务：${e.message}` });
+    }
+
+    try {
       if (!res.ok) {
         const t = await res.text().catch(() => '');
         return reply.code(res.status).send({ error: `模型返回 ${res.status}：${t.slice(0, 200)}` });

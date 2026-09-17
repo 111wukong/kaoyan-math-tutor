@@ -10,6 +10,11 @@
  * 而且断言逻辑写在 JS 里比在 shell 里拼字符串可靠得多。
  */
 
+/* 假的 OpenAI 兼容上游 —— 用来测 AI 的**正常路径**。
+ * 用假模型而不是真模型：CI 上拉不起 12G 的 GGUF，而且真模型输出不确定、没法断言。
+ * 要验的是我们自己的代码（提示词拼装 / SSE 中转 / 错误解释），上游越假，失败越指向我们。 */
+import { startLlmStub } from '../../tests/lib/llm-stub.mjs';
+
 const BASE = process.env.BASE || 'http://127.0.0.1:5180';
 
 let pass = 0;
@@ -432,6 +437,96 @@ section('13. AI 接口的降级行为（没配模型时应给明确报错）');
 
   const p = await GET('/api/ai/personas');
   ok('人格列表 200', p.status === 200 && p.data?.personas?.length === 4, `实得 ${p.data?.personas?.length}`);
+}
+
+/* AI 的**正常路径**。上面那节只证明了「没配模型会优雅报错」，
+ * 而招牌功能跑不跑得通，只有这一节能证明。 */
+section('13b. AI 正常路径（对着本地 stub 模型跑通）');
+{
+  const stub = await startLlmStub();
+  try {
+    const put = await PUT('/api/settings/llm', {
+      enabled: true, kind: 'local', localBase: stub.base, localModel: 'stub-model',
+    });
+    ok('配置本地模型 200', put.status === 200, `实得 ${put.status}`);
+
+    const read = await GET('/api/settings/llm');
+    ok('配置读回一致', read.data?.llm?.localBase === stub.base && read.data?.llm?.kind === 'local',
+      JSON.stringify(read.data?.llm)?.slice(0, 140));
+
+    /* ---------- 连通性测试 ---------- */
+    const t = await POST('/api/settings/llm/test', {});
+    ok('连通性测试 ok=true', t.status === 200 && t.data?.ok === true,
+      `实得 ${t.status} ${JSON.stringify(t.data)?.slice(0, 140)}`);
+    ok('连通性测试报出耗时', typeof t.data?.ms === 'number', `ms=${t.data?.ms}`);
+
+    /* ---------- 流式答疑 ---------- */
+    const chat = await POST('/api/ai/chat', {
+      kid, stage: 'explain', persona: 'socratic',
+      messages: [{ role: 'user', content: '讲讲极限的定义' }],
+    });
+    ok('对话返回 200', chat.status === 200, `实得 ${chat.status} ${JSON.stringify(chat.data)?.slice(0, 140)}`);
+
+    const raw = String(chat.data?.raw || '');
+    const frames = [...raw.matchAll(/^data: (.+)$/gm)]
+      .map((m) => { try { return JSON.parse(m[1]); } catch { return null; } })
+      .filter(Boolean);
+    const streamed = frames.map((f) => f.delta || '').join('');
+    const doneFrame = frames.find((f) => f.done);
+
+    ok('收到 SSE 增量分片', streamed.length > 0, `拼出 ${streamed.length} 字`);
+    ok('★ 收尾帧 done=true 且 full 与增量一致', !!doneFrame && doneFrame.full === streamed,
+      `full=${JSON.stringify(doneFrame?.full)?.slice(0, 60)} streamed=${JSON.stringify(streamed)?.slice(0, 60)}`);
+    ok('中转没有篡改内容（与 stub 原文一致）', streamed.includes('代进去看看分子分母'),
+      JSON.stringify(streamed).slice(0, 80));
+
+    /* ---------- ★ 系统提示词是否真的注入了学情 ----------
+     * 这是这个项目区别于「套壳聊天框」的地方：AI 必须知道学生学到哪了。
+     * 光测「返回 200」证明不了这件事 —— 必须去上游收到的请求体里翻。 */
+    const sent = stub.captured.last;
+    const sys = sent?.messages?.find((m) => m.role === 'system')?.content || '';
+    ok('★ 上游收到 system 提示词', sys.length > 100, `${sys.length} 字`);
+    ok('★ 注入了真实学情快照', /累计作答\s*\d+\s*次/.test(sys),
+      (sys.match(/累计作答[^\n]*/) || ['(没找到)'])[0].slice(0, 60));
+    ok('★ 注入了当前知识点正文', sys.includes('【当前教学知识点】') && sys.includes('--- 正文 ---'));
+    ok('★ 教学铁律「不许直接给答案」在提示词里', sys.includes('不许直接给答案'));
+    ok('★ 人格切换生效（socratic → 苏格拉底）', sys.includes('苏格拉底'));
+    ok('★ 阶段参数生效（explain）', sys.includes('explain'));
+    ok('★ 上游收到 stream:true', sent?.stream === true);
+    ok('上游收到的是配置里的模型名', sent?.model === 'stub-model', `实得 ${sent?.model}`);
+
+    /* ---------- 多角色课堂 ---------- */
+    const cls = await POST('/api/ai/classroom', { kid, mode: 'lesson', round: 0 });
+    ok('课堂返回 200', cls.status === 200, `实得 ${cls.status} ${JSON.stringify(cls.data)?.slice(0, 140)}`);
+    const turns = cls.data?.turns || [];
+    ok('课堂发言 3-5 条', turns.length >= 3 && turns.length <= 5, `实得 ${turns.length}`);
+    ok('★ 三个学生各错各的（发言互不重复）', new Set(turns.map((t) => t.text)).size === turns.length);
+    ok('课堂角色名已映射成中文', turns.every((t) => ['老师', '小明', '小红', '小刚'].includes(t.name)),
+      turns.map((t) => t.name).join('/'));
+    ok('★ 板书是数学步骤（含 LaTeX）', (cls.data?.board || []).some((b) => b.includes('$')),
+      JSON.stringify(cls.data?.board?.[0])?.slice(0, 60));
+    ok('课堂留下了给学生的提问', String(cls.data?.prompt || '').length > 5,
+      JSON.stringify(cls.data?.prompt)?.slice(0, 60));
+    ok('课堂没有 parseFailed 标记', cls.data?.parseFailed !== true);
+
+    /* ---------- 错误路径 ---------- */
+    stub.setMode('401');
+    const bad = await POST('/api/ai/classroom', { kid, mode: 'lesson' });
+    ok('上游 401 时状态码透传', bad.status === 401, `实得 ${bad.status}`);
+
+    stub.setMode('ok');
+    await PUT('/api/settings/llm', {
+      kind: 'local', localBase: 'http://127.0.0.1:1/v1', localModel: 'nobody',
+    });
+    const dead = await POST('/api/ai/classroom', { kid, mode: 'lesson' });
+    ok('连不上模型时返回 502', dead.status === 502, `实得 ${dead.status} ${JSON.stringify(dead.data)?.slice(0, 120)}`);
+    ok('502 的报错可读（带「连不上模型服务」）', String(dead.data?.error || '').includes('连不上模型服务'),
+      JSON.stringify(dead.data?.error)?.slice(0, 80));
+  } finally {
+    // 收干净：别把 stub 地址留在库里，否则后面几节跑的是「配了模型」的状态
+    await PUT('/api/settings/llm', { enabled: false, kind: 'local', localBase: '', localModel: '' });
+    await stub.stop();
+  }
 }
 
 section('14. 登出与重新登录');
