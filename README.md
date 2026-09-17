@@ -304,6 +304,22 @@ npm run check && npm run start
 
 想换台机器：`npm install && npm run check`，然后把 `app.db` 拷过去，或者用页面上的导出 / 导入。
 
+### 为什么不用 GitHub Pages
+
+这个仓库以前开着 Pages，部署的是旧版纯前端静态站。全栈版**主动把它关掉了**，两个原因：
+
+1. 全栈版的核心价值 —— 账号、跨设备同步、服务端持久化、API Key 不落浏览器 ——
+   **恰恰是静态托管给不了的**。没有 Node 进程，这些一个都不成立。
+2. 而如果只把 `web/dist` 发到 Pages，你会得到一个**能打开、但什么都存不住**的壳：
+   注册登录接口全部 404，比没有线上版本更糟 —— 它看起来是好的。
+
+想线上跑，就找个能跑 Node 的地方（任意 VPS / Railway / Fly.io / 家里一台常开的机器），
+`npm run check && npm run start` 即可。数据是单文件 SQLite，备份就是复制 `app.db`。
+
+> 顺带一提：Pages 的 `build_type` 是 `legacy`（Jekyll 从 master 根目录构建）。
+> 所以关它必须**先于**合并全栈版 —— 否则合并会触发一次 Jekyll 构建，
+> 在一个 Vite 项目上必然产出垃圾或直接失败。
+
 ---
 
 ## 已知边界
