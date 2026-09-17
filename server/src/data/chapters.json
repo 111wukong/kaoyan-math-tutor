@@ -1,0 +1,116 @@
+[
+  {
+    "id": "calculus-c1",
+    "categoryId": "calculus",
+    "name": "第一章 函数、极限与连续",
+    "sortOrder": 0
+  },
+  {
+    "id": "calculus-c2",
+    "categoryId": "calculus",
+    "name": "第二章 一元函数微分学",
+    "sortOrder": 1
+  },
+  {
+    "id": "calculus-c3",
+    "categoryId": "calculus",
+    "name": "第三章 一元函数积分学",
+    "sortOrder": 2
+  },
+  {
+    "id": "calculus-c4",
+    "categoryId": "calculus",
+    "name": "第四章 多元函数微分学",
+    "sortOrder": 3
+  },
+  {
+    "id": "calculus-c5",
+    "categoryId": "calculus",
+    "name": "第五章 重积分",
+    "sortOrder": 4
+  },
+  {
+    "id": "calculus-c6",
+    "categoryId": "calculus",
+    "name": "第六章 无穷级数",
+    "sortOrder": 5
+  },
+  {
+    "id": "calculus-c7",
+    "categoryId": "calculus",
+    "name": "第七章 微分方程",
+    "sortOrder": 6
+  },
+  {
+    "id": "linear-c1",
+    "categoryId": "linear",
+    "name": "第八章 行列式",
+    "sortOrder": 0
+  },
+  {
+    "id": "linear-c2",
+    "categoryId": "linear",
+    "name": "第九章 矩阵",
+    "sortOrder": 1
+  },
+  {
+    "id": "linear-c3",
+    "categoryId": "linear",
+    "name": "第十章 向量组",
+    "sortOrder": 2
+  },
+  {
+    "id": "linear-c4",
+    "categoryId": "linear",
+    "name": "第十一章 线性方程组",
+    "sortOrder": 3
+  },
+  {
+    "id": "linear-c5",
+    "categoryId": "linear",
+    "name": "第十二章 特征值与相似",
+    "sortOrder": 4
+  },
+  {
+    "id": "linear-c6",
+    "categoryId": "linear",
+    "name": "第十三章 二次型",
+    "sortOrder": 5
+  },
+  {
+    "id": "prob-c1",
+    "categoryId": "prob",
+    "name": "第十四章 随机事件与概率",
+    "sortOrder": 0
+  },
+  {
+    "id": "prob-c2",
+    "categoryId": "prob",
+    "name": "第十五章 随机变量及其分布",
+    "sortOrder": 1
+  },
+  {
+    "id": "prob-c3",
+    "categoryId": "prob",
+    "name": "第十六章 多维随机变量",
+    "sortOrder": 2
+  },
+  {
+    "id": "prob-c4",
+    "categoryId": "prob",
+    "name": "第十七章 数字特征",
+    "sortOrder": 3
+  },
+  {
+    "id": "prob-c5",
+    "categoryId": "prob",
+    "name": "第十八章 大数定律与中心极限定理",
+    "sortOrder": 4
+  },
+  {
+    "id": "prob-c6",
+    "categoryId": "prob",
+    "name": "第十九章 数理统计",
+    "sortOrder": 5
+  }
+]

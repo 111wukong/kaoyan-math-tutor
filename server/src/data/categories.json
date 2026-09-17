@@ -1,0 +1,20 @@
+[
+  {
+    "id": "calculus",
+    "name": "高等数学",
+    "color": "#1b4d8f",
+    "sortOrder": 0
+  },
+  {
+    "id": "linear",
+    "name": "线性代数",
+    "color": "#2f6b4f",
+    "sortOrder": 1
+  },
+  {
+    "id": "prob",
+    "name": "概率论与数理统计",
+    "color": "#8a5f17",
+    "sortOrder": 2
+  }
+]

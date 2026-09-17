@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#05060c" />
+  <meta name="description" content="研数 · 考研数学 AI 自学系统：知识树、每日一练、SM-2 间隔重复、错题本、公式实验室、多智能体课堂。" />
+  <title>研数 · 考研数学 AI 自学系统</title>
+  <style>
+    /* 首屏防闪白：在 CSS 加载前就把底色铺上，否则深空主题会先闪一下白 */
+    html, body { margin: 0; background: #05060c; }
+    #boot { position: fixed; inset: 0; display: grid; place-items: center; background: #05060c; z-index: 9999; transition: opacity .5s ease; }
+    #boot.gone { opacity: 0; pointer-events: none; }
+    #boot .ring {
+      width: 46px; height: 46px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.08);
+      border-top-color: #22d3ee; border-right-color: #a855f7;
+      animation: bootspin .9s linear infinite;
+    }
+    @keyframes bootspin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="boot"><div class="ring"></div></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
