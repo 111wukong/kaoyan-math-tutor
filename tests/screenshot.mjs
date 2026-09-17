@@ -188,6 +188,24 @@ if (/Google Chrome$|Microsoft Edge$/.test(BROWSER)) args.unshift('--headless=new
 const proc = spawn(BROWSER, args, { stdio: ['ignore', 'ignore', 'pipe'] });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* ★ stderr 必须**一直读**，不能接成管道就不管。
+ *
+ * 踩过的坑：原来是 stdio: ['ignore','ignore','pipe'] 然后没人读这个流。
+ * headless 下浏览器的日志、GPU 警告、页面里每一条 console.* 都往 stderr 走，
+ * 管道缓冲（macOS 上 64KB）一满，**浏览器进程就阻塞在 write 上**，
+ * 于是所有 CDP 命令永久挂起 —— 报出来的是 "Page.captureScreenshot 超时"，
+ * 跟真正的原因（一个没人读的管道）差了十万八千里。
+ *
+ * 只留最后 40 行：正常时它安静，出问题时它就是唯一的线索。 */
+const stderrTail = [];
+proc.stderr.on('data', (d) => {
+  for (const line of String(d).split('\n')) {
+    if (!line.trim()) continue;
+    stderrTail.push(line);
+    if (stderrTail.length > 40) stderrTail.shift();
+  }
+});
+
 let dbgPort = null;
 for (let i = 0; i < 100; i++) {
   const f = path.join(profile, 'DevToolsActivePort');
@@ -277,7 +295,26 @@ try {
     })()`);
     const [fxAlive, fxSize] = String(fx.value || '?|?').split('|');
 
-    const shot = await client.send('Page.captureScreenshot', { format: 'png' });
+    /* ★ captureScreenshot 会偶发挂住，重试。
+     *
+     * 复现过：加了逐像素抖动之后，同一台机器上 4 次里有 2 次卡在
+     * "Page.captureScreenshot 超时"，把超时从 25 秒放宽到 60 秒**照样挂**，
+     * 所以不是"太慢"，是真的不返回。特征是截出来的 PNG 变大（4.1MB 量级）
+     * 之后才出现，把抖动换成压缩率更好的 4×4 Bayer（3.6MB）就 8/8 全过。
+     *
+     * 根因在 Chromium 的 headless + 软件 GL 截图路径上，不在这个项目里，
+     * 修不了。但它是**偶发**的：换一帧重来就好。所以这里重试，而不是把
+     * 已经调好的画面参数往回调 —— 为了迁就工具去牺牲画面，方向反了。 */
+    let shot = null;
+    for (let attempt = 1; attempt <= 3 && !shot; attempt++) {
+      try {
+        shot = await client.send('Page.captureScreenshot', { format: 'png' });
+      } catch (e) {
+        if (attempt === 3) throw e;
+        console.log(`\x1b[90m   · ${name} 截图超时，重试 ${attempt + 1}/3\x1b[0m`);
+        await sleep(900);
+      }
+    }
     const file = path.join(OUT, `${name}.png`);
     fs.writeFileSync(file, Buffer.from(shot.data, 'base64'));
     const kb = (fs.statSync(file).size / 1024).toFixed(0);
@@ -314,6 +351,17 @@ try {
   await shoot('15-设置', '/settings', { waitFor: SHELL, settle: 1600 });
 
   console.log(`\n截图输出：${OUT}`);
+} catch (e) {
+  /* 失败时把浏览器 stderr 的尾巴打出来。没有这段的话，
+   * "CDP 命令超时" 之外什么线索都没有，只能靠猜。 */
+  console.error(`\n\x1b[31m✗ 截图中断：${e.message}\x1b[0m`);
+  if (stderrTail.length) {
+    console.error('\x1b[90m── 浏览器 stderr 最后 40 行 ──');
+    for (const l of stderrTail) console.error('\x1b[90m' + l + '\x1b[0m');
+  } else {
+    console.error('\x1b[90m（浏览器 stderr 是空的）\x1b[0m');
+  }
+  throw e;
 } finally {
   /* ★ 把自己造的账号删掉。
    * 这个脚本默认连的是「你正在用的那个服务」（BASE 默认 127.0.0.1:5180），
