@@ -15,7 +15,21 @@ import path from 'node:path';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5180';
 const OUT = process.env.OUT || '/tmp/yanshu-shots';
-const W = 1440, H = 900;
+
+/* 视口可以覆盖。默认是桌面 1440×900。
+ *
+ * 为什么要有这个开关：全屏 WebGL 背景 + HUD 装饰层 + 3D 星系，
+ * 这三样都是「按桌面比例调出来的」。窄屏上会不会挤成一团、
+ * 星系会不会把卡片顶出去、着色器在低端机上会不会拖垮滚动 ——
+ * 这些在 1440 宽的截图里一个都看不出来。
+ *
+ *   W=390 H=844 MOBILE=1 OUT=/tmp/shots-m npm run shots
+ *
+ * MOBILE=1 会打开 Chrome 的移动端模拟（触摸 + viewport meta 生效），
+ * 只改宽度不改这个的话，量出来的是「窄桌面」而不是「手机」。 */
+const W = Number(process.env.W || 1440);
+const H = Number(process.env.H || 900);
+const MOBILE = process.env.MOBILE === '1';
 
 /* ---------------- 1. 找浏览器 ---------------- */
 function findBrowser() {
@@ -151,6 +165,7 @@ if (!BROWSER) {
   process.exit(0);
 }
 console.log(`③ 浏览器 ${BROWSER}`);
+console.log(`   视口 ${W}×${H}${MOBILE ? '（移动端模拟）' : ''}  →  ${OUT}`);
 
 fs.mkdirSync(OUT, { recursive: true });
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'yanshu-shot-'));
@@ -227,7 +242,7 @@ try {
   await client.send('Page.enable');
   await client.send('Network.enable');
   await client.send('Emulation.setDeviceMetricsOverride', {
-    width: W, height: H, deviceScaleFactor: 2, mobile: false,
+    width: W, height: H, deviceScaleFactor: 2, mobile: MOBILE,
   });
 
   const ev = async (expr) => {

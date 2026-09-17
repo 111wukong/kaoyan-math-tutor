@@ -602,6 +602,73 @@ try {
       `节点 ${bn.n} 个 / 画布宽 ${bn.cw}px`);
   }
 
+  /* 窄屏。桌面 1440 下一切正常，不代表 390 下也正常 ——
+   * 星系的球半径、HUD 的刻度尺、全屏着色器，三样都是按桌面比例调的。
+   * 实测就是这么漏的：390 宽下星系外圈标签被 overflow 整排切掉，
+   * 中间糊成一片，而所有桌面断言全绿。 */
+  section('3c. 窄屏（390×844）：布局不溢出、星系不默认出场但仍在');
+  {
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 390, height: 844, deviceScaleFactor: 2, mobile: true,
+    });
+    await nav('/learn');
+    await waitFor('!!document.querySelector("#main-scroll")', '知识树就位（窄屏）');
+    await sleep(1000);
+
+    const narrow = await probe(`
+      return JSON.stringify({
+        host: !!document.querySelector('[data-galaxy=host]'),
+        cats: document.querySelectorAll('#main-scroll h2').length,
+        wide: document.documentElement.scrollWidth > innerWidth + 1,
+      });`);
+    const nw = JSON.parse(narrow);
+    ok('窄屏下不默认渲染星系', nw.host === false, `host 存在=${nw.host}`);
+    ok('窄屏下默认给列表视图（有科目分块）', nw.cats >= 1, `${nw.cats} 个科目头`);
+    ok('★ 窄屏下页面没有横向溢出', nw.wide === false, '有内容把页面撑宽了');
+
+    /* 星系仍在切换器里 —— 窄屏是「不默认出场」，不是「砍掉」 */
+    const toGalaxy = await probe(`
+      var bs = Array.from(document.querySelectorAll('[role=tablist] button'));
+      var b = bs.find(function (x) { return x.textContent.indexOf('星系') >= 0; });
+      if (!b) return 'NO_BTN';
+      b.click();
+      return 'ok';`);
+    ok('窄屏下仍能手动切到星系', toGalaxy === 'ok', String(toGalaxy));
+    await sleep(1100);
+
+    /* ★ 这条就是抓「外圈被切掉」的。
+     * overflow-hidden 是**视觉裁剪**，不影响 getBoundingClientRect ——
+     * 所以溢出的标签在几何上照样量得出来，不用截图比对像素。 */
+    const gNarrow = await probe(`
+      var h = document.querySelector('[data-galaxy=host]');
+      if (!h) return JSON.stringify({ ok: false });
+      var r = h.getBoundingClientRect();
+      var ns = Array.from(document.querySelectorAll('[data-galaxy=node]'));
+      var out = ns.filter(function (n) {
+        var b = n.getBoundingClientRect();
+        return b.left < r.left - 1 || b.right > r.right + 1;
+      });
+      return JSON.stringify({
+        ok: true, n: ns.length, out: out.length,
+        sample: out.slice(0, 2).map(function (x) { return x.textContent.trim(); }),
+      });`);
+    const gn = JSON.parse(gNarrow);
+    ok('窄屏下星系仍能渲染出节点', gn.ok === true && gn.n > 50, `节点 ${gn.n} 个`);
+    ok('★ 窄屏下没有节点被容器切掉', gn.out === 0,
+      `${gn.out} 个标签溢出：${JSON.stringify(gn.sample)}`);
+  }
+
+  /* ★ 视口必须还原。
+   * 后面每一节的断言都是按 1440 宽写的（比如「视口是桌面宽度」、
+   * 「星系默认渲染」），不还原就会从第 4 节开始报一堆莫名其妙的失败，
+   * 而你会去查那些页面，不会想到是这里没收拾干净。 */
+  await client.send('Emulation.setDeviceMetricsOverride', {
+    width: WIDTH, height: HEIGHT, deviceScaleFactor: 2, mobile: false,
+  });
+  await nav('/');
+  await waitFor('!!document.querySelector("#main-scroll")', '还原桌面视口');
+  await sleep(400);
+
   section('4. 公式实验室：切模块后画布真的重画');
   {
     await nav('/lab');

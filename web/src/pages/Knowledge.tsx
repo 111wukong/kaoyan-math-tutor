@@ -21,8 +21,18 @@ export default function Knowledge() {
   const [query, setQuery] = useState('');
   /* 星系是"看"的入口，列表是"用"的入口。
    * 两个都要：星系负责一眼看出哪里空、哪里亮；
-   * 列表负责搜索、逐条读、键盘操作。默认给星系，因为它更像这个产品。 */
-  const [view, setView] = useState<'galaxy' | 'list'>('galaxy');
+   * 列表负责搜索、逐条读、键盘操作。默认给星系，因为它更像这个产品。
+   *
+   * ★ 但窄屏例外。68 个标签铺在球面上，桌面宽 1140 时前后层次拉得开；
+   * 手机宽 390 时整颗球挤成一片，标签互相压、外圈还被 overflow 切掉 ——
+   * 那就不叫"看"了，叫"猜"。窄屏默认给列表，星系仍在切换器里，
+   * 想看的随手就能切过去。
+   *
+   * 只在挂载时判一次：这是"默认值"不是"锁定"。用户手动切过之后，
+   * 不该再因为窗口宽度被改回去。 */
+  const [view, setView] = useState<'galaxy' | 'list'>(
+    () => (window.innerWidth < 768 ? 'list' : 'galaxy'),
+  );
   const [openChapters, setOpenChapters] = useState<Record<string, boolean>>({});
   const { data, loading } = useAsync(() => api.catalog.tree(track), [track]);
 
