@@ -59,10 +59,13 @@ async function api(method, p, body) {
 
 /* ---------------- 3. 造数据 ---------------- */
 const EMAIL = `shot_${Date.now()}@test.local`;
+/* 收尾要靠它注销账号（DELETE /api/auth/account 需要校验密码），
+ * 所以抽成常量 —— 别在注册那行内联字面量，改一处漏一处。 */
+const PASSWORD = 'Kaoyan2027!';
 
 console.log('① 注册截图专用账号');
 const reg = await api('POST', '/api/auth/register', {
-  email: EMAIL, username: '王国华', password: 'Kaoyan2027!',
+  email: EMAIL, username: '王国华', password: PASSWORD,
 });
 if (![200, 201].includes(reg.status)) {
   console.error('注册失败', reg.status, JSON.stringify(reg.data));
@@ -275,6 +278,21 @@ try {
 
   console.log(`\n截图输出：${OUT}`);
 } finally {
+  /* ★ 把自己造的账号删掉。
+   * 这个脚本默认连的是「你正在用的那个服务」（BASE 默认 127.0.0.1:5180），
+   * 写的是真实数据库 —— 这是必要的，因为截图要看的就是真实分布。
+   * 但它每跑一次就注册一个 shot_*@test.local 并灌 88 条作答，
+   * 以前不清，跑十几次库里就攒十几个假账号。
+   * 现在用 DELETE /api/auth/account 收尾，外键级联把学习数据一并带走。 */
+  if (TOKEN) {
+    try {
+      const r = await api('DELETE', '/api/auth/account', { password: PASSWORD });
+      if (r.status === 200) console.log(`\x1b[90m已清理临时账号 ${EMAIL}\x1b[0m`);
+      else console.warn(`\x1b[33m⚠ 临时账号没能删掉（HTTP ${r.status}）—— 手动清一下 ${EMAIL}\x1b[0m`);
+    } catch (e) {
+      console.warn(`\x1b[33m⚠ 清理临时账号失败：${e.message}\n  手动清一下 ${EMAIL}\x1b[0m`);
+    }
+  }
   if (client) client.close();
   try { proc?.stderr?.destroy(); } catch { /* 已关 */ }
   try { proc?.kill('SIGKILL'); } catch { /* 已退 */ }
