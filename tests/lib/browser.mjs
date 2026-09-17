@@ -18,18 +18,45 @@ import { spawn } from 'node:child_process';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** 找本机可用的 Chromium 内核。找不到返回 null（调用方自己决定跳过还是报错）。 */
+/**
+ * 找本机可用的 Chromium 内核。
+ * 返回 { bin, kind }，找不到返回 null。
+ *
+ * 这个查找逻辑和 tests/browser-smoke.mjs 保持一致 ——
+ * 那套逻辑已经在 CI（Ubuntu + Playwright 缓存）上验证过了。
+ */
 export function findBrowser() {
+  const home = os.homedir();
+  // Playwright 缓存的 headless shell：不需要显示器，启动最快
+  for (const base of [`${home}/Library/Caches/ms-playwright`, `${home}/.cache/ms-playwright`]) {
+    if (!fs.existsSync(base)) continue;
+    for (const d of fs.readdirSync(base)) {
+      if (!d.startsWith('chromium_headless_shell-')) continue;
+      for (const rel of [
+        'chrome-headless-shell-mac-arm64/chrome-headless-shell',
+        'chrome-headless-shell-mac-x64/chrome-headless-shell',
+        'chrome-headless-shell-linux64/chrome-headless-shell',
+      ]) {
+        const bin = path.join(base, d, rel);
+        if (fs.existsSync(bin)) return { bin, kind: 'shell' };
+      }
+    }
+  }
   const cands = [
-    process.env.BROWSER,
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-  ].filter(Boolean);
+    { bin: process.env.BROWSER, kind: 'chrome' },
+    { bin: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', kind: 'chrome' },
+    { bin: '/Applications/Chromium.app/Contents/MacOS/Chromium', kind: 'chrome' },
+    { bin: '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge', kind: 'chrome' },
+    { bin: '/usr/bin/google-chrome', kind: 'chrome' },
+    { bin: '/usr/bin/google-chrome-stable', kind: 'chrome' },
+    { bin: '/usr/bin/chromium', kind: 'chrome' },
+    { bin: '/usr/bin/chromium-browser', kind: 'chrome' },
+    { bin: '/opt/google/chrome/chrome', kind: 'chrome' },
+    { bin: '/snap/bin/chromium', kind: 'chrome' },
+  ];
   for (const c of cands) {
-    try { if (fs.existsSync(c)) return c; } catch { /* 权限问题就当没有 */ }
+    if (!c.bin) continue;
+    try { if (fs.existsSync(c.bin)) return c; } catch { /* 权限问题就当没有 */ }
   }
   return null;
 }
@@ -77,8 +104,9 @@ export function cdpClient(wsUrl) {
  * 用完必须调 kill()（它会 SIGKILL 进程并删掉临时 profile）。
  */
 export async function launchPage({ width = 1440, height = 900, browser = null } = {}) {
-  const bin = browser || findBrowser();
-  if (!bin) throw new Error('找不到 Chromium 内核（可用 BROWSER 环境变量指定）');
+  const found = browser ? { bin: browser, kind: 'chrome' } : findBrowser();
+  if (!found) throw new Error('找不到 Chromium 内核（可用 BROWSER 环境变量指定）');
+  const { bin, kind } = found;
 
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'wukong-cdp-'));
   const args = [
@@ -93,7 +121,7 @@ export async function launchPage({ width = 1440, height = 900, browser = null } 
     'about:blank',
   ];
   /* Chrome / Edge 要显式进 headless；chrome-headless-shell 本身就是 headless，加了会报错 */
-  if (/Google Chrome$|Microsoft Edge$/.test(bin)) args.unshift('--headless=new');
+  if (kind === 'chrome') args.unshift('--headless=new');
 
   const proc = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] });
 
