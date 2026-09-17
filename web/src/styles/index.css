@@ -1,0 +1,394 @@
+@import "tailwindcss";
+
+/* ============================================================
+   研数 · 设计系统 —— 暗色深空 + 玻璃拟态
+   ============================================================
+   三个层次，别混：
+     1. 深空底（--ink-*）   ：背景。永远比内容暗，永远带一点冷色偏移。
+     2. 玻璃面（--glass-*）  ：卡片与面板。半透明 + 模糊 + 一像素内发光边。
+     3. 光谱（--spectrum-*） ：强调色。青 → 蓝 → 紫，只用于"需要被看见的东西"。
+   纪律：不使用高饱和纯色大面积填充；强调色只出现在文字、描边、光晕和小面积填充上。
+   长时间盯着看的东西（正文、列表）一律用低饱和的 ink 系列。
+   ============================================================ */
+
+@theme {
+  /* ---- 深空底 ---- */
+  --color-ink-1000: #03040a;
+  --color-ink-950: #05060c;
+  --color-ink-900: #080b14;
+  --color-ink-850: #0b0f1a;
+  --color-ink-800: #10151f;
+  --color-ink-700: #171d29;
+  --color-ink-600: #222938;
+
+  /* ---- 玻璃 ---- */
+  --color-glass-1: rgba(255, 255, 255, 0.035);
+  --color-glass-2: rgba(255, 255, 255, 0.055);
+  --color-glass-3: rgba(255, 255, 255, 0.08);
+  --color-hairline: rgba(255, 255, 255, 0.075);
+  --color-hairline-strong: rgba(255, 255, 255, 0.13);
+
+  /* ---- 光谱 ---- */
+  --color-cyan: #22d3ee;
+  --color-blue: #3b82f6;
+  --color-violet: #a855f7;
+  --color-magenta: #ec4899;
+  --color-emerald: #34d399;
+  --color-amber: #fbbf24;
+  --color-rose: #fb7185;
+
+  /* ---- 文字 ---- */
+  --color-fg: #e9ebf4;
+  --color-fg-soft: #a8b0c6;
+  --color-fg-mute: #6b7590;
+  --color-fg-faint: #444c63;
+
+  /* ---- 字体 ---- */
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  /* ---- 动效曲线 ---- */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ============================================================
+   基础层
+   ============================================================ */
+* { border-color: var(--color-hairline); }
+
+html {
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--color-ink-950);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1;   /* 表格与数字等宽，避免跳动 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* 全局深空底纹：三层径向光晕，固定不动。
+   用 fixed 而不是滚动，是为了让"星空"感觉是背景而不是贴在页面上的图。 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 620px at 12% -8%, rgba(34, 211, 238, 0.10), transparent 62%),
+    radial-gradient(760px 560px at 88% 4%, rgba(168, 85, 247, 0.10), transparent 60%),
+    radial-gradient(1100px 700px at 50% 108%, rgba(59, 130, 246, 0.09), transparent 66%);
+}
+
+/* 极细网格：给"深空"一个尺度参照，纯渐变会显得空 */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.32;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, #000 20%, transparent 78%);
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.3);
+  color: #fff;
+}
+
+/* 滚动条：默认的太亮，深色主题下像一道疤 */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.09);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); background-clip: content-box; }
+
+/* 焦点环：键盘导航必须看得见，鼠标点击不出环 */
+:focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ============================================================
+   玻璃拟态
+   ============================================================ */
+.glass {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.022));
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid var(--color-hairline);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
+    0 18px 40px -22px rgba(0, 0, 0, 0.9);
+}
+
+.glass-strong {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.035));
+  backdrop-filter: blur(26px) saturate(160%);
+  -webkit-backdrop-filter: blur(26px) saturate(160%);
+  border: 1px solid var(--color-hairline-strong);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.07) inset,
+    0 26px 60px -28px rgba(0, 0, 0, 0.95);
+}
+
+.glass-subtle {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+/* 顶部一像素高光：玻璃的"边缘感"靠它，没有就像一块灰板 */
+.hairline-top {
+  position: relative;
+}
+.hairline-top::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22) 22%, rgba(255, 255, 255, 0.22) 78%, transparent);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ============================================================
+   文字与光谱
+   ============================================================ */
+.text-spectrum {
+  background: linear-gradient(100deg, #67e8f9 0%, #60a5fa 42%, #c084fc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.text-aurora {
+  background: linear-gradient(100deg, #67e8f9, #60a5fa, #c084fc, #67e8f9);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: aurora-text 7s linear infinite;
+}
+
+@keyframes aurora-text {
+  to { background-position: 300% 0; }
+}
+
+/* ============================================================
+   动效
+   ============================================================ */
+
+/* 扫光按钮：一条高光从左侧扫过 */
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.28) 50%, transparent 65%);
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+.shimmer:hover::after { animation: shimmer-sweep 0.85s var(--ease-out-expo); }
+
+@keyframes shimmer-sweep {
+  to { transform: translateX(120%); }
+}
+
+/* 脉冲光晕：给"当前进行中"的元素 */
+.pulse-glow { animation: pulse-glow 2.6s ease-in-out infinite; }
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.30); }
+  50%      { box-shadow: 0 0 0 10px rgba(34, 211, 238, 0); }
+}
+
+/* 浮动：给空状态插画、装饰元素 */
+.float { animation: float 6s ease-in-out infinite; }
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-9px); }
+}
+
+/* 呼吸：给加载中的占位 */
+.breathe { animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.95; }
+}
+
+/* 旋转渐变边：给"正在生成"的卡片 */
+.conic-border {
+  position: relative;
+}
+.conic-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--angle, 0deg), transparent 0%, #22d3ee 12%, #a855f7 26%, transparent 40%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: conic-spin 3.2s linear infinite;
+  pointer-events: none;
+}
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes conic-spin { to { --angle: 360deg; } }
+
+/* 卡片入场：向上淡入，错峰由 style 里的 delay 控制 */
+.rise-in {
+  animation: rise-in 0.6s var(--ease-out-expo) both;
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 答题反馈：答对绿色脉冲，答错红色横向抖动 */
+.feedback-right { animation: feedback-right 0.55s var(--ease-spring); }
+@keyframes feedback-right {
+  0%   { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+  100% { box-shadow: 0 0 0 22px rgba(52, 211, 153, 0); }
+}
+.feedback-wrong { animation: feedback-wrong 0.42s ease-in-out; }
+@keyframes feedback-wrong {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(2px); }
+}
+
+/* 数字滚动（配合 NumberTicker 的逐帧写入） */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* 3D 倾斜容器：透视与子元素提升由 TiltCard 内联控制 */
+.tilt-scene { perspective: 900px; }
+.tilt-body {
+  transform-style: preserve-3d;
+  transition: transform 0.32s var(--ease-out-expo);
+  will-change: transform;
+}
+.tilt-layer { transform: translateZ(38px); }
+
+/* 鼠标跟随光晕：位置由 JS 写进 --mx / --my */
+.spotlight { position: relative; }
+.spotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), rgba(120, 200, 255, 0.13), transparent 68%);
+  pointer-events: none;
+}
+.spotlight:hover::before { opacity: 1; }
+
+/* 骨架屏 */
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 37%, rgba(255,255,255,0.04) 63%);
+  background-size: 400% 100%;
+  animation: skeleton 1.5s ease infinite;
+}
+@keyframes skeleton {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* ============================================================
+   KaTeX 暗色适配
+   ============================================================ */
+.katex { color: #e9ebf4; font-size: 1.04em; }
+.katex-display {
+  margin: 1.05em 0;
+  padding: 0.85em 0.4em;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.022);
+}
+.katex-display > .katex { color: #eef1f8; }
+/* 公式里的分数线、根号线在深色下偏细 */
+.katex .frac-line { border-bottom-color: rgba(233, 235, 244, 0.85); }
+
+/* ============================================================
+   表单与控件
+   ============================================================ */
+input, textarea, select, button { font: inherit; color: inherit; }
+input::placeholder, textarea::placeholder { color: var(--color-fg-faint); }
+
+/* 去掉 number input 的上下箭头（表单里很碍眼） */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+
+/* 自动填充的黄色背景在深色主题里非常刺眼，强制覆盖 */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--color-fg);
+  -webkit-box-shadow: 0 0 0 1000px #0b0f1a inset;
+  transition: background-color 9999s ease-in-out 0s;
+  caret-color: var(--color-fg);
+}
+
+/* ============================================================
+   打印（卡片库导出 A4）
+   ============================================================
+   策略：把要打印的内容渲染进 #print-portal（挂在 body 下），
+   打印时把 body 的其它子元素全部藏掉。这样屏幕上的深色主题样式
+   完全不会干扰纸张输出 —— 纸张上必须是白底黑字。
+   ============================================================ */
+#print-portal { display: none; }
+
+@media print {
+  body::before, body::after { display: none !important; }
+  body { background: #fff !important; color: #111 !important; }
+  body > *:not(#print-portal) { display: none !important; }
+  #print-portal { display: block !important; }
+
+  @page { margin: 14mm 12mm; }
+
+  .p-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
+/* ============================================================
+   无障碍：尊重系统「减少动态效果」
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .tilt-body { transform: none !important; }
+}

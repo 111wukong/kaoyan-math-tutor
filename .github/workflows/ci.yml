@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [master, 'v2-*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 类型 + 构建 ────────────────────────────────────────────────
+  # 这一步不碰数据库、不起服务，纯粹证明「代码能编译、产物能出来」。
+  # 拆成独立 job 是为了让它在 CI 页面上单独变红 ——
+  # 类型错误和测试失败是两类完全不同的问题，混在一个 job 里看不出是哪种。
+  build:
+    name: 类型检查 + 构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v7
+
+      # server 依赖 better-sqlite3，需要 Node 22 的 ABI。
+      # web 的构建工具链（Vite 8 / Rolldown、TS 7）也要求 22+。
+      - name: 装 Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      # 根目录是 npm workspaces，一条 npm ci 会把 server/ 和 web/ 一起装。
+      - name: 装依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 构建
+        run: npm run build
+
+  # ── 测试 ──────────────────────────────────────────────────────
+  test:
+    name: 全量回归
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # 测试里的「今天」是按本地时间算的（每日任务打卡、连续打卡、复习到期）。
+    # runner 默认 UTC，和项目所在地差 8 小时，跨零点那几个小时容易假红。
+    # 钉死时区，让 CI 的「今天」和本机的「今天」是同一个。
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v7
+
+      - name: 装 Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 装依赖
+        run: npm ci
+
+      # ★ 这一步不是走过场。
+      #
+      # tests/browser-smoke.mjs 找不到 Chromium 内核时会打印「跳过」然后以
+      # **0 项** 退出；而 tests/run-all.mjs 把「0 项、0 失败」算作通过 ——
+      # 也就是说「根本没测」和「全部通过」在汇总里长得一模一样。
+      #
+      # 更阴的是：测试里那条「首屏不能白屏」的断言，是本项目历史上唯一
+      # 抓到过致命 bug 的断言（BootScreen 在 Router 外面调 useLocation）。
+      # 它一旦静默跳过，CI 会绿着放过一个整站白屏的版本。
+      #
+      # runner 上自带 Chrome，先确认它在，否则这次绿是假的。
+      #
+      # 候选列表要和 tests/browser-smoke.mjs 的 findBrowser() 保持一致
+      # （workflow 没法 import 测试脚本，只能手动同步这两处）。
+      - name: 确认浏览器存在（防止冒烟测试静默跳过）
+        run: |
+          node -e '
+            const fs = require("fs");
+            const cands = [
+              "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable",
+              "/usr/bin/chromium", "/usr/bin/chromium-browser",
+              "/opt/google/chrome/chrome", "/opt/google/chrome/google-chrome",
+              "/snap/bin/chromium"
+            ];
+            const hit = cands.find(function (p) { return fs.existsSync(p); });
+            if (!hit) {
+              console.error("::error::runner 上找不到浏览器，浏览器冒烟测试会静默跳过 —— 这次通过不算数");
+              process.exit(1);
+            }
+            console.log("找到浏览器：" + hit);
+          '
+
+      # 接口套件自带服务生命周期（自己 spawn 一个 server、跑完自己收），
+      # 不需要外部先起服务。
+      - name: 跑全量回归（接口 + 浏览器）
+        run: npm test
