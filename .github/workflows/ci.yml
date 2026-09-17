@@ -66,6 +66,12 @@ jobs:
       - name: 装依赖
         run: npm ci
 
+      # 浏览器套件是靠后端托管 web/dist 来测真实页面的。
+      # 不构建的话后端会退化成「只提供 API」，页面全部 404，
+      # 浏览器套件报出来的是一堆看不懂的超时 —— 所以这里必须先构建。
+      - name: 构建前端
+        run: npm run build
+
       # ★ 这一步不是走过场。
       #
       # tests/browser-smoke.mjs 找不到 Chromium 内核时会打印「跳过」然后以

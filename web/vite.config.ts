@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { IncomingMessage } from 'node:http';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,8 +20,14 @@ export default defineConfig({
         target: 'http://127.0.0.1:5180',
         changeOrigin: true,
         // SSE 必须关掉缓冲，否则 AI 流式回复会卡住不动
+        //
+        // 注意 proxyRes 的类型要显式写上：proxy.on() 继承自 EventEmitter，
+        // 而 EventEmitter 的类型来自 @types/node。这个包一旦没装（或没写进
+        // devDependencies，只在本地 node_modules 里被 hoist 出来），
+        // 'proxyRes' 这个重载就解析不出来，proxyRes 会退化成隐式 any，
+        // noImplicitAny 下直接报错 —— 而本机却可能是过的。见 CI 里的 typecheck。
         configure: (proxy) => {
-          proxy.on('proxyRes', (proxyRes) => {
+          proxy.on('proxyRes', (proxyRes: IncomingMessage) => {
             if (String(proxyRes.headers['content-type'] || '').includes('text/event-stream')) {
               proxyRes.headers['x-accel-buffering'] = 'no';
             }
