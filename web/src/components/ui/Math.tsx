@@ -44,6 +44,22 @@ const TEX_CMD = /[a-zA-Z]/;
 const MATH_CHAR = /[A-Za-z0-9\xc0-\xff\u0391-\u03c9().+\-*/=|<>·]/;
 const CJK_OR_PUNCT = /[\u4e00-\u9fff\n，。；：、！？「」【】（）《》〈〉]/;
 
+/** 反斜杠 + 单个符号的命令：\, \; \: \! \␣ —— 公式内空白/微调 */
+const CMD_SYMBOL = ',;:! ';
+
+/** 从 s[i] === '{' 跳到配对 '}' 之后。
+ *  撞上中文 / 换行 / 文件尾（也就是括号根本没闭合）则返回 -1，调用方放弃。 */
+function skipBraces(s: string, i: number): number {
+  let depth = 0;
+  for (let j = i; j < s.length; j++) {
+    const c = s[j];
+    if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) return j + 1; }
+    else if (CJK_OR_PUNCT.test(c)) return -1;
+  }
+  return -1;
+}
+
 /* ============================================================
    转义
    ============================================================ */
@@ -71,16 +87,35 @@ function renderTex(tex: string, display: boolean): string {
 
   let html: string;
   try {
+    /* ★ throwOnError 必须是 true —— 这一条是踩过坑才写下来的。
+     *
+     * 设成 false 时 KaTeX **不抛异常**，而是自己吐一个
+     *   <span class="katex-error" title="ParseError: ...">原始源码</span>
+     * 这段源码（连同 \frac、\lim 这些反斜杠）会直接出现在屏幕上；
+     * 而下面那个 catch 永远等不到异常，等于兜底是死代码。
+     *
+     * 更阴的是：katex-error 的类名**不是**独立成词的 katex，
+     * 所以任何「删掉 .katex 子树再查残留」的检查都删不掉它 ——
+     * 页面不报错、构建通过、测试看着全绿，用户却在看满屏 LaTeX 源码。
+     * 实测题库里 20 多道题的解析就是这样漏的（\lim / \frac / \begin{bmatrix}）。
+     *
+     * 改成 true 之后解析失败会正常抛，走下面这条我们自己控制的降级路径。 */
     html = katex.renderToString(trimmed, {
       displayMode: display,
-      throwOnError: false,
+      throwOnError: true,
       strict: false,
       trust: false,
       output: 'html',
     });
-  } catch {
-    // 渲染失败就把原文吐出来（至少用户能看到内容），但必须转义
-    html = `<code class="text-amber-300">${escapeHtml(trimmed)}</code>`;
+  } catch (e) {
+    /* 渲染失败就把原文吐出来（至少用户能看到内容），但必须转义。
+     * 开发期额外出声：这类失败是**静默**的，不主动报的话，
+     * 题库或模型输出里坏一条公式可能几周都没人发现。
+     * 只在 DEV 打，生产环境不污染用户控制台。 */
+    if (import.meta.env?.DEV) {
+      console.warn('[Math] KaTeX 解析失败，已降级为纯文本：', trimmed, (e as Error)?.message);
+    }
+    html = `<code class="rounded bg-white/8 px-1 py-0.5 font-mono text-[0.85em] text-amber-300/95">${escapeHtml(trimmed)}</code>`;
   }
 
   if (FORMULA_CACHE.size >= FORMULA_CACHE_MAX) FORMULA_CACHE.clear();
@@ -98,6 +133,46 @@ function autoLatex(s: string): string {
   let i = 0;
   const n = s.length;
 
+  /* ★ 位置对齐表 —— 分支 3 的「回退」靠它，别再用字符数硬算。
+   *
+   * 这里插进去的 $ 是源串里没有的，所以 out 和 s 的位置**不对齐**。
+   * 以前分支 3 写的是：
+   *     out = out.slice(0, out.length - (i - st));
+   * 那个 (i - st) 是按**源码**算的，可 out 里每多一个 $ 就多退一格 ——
+   * 结果是退到一半，把已经拼好的片段切成 `$\$` 这种残渣。
+   * 实测题库 q08、q173 两道题的解析因此漏出 \frac / \to 到屏幕上。
+   *
+   * outLenAt[k]：消费到源码位置 k 时 out 的长度（精确值，只保证在片段边界上准确）
+   * spanStart[k]：源码位置 k 落在哪个已包裹片段的起点；不在片段内则是 -1
+   *              —— 分支 3 若退到片段内部，必须整体退到片段开头，不能只退一半。
+   */
+  const outLenAt = new Array(n + 1).fill(0);
+  const spanStart = new Array(n + 1).fill(-1);
+
+  /** 追加源码区间 [a, b) 的原始字符（1:1，不包裹） */
+  const pushPlain = (a: number, b: number) => {
+    for (let k = a; k < b; k++) {
+      out += s[k];
+      outLenAt[k + 1] = out.length;
+      spanStart[k + 1] = -1;
+    }
+    i = b;
+  };
+
+  /** 追加一个包裹好的片段，覆盖源码区间 [a, b) */
+  const pushSpan = (a: number, b: number, inner: string) => {
+    const before = out.length;
+    out += '$' + inner + '$';
+    outLenAt[a] = before;
+    for (let k = a + 1; k < b; k++) {
+      outLenAt[k] = before;
+      spanStart[k] = a;      // 落在片段内部的索引 → 指向片段起点
+    }
+    outLenAt[b] = out.length;
+    spanStart[b] = -1;
+    i = b;
+  };
+
   while (i < n) {
     const c = s[i];
 
@@ -106,10 +181,17 @@ function autoLatex(s: string): string {
     if (c === '\\' && s.slice(i, i + 7) === '\\begin{') {
       const envM = s.slice(i).match(/\\begin\{[a-zA-Z*]+\}[\s\S]*?\\end\{[a-zA-Z*]+\}/);
       if (envM) {
-        out += '$' + envM[0] + '$';
-        i += envM[0].length;
+        pushSpan(i, i + envM[0].length, envM[0]);
         continue;
       }
+    }
+
+    /* 分支 0b：\, \; \: \! \␣ —— 反斜杠 + 单个符号，都是「公式内空白/微调」。
+       它们不含字母，所以进不了分支 1，会原样漏到屏幕上（用户看到 `\,`）。
+       包成 $...$ 让 KaTeX 渲染成对应的空白即可。 */
+    if (c === '\\' && i + 1 < n && CMD_SYMBOL.includes(s[i + 1])) {
+      pushSpan(i, i + 2, s.slice(i, i + 2));
+      continue;
     }
 
     /* 分支 1：\command 起头 → 吸收命令 + 参数 + 后续命令 */
@@ -126,6 +208,11 @@ function autoLatex(s: string): string {
             else if (s[j] === close) depth--;
           }
         } else if (ch === '_' || ch === '^') {
+          /* ★ 连续下划线是「填空横线」，不是下标 —— 一吸进公式就再也吐不出来。
+           * 题库里 6 个下划线表示待填空（`= ______`），而 `_` 在 LaTeX 里是下标标记，
+           * 包成 $______$ 之后 KaTeX 报「Expected group after '_'」，把源码红字吐回屏幕。
+           * 实测 q04 / q138 / q27 / q193 等 10 余道题都是这个形态。 */
+          if (ch === '_' && s[j + 1] === '_') break;
           j++;
           if (j < n && s[j] === '{') {
             let depth = 1;
@@ -143,12 +230,21 @@ function autoLatex(s: string): string {
         } else if (ch === ' ' && j + 1 < n && (s[j + 1] === '\\' || s[j + 1] === '^' || s[j + 1] === '_' || s[j + 1] === '{')) {
           // 公式内空格：空格后紧跟 \command / ^ / _ / { 视为继续
           const after = s[j + 1];
-          if (after === '\\' && j + 2 < n && TEX_CMD.test(s[j + 2])) { j += 2; while (j < n && TEX_CMD.test(s[j])) j++; }
-          else j++;
+          if (after === '\\') {
+            /* ★ \begin{env} 必须交给分支 0 整块处理。
+             * 这里若继续吞，会在环境内部的 & 处断掉（& 不在 MATH_CHAR 里），
+             * 产出一个没闭合的 \begin{bmatrix} —— KaTeX 直接报错、源码漏屏。
+             * 实测 q52 的解析、kl2n2 的例题都是这个形态。 */
+            if (s.slice(j + 1, j + 8) === '\\begin{') break;
+            if (j + 2 < n && TEX_CMD.test(s[j + 2])) { j += 2; while (j < n && TEX_CMD.test(s[j])) j++; }
+            else j++;
+          } else j++;
         } else if (ch === ' ' && j + 1 < n && !CJK_OR_PUNCT.test(s[j + 1])) {
           // 公式内空格：空格后不是中文/中文标点/换行，视为同一公式继续
           j++;
         } else if (ch === '\\' && j + 1 < n && TEX_CMD.test(s[j + 1])) {
+          // 同上：\begin{env} 交给分支 0，别吞
+          if (s.slice(j, j + 7) === '\\begin{') break;
           j++;
           while (j < n && TEX_CMD.test(s[j])) j++;
         } else if (ch === "'" || ch === '′' || ch === ',' || ch === '!' || ch === '%') {
@@ -159,8 +255,9 @@ function autoLatex(s: string): string {
           break;
         }
       }
-      out += '$' + s.slice(i, j) + '$';
-      i = j;
+      // 一开始就 break（例如整个片段就是个 \begin{env}）→ 原样吐出去，别产出空公式
+      if (j === i) { pushPlain(i, i + 1); continue; }
+      pushSpan(i, j, s.slice(i, j));
       continue;
     }
 
@@ -170,9 +267,14 @@ function autoLatex(s: string): string {
       while (j < n && s[j] !== '|') j++;
       if (j < n && j > i + 1) {
         const inside = s.slice(i + 1, j);
-        if (/[\\^_{}0-9]/.test(inside) || /[a-zA-Z]\s*[+\-*/]/.test(inside) || /\\[a-zA-Z]+/.test(inside)) {
-          out += '$' + s.slice(i, j + 1) + '$';
-          i = j + 1;
+        /* ★ 内部含中文/空白/换行就放弃。
+         * 以前只判断「有没有数学特征」，于是第二个孤立的 | 会一路找到很远处的另一个 |，
+         * 把 `| \ne 0，此时方程组有唯一解 x_i = \frac{|A_i|` 这种**夹着中文**的一大段
+         * 整个包进 $...$ —— KaTeX 解析不了，直接把源码红字吐回屏幕。
+         * 实测 q173 的解析就是这样漏的。 */
+        const dirty = /[\u4e00-\u9fff\n，。；：、！？「」【】（）《》〈〉\s]/.test(inside);
+        if (!dirty && (/[\\^_{}0-9]/.test(inside) || /[a-zA-Z]\s*[+\-*/]/.test(inside) || /\\[a-zA-Z]+/.test(inside))) {
+          pushSpan(i, j + 1, s.slice(i, j + 1));
           continue;
         }
       }
@@ -180,26 +282,57 @@ function autoLatex(s: string): string {
 
     /* 分支 3：独立的 ^ / _（裸上下标，如 x^{2}、X_1）→ 向左右扩展成连续碎片 */
     if (c === '^' || c === '_') {
+      /* ★ 连续下划线是「填空横线」，不是下标。
+       * 单个下划线（x_i）照旧当下标；只要左右挨着另一个下划线，就一定是填空。
+       * 不拦的话会包出 $______$，KaTeX 报「Expected group after '_'」并把源码吐回屏幕。 */
+      if (c === '_' && (s[i + 1] === '_' || s[i - 1] === '_')) {
+        pushPlain(i, i + 1);
+        continue;
+      }
+
       let st = i;
       while (st > 0 && !FRAG_STOP.test(s[st - 1])) st--;
       // 前面是 |，说明在绝对值内部，交给分支 2 统一处理
-      if (st > 0 && s[st - 1] === '|') { out += c; i++; continue; }
-      // 回退 out 中已输出的 [st, i) 前缀字符，避免重复
-      out = out.slice(0, out.length - (i - st));
+      if (st > 0 && s[st - 1] === '|') { pushPlain(i, i + 1); continue; }
+      // 退到片段内部的话，整体退到片段开头 —— 不能只退一半
+      if (spanStart[st] >= 0) st = spanStart[st];
+      /* ★ 精确回退。以前这里写的是 out.length - (i - st)，
+       * 而 out 里插入了源串没有的 $，两者位置不对齐，退多退少全看插了几个 $。
+       * 用位置对齐表就没这个问题。 */
+      out = out.slice(0, outLenAt[st]);
+
       let en = i + 1;
-      while (en < n && !FRAG_STOP.test(s[en])) en++;
-      let frag = s.slice(st, en);
-      // 去掉头尾孤立的 | / 逗号（避免把边界符号包进公式）
-      frag = frag.replace(/^[|，,]+/, '').replace(/[,，|]+$/, '');
+      while (en < n && !FRAG_STOP.test(s[en])) {
+        if (s[en] === '{') {
+          /* ★ 花括号组必须整体跳过。
+           * 不跳的话 e^{\alpha x} 会在组内空格处断成 `e^{\alpha`，
+           * KaTeX 报「Expected '}', got 'EOF'」，源码漏屏。
+           * 实测 q43 / q169 / kc7n2 都是这个形态。 */
+          const after = skipBraces(s, en);
+          if (after < 0) { en = n; break; }   // 括号没闭合就撞上中文/换行 → 整段放弃
+          en = after;
+          continue;
+        }
+        en++;
+      }
+      const raw = s.slice(st, en);
+      const lead = (raw.match(/^[|，,]+/) || [''])[0].length;
+      const trail = (raw.match(/[,，|]+$/) || [''])[0].length;
+      const frag = raw.slice(lead, raw.length - trail);
+
       if (frag) {
-        out += '$' + frag + '$';
-        i = st + frag.length;
+        /* 被排除的头尾符号要**原样留在公式外面**，不能顺手删掉 ——
+         * 以前是直接 replace 掉的，等于静默吃字符。 */
+        if (lead) pushPlain(st, st + lead);
+        pushSpan(st + lead, st + lead + frag.length, frag);
         continue;
       }
+      // 整段都是 | 和逗号，没有可包裹的内容 → 原样吐出去
+      pushPlain(i, i + 1);
+      continue;
     }
 
-    out += c;
-    i++;
+    pushPlain(i, i + 1);
   }
   return out;
 }

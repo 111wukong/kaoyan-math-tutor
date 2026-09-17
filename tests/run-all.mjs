@@ -28,6 +28,21 @@ import path from 'node:path';
 import { ROOT, startServer } from './lib/server.mjs';
 
 const SUITES = [
+  /* 这两个放最前面：纯静态、不用浏览器、1 秒出结果，而且都是**确定性全量**检查。
+   *
+   * 分工：
+   *   latex-coverage 验「autoLatex 的包裹对不对」（$ 之外不该有裸 \command、不许增删字符）
+   *   pipeline-leak  验「整条管线跑完，屏幕上会不会出现标记符号」—— 用真 katex
+   *
+   * 必须两层都有：包裹对了 ≠ KaTeX 解析得了。renderTex 用的是 throwOnError:false，
+   * KaTeX 解析失败时不抛异常，而是吐一个 class="katex-error" 的 span 把源码原样显示出来；
+   * 这个类名不含独立成词的 katex，所以浏览器套件那句 .katex 子树剔除**删不掉它**。
+   * 实测就是这么漏的：CI 抽到 q01（题干带 \lim），本机没抽到。
+   *
+   * 浏览器套件里那条抽查是**随机抽题**的，同一份代码可能本机绿、CI 红 ——
+   * 所以真正的门禁在这两个确定性套件上，浏览器那条只当补充。 */
+  { name: 'LaTeX 全量检查', file: 'tests/latex-coverage.mjs' },
+  { name: '渲染管线漏屏检查', file: 'tests/pipeline-leak.mjs' },
   { name: '接口冒烟', file: 'server/scripts/smoke.mjs' },
   { name: '浏览器冒烟', file: 'tests/browser-smoke.mjs' },
 ];
@@ -99,7 +114,11 @@ try {
     const { out, code } = await run(s.file, { BASE: base });
     const okM = out.match(/✅[^\n]*?(\d+)\s*项/);
     const badM = out.match(/❌[^\n]*?(\d+)\s*项[^\n]*?失败\s*(\d+)\s*项/);
-    const skipped = /跳过/.test(out);
+    /* ★ 跳过状态必须靠**显式标记**，不能靠「输出里有没有『跳过』两个字」。
+     *   以前就是这么判的，结果某个套件里一条断言叫「花括号组要整体跳过」，
+     *   整个套件被误标成「已跳过」—— 汇总行说没跑，其实跑得好好的。
+     *   子串猜状态一定会被文案变化骗到。 */
+    const skipped = /^\[SKIP\]/m.test(out);
 
     if (badM) {
       results.push({ name: s.name, pass: Number(badM[1]), fail: Number(badM[2]), skipped: false });

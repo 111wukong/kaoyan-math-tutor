@@ -103,10 +103,16 @@ function cdp(wsUrl) {
 /* ---------- 主流程 ---------- */
 const browser = findBrowser();
 if (!browser) {
+  /* ★ [SKIP] 这个标记是给 tests/run-all.mjs 认的，别删。
+   *   以前运行器是靠「输出里有没有『跳过』两个字」判断套件跳没跳 ——
+   *   结果某个套件里一条断言叫「花括号组要整体跳过」，就被误判成整包跳过了，
+   *   汇总行打出「（跳过 —— 本机没有浏览器）」而实际它跑得好好的。
+   *   靠子串猜状态就是这种下场，改成显式标记。 */
+  console.log('[SKIP] 本机没有 Chromium 内核');
   console.log('\n\x1b[33m· 本机没找到 Chromium 内核，跳过浏览器冒烟测试\x1b[0m');
   console.log('  （装了 Google Chrome / Edge，或任意带 playwright 的工具即可自动启用）');
   console.log('\n' + '─'.repeat(46));
-  console.log('\x1b[32m✅ 浏览器冒烟跳过：0 项\x1b[0m');
+  console.log('\x1b[32m✅ 浏览器冒烟：0 项（已跳过）\x1b[0m');
   process.exit(0);
 }
 console.log(`\x1b[1m研数 · 真浏览器冒烟测试\x1b[0m`);

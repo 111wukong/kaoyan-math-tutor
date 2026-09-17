@@ -15,6 +15,8 @@
     "typecheck": "npm -w web run typecheck",
     "check": "npm run typecheck && npm run build",
     "test": "node tests/run-all.mjs",
+    "test:latex": "node tests/latex-coverage.mjs",
+    "test:pipeline": "node tests/pipeline-leak.mjs",
     "test:api": "node server/scripts/smoke.mjs",
     "test:browser": "node tests/browser-smoke.mjs",
     "shots": "node tests/screenshot.mjs",
