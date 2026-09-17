@@ -11,7 +11,27 @@ import { Heatmap } from '@/components/Heatmap';
 import { NumberTicker } from '@/components/fx/Motion';
 import { pct } from '@/lib/utils';
 
-const AXIS = { stroke: 'rgba(255,255,255,0.07)', tick: { fill: '#6b7590', fontSize: 11 } };
+/* 图表用色。
+ *
+ * ★ 网格线的透明度是调过的，别往回调。
+ *
+ * 最初写的是 0.055（直角坐标系）/ 0.085（雷达）。这个值在普通深色底
+ * （#111827 一类）上没问题，但本站的底色是 #03040a —— 近黑。
+ * 算一下：0.055 白叠在 #03040a 上 ≈ rgb(17,18,23)，对比度约 1.05:1，
+ * 肉眼等于没画。雷达图尤其惨，整个网格消失，只剩一根数据线悬在空中。
+ *
+ * 现在按「能看见结构、但不抢数据」定：直角网格 ≈ rgb(41)、雷达 ≈ rgb(58)，
+ * 对比度落在 1.4–1.8:1 —— 细线在这个区间刚好可辨。
+ *
+ * 注意别拿环形进度条的 0.07 当参照：那是 5px 宽的描边，7% 就够显形；
+ * 1px 的细线在同样透明度下会直接消失。**透明度要跟着线宽走。**
+ */
+const AXIS = { stroke: 'rgba(255,255,255,0.16)', tick: { fill: '#6b7590', fontSize: 11 } };
+
+/** 细网格线统一用这个透明度 —— 别在调用处各写各的。 */
+const GRID_STROKE = 'rgba(255,255,255,0.15)';
+/** 雷达图的网格既是刻度又是骨架，比直角网格再亮一档。 */
+const POLAR_GRID_STROKE = 'rgba(255,255,255,0.22)';
 
 const TOOLTIP_STYLE = {
   background: 'rgba(11,15,26,0.96)',
@@ -136,7 +156,7 @@ export default function Stats() {
                       <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.055)" vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} vertical={false} />
                   <XAxis dataKey="label" {...AXIS} axisLine={false} tickLine={false} />
                   <YAxis domain={[0, 100]} {...AXIS} axisLine={false} tickLine={false} width={44} />
                   <Tooltip
@@ -165,7 +185,7 @@ export default function Stats() {
               <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <RadarChart data={radar} outerRadius="72%">
-                    <PolarGrid stroke="rgba(255,255,255,0.085)" />
+                    <PolarGrid stroke={POLAR_GRID_STROKE} />
                     <PolarAngleAxis dataKey="subject" tick={{ fill: '#a8b0c6', fontSize: 12 }} />
                     <PolarRadiusAxis domain={[0, 100]} tick={{ fill: '#5d6580', fontSize: 10 }} axisLine={false} />
                     <Radar name="覆盖率" dataKey="coverage" stroke="#a855f7" fill="#a855f7" fillOpacity={0.16} strokeWidth={1.6} />
@@ -190,7 +210,7 @@ export default function Stats() {
                 <div className="h-[300px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chapters} layout="vertical" margin={{ top: 4, right: 18, bottom: 0, left: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.055)" horizontal={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} horizontal={false} />
                       <XAxis type="number" domain={[0, 100]} {...AXIS} axisLine={false} tickLine={false} />
                       <YAxis type="category" dataKey="name" width={92} {...AXIS} axisLine={false} tickLine={false} />
                       <Tooltip
