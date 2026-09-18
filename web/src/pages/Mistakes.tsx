@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, CircleAlert, Filter, RotateCcw, Sparkles, Trophy } from 'lucide-react';
+import { ChevronDown, CircleAlert, Filter, RotateCcw, Search, Sparkles, Trophy } from 'lucide-react';
 import { api, type Mistake } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
@@ -212,6 +212,30 @@ function MistakeRow({ m, index, open, onToggle }: { m: Mistake; index: number; o
   const [variants, setVariants] = useState<any[]>([]);
   const [vIdx, setVIdx] = useState(0);
 
+  /* 错因分析的结果。判成「概念混淆」时后端会顺带做一次图谱回溯，
+   * 给出「建议先回看 X」—— 那才是这条错因真正有用的部分。 */
+  const [errLoading, setErrLoading] = useState(false);
+  const [errInfo, setErrInfo] = useState<{
+    label?: string; reason?: string;
+    rootHint?: { message: string; candidates: { nodeId: string; title: string }[] } | null;
+  } | null>(null);
+
+  const analyzeError = async () => {
+    setErrLoading(true);
+    try {
+      const r = await api.ai.errorType(m.qid);
+      if (!r.errorType) {
+        pushToast({ kind: 'warn', title: '模型这次没给出明确的错因', desc: '再点一次试试' });
+        return;
+      }
+      setErrInfo(r);
+    } catch (e: any) {
+      pushToast({ kind: 'error', title: e?.message || '分析失败' });
+    } finally {
+      setErrLoading(false);
+    }
+  };
+
   const genVariants = async () => {
     setGenLoading(true);
     try {
@@ -335,16 +359,38 @@ function MistakeRow({ m, index, open, onToggle }: { m: Mistake; index: number; o
                   </div>
                 )}
 
-                {/* 举一反三 —— 重做原题只能记住「这道题的答案」，
-                    换数字换问法才能验证是不是真会了这个方法。 */}
+                {/* 举一反三 + 错因分析 ——
+                    重做原题只能记住「这道题的答案」，换数字换问法才验证得了方法。 */}
                 <div className="flex flex-wrap items-center gap-2.5 border-t border-hairline pt-3.5">
                   <Button variant="outline" size="sm" onClick={genVariants} loading={genLoading}>
                     <Sparkles size={13} /> 举一反三
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={analyzeError} loading={errLoading}>
+                    <Search size={13} /> 分析错因
                   </Button>
                   <span className="text-[11px] text-fg-faint">
                     按这道题的错因出同类型变式，换数字不换方法
                   </span>
                 </div>
+
+                {errInfo && (
+                  <div className="rounded-xl border border-veil/8 bg-veil/3 px-3.5 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-md border border-amber/25 bg-amber/10 px-1.5 py-0.5 text-[11px] text-amber">
+                        {errInfo.label}
+                      </span>
+                      {errInfo.reason && (
+                        <span className="text-[12px] text-fg-soft">{errInfo.reason}</span>
+                      )}
+                    </div>
+                    {/* 概念类错因会带图谱回溯结果 —— 这才是「该怎么补」的答案 */}
+                    {errInfo.rootHint && (
+                      <p className="mt-2 text-[11.5px] leading-relaxed text-fg-mute">
+                        {errInfo.rootHint.message}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {variants.length > 0 && (
                   <QuestionCard

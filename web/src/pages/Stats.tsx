@@ -9,7 +9,7 @@ import { useAsync } from '@/lib/hooks';
 import { Panel, Skeleton, SectionTitle, StatCard, Badge, EmptyState } from '@/components/ui/Primitives';
 import { Heatmap } from '@/components/Heatmap';
 import { NumberTicker } from '@/components/fx/Motion';
-import { pct, cssVar } from '@/lib/utils';
+import { cn, pct, cssVar } from '@/lib/utils';
 import { useTheme } from '@/stores/theme';
 
 /* 图表用色。
@@ -35,6 +35,17 @@ import { useTheme } from '@/stores/theme';
  *   模块顶层只在 import 那一刻算一次，切主题不会更新 ——
  *   表现是「主题换了，图表网格还是老颜色」。
  */
+/* 错因配色。概念类给 rose 是因为它最该被立刻处理 ——
+ * 学生常把它误当成「粗心」，于是继续刷题，越刷越错。 */
+const ERROR_BAR: Record<string, string> = {
+  concept: 'bg-rose',
+  calc: 'bg-amber',
+  condition: 'bg-amber',
+  method: 'bg-cyan',
+  misread: 'bg-violet',
+  blank: 'bg-fg-faint',
+};
+
 function chartTheme() {
   return {
     axis: {
@@ -72,6 +83,10 @@ function chartTheme() {
 
 export default function Stats() {
   const { data, loading } = useAsync(() => api.study.stats(), []);
+  /* 错因分布。一道都没判定过时后端返回 judged=0，整块不渲染 ——
+   * 显示一个全 0 的图表比不显示更让人困惑。 */
+  const errStats = useAsync(() => api.ai.errorStats(), []);
+  const errData = errStats.data;
 
   /* 订阅主题 id —— 它一变这个组件就重渲染，chartTheme() 重新读一遍令牌。
    * 少了这一行，切主题后图表的网格/提示框颜色会停在旧主题上。 */
@@ -271,6 +286,50 @@ export default function Stats() {
               )}
             </Panel>
           </section>
+
+          {/* 错因分布 —— 答错和答错不是一回事。
+              概念混淆要回去补前置，计算失误只要练熟练度，
+              两种处置完全相反，混在「正确率」一个数字里就分不出来。 */}
+          {errData && errData.judged > 0 && (
+            <Panel className="p-5">
+              <SectionTitle
+                title="错因分布"
+                desc="答错的题里，有多少是真不会，有多少只是算错"
+                className="mb-4"
+              />
+              <div className="space-y-3">
+                {errData.items.map((it) => {
+                  const rate = errData.judged
+                    ? Math.round((it.count / errData.judged) * 100)
+                    : 0;
+                  return (
+                    <div key={it.type}>
+                      <div className="mb-1.5 flex items-center justify-between text-[12.5px]">
+                        <span className="text-fg-soft">{it.label}</span>
+                        <span className="tabular text-fg-mute">{it.count} 次 · {rate}%</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-veil/8">
+                        <div
+                          className={cn('h-full rounded-full', ERROR_BAR[it.type] || 'bg-fg-faint')}
+                          style={{ width: `${Math.max(2, rate)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {errData.advice && (
+                <p className="mt-4 rounded-xl border border-veil/8 bg-veil/3 px-3.5 py-3 text-[12.5px] leading-relaxed text-fg-soft">
+                  {errData.advice}
+                </p>
+              )}
+              {errData.unjudged > 0 && (
+                <p className="mt-2.5 text-[11.5px] text-fg-faint">
+                  还有 {errData.unjudged} 道错题没判定过错因 —— 去错题本点「分析错因」。
+                </p>
+              )}
+            </Panel>
+          )}
 
           {/* 热力图 */}
           <Panel className="p-5">
