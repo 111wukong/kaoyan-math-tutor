@@ -121,7 +121,7 @@ export function cssVar(name: string, fallback = ''): string {
 }
 
 /**
- * 叠层色 + 透明度，返回一个可直接用的颜色字符串。
+ * 给任意 CSS 颜色套一个透明度，返回可直接用的颜色字符串。
  *
  * ── 为什么需要它 ────────────────────────────────────────────────
  * Tailwind 工具类里的 `bg-veil/5` 是靠 `color-mix()` 实现透明度的，
@@ -132,11 +132,24 @@ export function cssVar(name: string, fallback = ''): string {
  * 用 color-mix 就没有这个前提：不管令牌是 hex、rgb() 还是 hsl() 都能算。
  * Tailwind v4 本身也是这么编译透明度修饰符的，浏览器支持面一致。
  *
- * 典型用法：SVG 渐变、canvas 描边、Recharts 的 fill —— 这些地方
+ * 典型用法：SVG 渐变、内联 style 的 border/background —— 这些地方
  * 塞不进类名，只能给具体颜色字符串。
  */
+export function withAlpha(cssColor: string, alpha: number): string {
+  return `color-mix(in srgb, ${cssColor} ${Math.round(alpha * 100)}%, transparent)`;
+}
+
+/**
+ * 叠层色（`--color-veil`）+ 透明度。
+ * 这是全站最常用的那个 —— 暗色主题下 veil 是白、亮色下是黑，
+ * 所以 `veil(0.1)` 在两个主题下都能得到「比底色稍微偏一点」的描边/填充。
+ *
+ * ⚠️ **canvas 不要用这个**：`color-mix()` 在 canvas 的 strokeStyle 上
+ * 支持得晚（Chrome 111+），而且失败是静默的（描边消失，不报错）。
+ * canvas 那边用 `hexToRgb` 手动拼 `rgba()`（见 fx/KnowledgeGalaxy.tsx）。
+ */
 export function veil(alpha: number): string {
-  return `color-mix(in srgb, var(--color-veil) ${Math.round(alpha * 100)}%, transparent)`;
+  return withAlpha('var(--color-veil)', alpha);
 }
 
 /** 复制到剪贴板（带降级） */

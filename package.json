@@ -22,6 +22,7 @@
     "test:day": "node tests/day-boundary.mjs",
     "banding": "node tests/banding.mjs",
     "shots": "node tests/screenshot.mjs",
+    "gallery": "node tests/theme-gallery.mjs",
     "start": "npm -w server run start",
     "seed": "npm -w server run seed"
   },

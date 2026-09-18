@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { RotateCcw } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, cssVar, withAlpha } from '@/lib/utils';
+import { hexToRgb } from './webgl';
+import { useFxAccents } from './theme-colors';
 
 /* ============================================================
    知识星系 —— 可旋转的 3D 考点球
@@ -40,12 +42,23 @@ type Node3D = {
   chapter: string;
 };
 
-const MASTERY_RGB: Record<string, string> = {
-  mastered: '52, 211, 153',
-  proficient: '34, 211, 238',
-  learning: '251, 191, 36',
-  new: '148, 163, 184',
-};
+/* 掌握度 → 颜色。
+ *
+ * 原来是一组写死的 RGB 三元组（52,211,153 之类），直接拼进 `rgb(...)`。
+ * 那是深空配色：亮色主题下这几个浅色压在浅底上会糊成一片 ——
+ * 而节点圆点很小，糊了之后「哪个考点掌握了」这个信息就没了。
+ *
+ * 改成从主题令牌读。注意这里**不能**用 lib/utils 的 withAlpha（color-mix），
+ * 因为下面要把它转成 rgb 三元组喂给 canvas，而 color-mix 在 canvas 的
+ * strokeStyle 上支持得晚、失败还静默。 */
+function masteryColor(level: string): string {
+  switch (level) {
+    case 'mastered': return cssVar('--color-emerald', '#34d399');
+    case 'proficient': return cssVar('--color-cyan', '#22d3ee');
+    case 'learning': return cssVar('--color-amber', '#fbbf24');
+    default: return cssVar('--color-fg-faint', '#94a3b8');
+  }
+}
 
 /* Fibonacci 球面：黄金角螺旋，是球面上最均匀的铺法。
  * 用随机撒点会结块，用经纬网格会在两极堆积 —— 都不行。 */
@@ -74,6 +87,14 @@ export function KnowledgeGalaxy({
   const nodeRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   const [hovered, setHovered] = useState<string | null>(null);
   const [visible, setVisible] = useState(true);
+
+  /* 连线的颜色。渲染时同步写进 ref —— 不用 useEffect，那会慢一帧，
+   * 换主题时能看见连线"过一拍才变色"。
+   * 取值时转成 rgb 三元组：canvas 只吃具体颜色，而 color-mix() 在
+   * canvas 的 strokeStyle 上支持得晚、失败还是静默的。 */
+  const accents = useFxAccents();
+  const linkRgbRef = useRef<[number, number, number]>(hexToRgb(accents.cyan));
+  linkRgbRef.current = hexToRgb(accents.cyan);
 
   /* ---- 布点：一次算好，别每帧重算 ---- */
   const nodes = useMemo<Node3D[]>(() => {
@@ -199,6 +220,9 @@ export function KnowledgeGalaxy({
     const frame = () => {
       if (!running) return;
       const v = view.current;
+      /* 每帧取一次当前主题的连线色（ref 在渲染时已同步好）。
+       * 取的是 ref 不是 cssVar()：后者每帧都会触发一次样式重算。 */
+      const linkRgb = linkRgbRef.current;
 
       /* 惯性 → 静止后接管为自转。
        * 拖完手一松如果立刻跳回自转速度会很跳，所以让惯性先衰减，
@@ -246,14 +270,22 @@ export function KnowledgeGalaxy({
         ss[i] = persp * v.zoom;
       }
 
-      /* ---- 连线先画，压在节点下面 ---- */
+      /* ---- 连线先画，压在节点下面 ----
+       *
+       * 颜色从主题强调色来（原来是写死的 34,211,238）。
+       * canvas 的 strokeStyle 只吃具体颜色字符串，所以这里用 hexToRgb
+       * 手动拼 rgba()，**不用** lib/utils 的 withAlpha —— 那个产出的是
+       * color-mix()，在 canvas 上支持得晚，而且不支持时是**静默失效**
+       * （连线直接消失，控制台一声不响）。
+       * 每帧只在循环外算一次，不是每个连线一次。 */
       ctx.lineWidth = 1;
+      const [lr, lg, lb] = linkRgb;
       for (const [a, b] of links) {
         /* 两端都在背面就连线也淡掉，否则球会看起来是"实心"的 */
         const depth = (sz[a] + sz[b]) / 2;
         const alpha = (1 - (depth + 1) / 2) * 0.30;
         if (alpha <= 0.012) continue;
-        ctx.strokeStyle = `rgba(34, 211, 238, ${alpha.toFixed(3)})`;
+        ctx.strokeStyle = `rgba(${Math.round(lr * 255)}, ${Math.round(lg * 255)}, ${Math.round(lb * 255)}, ${alpha.toFixed(3)})`;
         ctx.beginPath();
         ctx.moveTo(sx[a], sy[a]);
         ctx.lineTo(sx[b], sy[b]);
@@ -398,10 +430,16 @@ export function KnowledgeGalaxy({
             /* 不用 title 属性做提示（延迟太长、样式不可控），
                而是自己在悬停时把标签放大点亮 */
             className="group absolute left-1/2 top-1/2 flex items-center gap-1.5 whitespace-nowrap rounded-full border px-1.5 py-[2px] text-[10.5px] leading-none transition-colors duration-150"
+            /* 药丸的底/边/字全部走主题令牌。
+             * 原来写死的是「近黑底 + 浅字」（rgba(8,11,20,.62) + #e9ebf4）——
+             * 那是按深空调的。亮色主题下会变成一颗颗深灰色药丸压在暖白纸上，
+             * 既重又脏，而且和卡片是两种质感。 */
             style={{
-              borderColor: hovered === n.id ? 'rgba(34,211,238,0.55)' : 'rgba(255,255,255,0.10)',
-              background: hovered === n.id ? 'rgba(8,11,20,0.92)' : 'rgba(8,11,20,0.62)',
-              color: hovered === n.id ? '#e9ebf4' : 'rgba(168,176,198,0.92)',
+              borderColor: hovered === n.id
+                ? withAlpha(cssVar('--color-cyan', '#22d3ee'), 0.55)
+                : cssVar('--color-hairline', 'rgba(255,255,255,0.10)'),
+              background: cssVar(hovered === n.id ? '--glass-sheet-strong' : '--glass-sheet', 'rgba(8,11,20,0.62)'),
+              color: hovered === n.id ? cssVar('--color-fg', '#e9ebf4') : cssVar('--color-fg-soft', 'rgba(168,176,198,0.92)'),
               backdropFilter: 'blur(6px)',
               willChange: 'transform, opacity',
             }}
@@ -409,8 +447,8 @@ export function KnowledgeGalaxy({
             <span
               className="h-1.5 w-1.5 shrink-0 rounded-full"
               style={{
-                background: `rgb(${MASTERY_RGB[n.mastery] || MASTERY_RGB.new})`,
-                boxShadow: `0 0 8px -1px rgb(${MASTERY_RGB[n.mastery] || MASTERY_RGB.new})`,
+                background: masteryColor(n.mastery),
+                boxShadow: `0 0 8px -1px ${masteryColor(n.mastery)}`,
               }}
             />
             <span className="max-w-[130px] truncate">{n.title}</span>

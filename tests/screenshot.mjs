@@ -31,6 +31,19 @@ const W = Number(process.env.W || 1440);
 const H = Number(process.env.H || 900);
 const MOBILE = process.env.MOBILE === '1';
 
+/* 主题可以覆盖。默认主题（深空）不出现在文件名里，保持原有产物路径不变；
+ * 指定了别的主题就加后缀，两种主题的截图可以并排放在一起看。
+ *
+ *   THEME=paper npm run shots        # 亮色下把所有页面过一遍
+ *   THEME=cyber-lime OUT=/tmp/x npm run shots
+ *
+ * ★ 为什么要能换主题截图：断言只能证明「渲染出来了、颜色值对了」，
+ * 证明不了「这套配色读得下去」。暗色下调好的东西搬到亮色下会不会瞎，
+ * 只有人眼横着比才看得出来 —— 这个项目已经因此漏过两次
+ * （白叠白导致卡片边界消失、WebGL 背景不跟主题）。 */
+const THEME = process.env.THEME || 'deep-space';
+const DEFAULT_THEME = 'deep-space';
+
 /* ---------------- 1. 找浏览器 ---------------- */
 function findBrowser() {
   const cands = [
@@ -87,6 +100,18 @@ if (![200, 201].includes(reg.status)) {
 }
 const TOKEN = jar.get('yanshu_session');
 console.log(`   账号 ${EMAIL}`);
+
+/* 服务端也存一份。前端启动后 loadFromServer() 会用服务端的值覆盖本地缓存 ——
+ * 只设 localStorage 的话，页面加载完那一下会被改回默认主题，
+ * 截出来的就是"闪变之后"的默认配色。 */
+if (THEME !== DEFAULT_THEME) {
+  const r = await api('PUT', '/api/settings', { theme: THEME });
+  if (r.status !== 200) {
+    console.error(`设置主题失败 ${r.status}`, JSON.stringify(r.data));
+    process.exit(1);
+  }
+}
+console.log(`   主题 ${THEME}`);
 
 console.log('② 灌学习数据（要有分布，不能全满也不能全空）');
 const tree = (await api('GET', '/api/catalog/tree')).data;
@@ -259,6 +284,17 @@ try {
   await client.send('Runtime.enable');
   await client.send('Page.enable');
   await client.send('Network.enable');
+  /* ★ 主题要写进 localStorage，而且必须在**每一次导航之前**就位。
+   *
+   * Page.addScriptToEvaluateOnNewDocument 会在每个新文档的任何页面脚本
+   * 之前执行，所以 index.html 里那段首屏防闪脚本读到的就是我们设的值 ——
+   * 和真实用户「选了主题再刷新」走的是同一条路径。
+   *
+   * 不能用 Runtime.evaluate 设：那是当前文档的 localStorage，
+   * 下一次导航就没了，而且那时候防闪脚本早就跑完了。 */
+  await client.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `try { localStorage.setItem('yanshu:theme', ${JSON.stringify(THEME)}); } catch (e) {}`,
+  });
   await client.send('Emulation.setDeviceMetricsOverride', {
     width: W, height: H, deviceScaleFactor: 2, mobile: MOBILE,
   });
@@ -291,9 +327,10 @@ try {
     const fx = await ev(`(() => {
       const gl = document.documentElement.classList.contains('fx-webgl');
       const c = document.querySelector('canvas[data-fx=cybergrid]');
-      return gl + '|' + (c ? c.width + 'x' + c.height : 'none');
+      const mode = document.documentElement.dataset.mode || '?';
+      return gl + '|' + (c ? c.width + 'x' + c.height : 'none') + '|' + mode;
     })()`);
-    const [fxAlive, fxSize] = String(fx.value || '?|?').split('|');
+    const [fxAlive, fxSize, fxMode] = String(fx.value || '?|?|?').split('|');
 
     /* ★ captureScreenshot 会偶发挂住，重试。
      *
@@ -315,11 +352,15 @@ try {
         await sleep(900);
       }
     }
-    const file = path.join(OUT, `${name}.png`);
+    const file = path.join(OUT, `${name}${THEME === DEFAULT_THEME ? '' : '-' + THEME}.png`);
     fs.writeFileSync(file, Buffer.from(shot.data, 'base64'));
     const kb = (fs.statSync(file).size / 1024).toFixed(0);
     const title = (await ev('document.title')).value || '';
-    const flag = fxAlive === 'true' ? '\x1b[36mWebGL\x1b[0m' : '\x1b[33mCSS降级\x1b[0m';
+    /* 亮色主题**故意**不挂 WebGL 背景，所以那里报「CSS降级」是误导 ——
+     * 日志会让人以为出了故障。按 mode 分开说。 */
+    const flag = fxAlive === 'true'
+      ? '\x1b[36mWebGL\x1b[0m'
+      : fxMode === 'light' ? '\x1b[90m亮色·静态底\x1b[0m' : '\x1b[33mCSS降级\x1b[0m';
     console.log(`   ✓ ${name.padEnd(16)} ${route.padEnd(16)} ${kb.padStart(4)} KB  ${flag} ${fxSize.padEnd(11)} 「${title}」`);
   }
 

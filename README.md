@@ -102,13 +102,32 @@ npm run dev
 8 套主题，每个账号各选各的，跟着账号走（存在 `user_settings.theme`）。
 设置页第一块就是外观面板，点一下立即生效。
 
+同一份数据、同一个仪表盘，只换主题（`npm run gallery` 生成，可重新跑）：
+
+<p>
+  <img src="docs/screenshots/themes/deep-space.jpg" alt="深空（默认）" width="49%">
+  <img src="docs/screenshots/themes/cyber-lime.jpg" alt="赛博绿" width="49%">
+</p>
+<p>
+  <img src="docs/screenshots/themes/nord-frost.jpg" alt="北境" width="49%">
+  <img src="docs/screenshots/themes/ember.jpg" alt="熔岩" width="49%">
+</p>
+<p>
+  <img src="docs/screenshots/themes/midnight-rose.jpg" alt="午夜玫瑰" width="49%">
+  <img src="docs/screenshots/themes/paper.jpg" alt="宣纸" width="49%">
+</p>
+<p>
+  <img src="docs/screenshots/themes/mint.jpg" alt="薄荷" width="49%">
+  <img src="docs/screenshots/themes/solarized.jpg" alt="护眼米" width="49%">
+</p>
+
 | 暗色 | 亮色 |
 |---|---|
-| **深空**（默认，青紫光谱 + 赛博网格地平线） | **宣纸**（暖白纸面 + 靛蓝） |
-| **赛博绿**（磷光绿终端） | **薄荷**（冷白 + 青绿） |
-| **北境**（Nord 极地蓝灰） | **护眼米**（Solarized Light） |
-| **熔岩**（暖橙暗底） | |
-| **午夜玫瑰**（深紫 + 品红） | |
+| **深空**（默认）青紫光谱 + 赛博网格地平线 | **宣纸** 暖白纸面 + 靛蓝 |
+| **赛博绿** 磷光绿终端 | **薄荷** 冷白 + 青绿 |
+| **北境** Nord 极地蓝灰 | **护眼米** Solarized Light |
+| **熔岩** 暖橙暗底 | |
+| **午夜玫瑰** 深紫 + 品红 | |
 
 实现方式：Tailwind v4 的 `@theme` 把每个 token 编译成 `:root` 上的 CSS 变量，
 工具类编译成 `color: var(--color-fg)` 这种**间接引用**。所以「换主题」就是在
@@ -125,6 +144,20 @@ npm run dev
   根本读不出来。所以宣纸的 cyan 是 `#0e7490` 这个量级。
 - **亮色主题不挂 WebGL 背景。** 霓虹赛博网格 + 磷光星尘画在暖白底上会变成一片灰蒙蒙的脏点。
   亮色下改用 CSS 层那套淡色光晕 + 细网格 —— 那本来就是为「WebGL 挂掉时顶上来」写的降级路径。
+
+### 断言查不出来的那几处，是截图查出来的
+
+改造过程中有四个问题**所有断言全绿**，是给 8 套主题各截一张图、人眼横着比才发现的：
+
+| 问题 | 症状 | 断言为什么查不出来 |
+|---|---|---|
+| `bg-white/5` 这类叠层 | 亮色下白叠白，卡片边界**凭空消失** | 页面照样渲染，`data-theme`、令牌值全对 |
+| WebGL 着色器强调色写死在组件里 | 「赛博绿」只有 CSS 那一半变绿，占满整屏的背景还是青蓝 | 「颜色对不对」和「颜色和主题一致不一致」是两回事，前者有断言、后者没有 |
+| `useTheme` 初始 state 写死默认主题 | 冷启动时亮色页面先闪一下霓虹背景 | 测试里的主题是点出来的，store 已被更新，不存在不同步的窗口 |
+| 知识星系的节点药丸写死「近黑底 + 浅字」 | 亮色下变成一颗颗深灰药丸压在暖白纸上 | 它「渲染出来了」，只是丑 |
+
+所以现在的验证路径是**两条**：断言查「渲染对不对」，截图查「看起来对不对」。
+`npm run gallery` 和 `THEME=xxx npm run shots` 就是第二条路径的入口。
 
 > 加一套新主题要改三处，缺一处都会静默失效（选了保存不上 / 保存了但没样式 / 有样式但选不到）：
 > `web/src/styles/index.css` 加一个 `html[data-theme="新id"]` 块、
@@ -174,10 +207,12 @@ kaoyan-math-tutor/
 │       ├── stores/             app / auth / theme
 │       └── pages/              16 个页面
 └── tests/
-    ├── browser-smoke.mjs       真浏览器冒烟（161 项，CDP，零依赖）
-    ├── screenshot.mjs          逐页截图（npm run shots），供人眼审查
+    ├── browser-smoke.mjs       真浏览器冒烟（163 项，CDP，零依赖）
+    ├── screenshot.mjs          逐页截图（npm run shots），支持 THEME= 换主题
+    ├── theme-gallery.mjs       主题画廊（npm run gallery），8 套主题各一张
     ├── latex-coverage.mjs      公式渲染全量检查
     ├── pipeline-leak.mjs       渲染管线漏屏检查（真 katex 跑完整 renderRich）
+    ├── day-boundary.mjs        日期口径检查（时区跨日）
     ├── banding.mjs             近黑渐变色带检测
     ├── lib/server.mjs          测试用的服务生命周期（空闲端口 + 一次性库）
     └── run-all.mjs             汇总入口
@@ -337,6 +372,14 @@ npm run test:pipeline  # 只跑渲染管线漏屏检查
 npm run test:day       # 只跑日期口径检查
 npm run banding        # 近黑渐变色带检测（画布原生 1:1，零 npm 依赖）
 npm run shots          # 逐页截图，供人眼审查（不是断言）
+npm run gallery        # 生成主题画廊（8 套主题各一张，进 docs/screenshots/themes）
+```
+
+逐页截图可以换主题 —— 暗色下调好的东西搬到亮色下会不会瞎，只有人眼横着比才看得出来：
+
+```bash
+THEME=paper OUT=/tmp/shots-paper npm run shots    # 亮色下把所有页面过一遍
+THEME=cyber-lime npm run shots                    # 文件名自动加 -cyber-lime 后缀
 ```
 
 截图默认是桌面 1440×900，视口可以覆盖 —— 全屏 WebGL 背景、HUD 装饰层、
