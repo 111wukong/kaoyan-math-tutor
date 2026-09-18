@@ -133,6 +133,38 @@ function buildSystemPrompt(userId, { kid, stage = 'explain', persona = 'strict' 
   return lines.join('\n');
 }
 
+/* ---------- 模型配置闸门 ----------
+ *
+ * 为什么必须在这里拦住：没配密钥时如果放行，请求会带着**空的 Authorization**
+ * 打到上游，拿回一句「401 Authentication Fails」—— 用户看到这句话完全不知道
+ * 是自己没填密钥，只会以为服务坏了。
+ *
+ * 这个检查以前只有 /api/ai/chat 有，另外五个接口（extract / classroom /
+ * error-type / error-types / generate）全漏了 —— 同一个故障，在对话页是
+ * 「还没配置模型」，在错题本里却变成一句看不懂的 401。
+ * 抽成一个函数，加新接口时不会再漏。
+ *
+ * @returns {{cfg: object}|{error: object}} 有 error 就直接 reply.code(400).send(error)
+ */
+function llmOrError(req) {
+  const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
+  const cfg = l ? resolveLlm(l) : null;
+  /* 云端必须带密钥；本地（LM Studio / Ollama）不需要。 */
+  const missingKey = l?.kind === 'cloud' && !cfg?.key;
+
+  if (!cfg || !cfg.base || !cfg.model || missingKey) {
+    return {
+      error: {
+        error: missingKey
+          ? '云端模型还没填 API Key。去「设置 → 模型接入」补上，或者切到本地模型。'
+          : '还没配置模型。去「设置 → 模型接入」填 Base URL 和模型名。',
+        code: 'NO_LLM',
+      },
+    };
+  }
+  return { cfg };
+}
+
 export default async function aiRoutes(fastify) {
   /* ---------- 流式对话 ---------- */
   fastify.post('/api/ai/chat', {
@@ -156,15 +188,8 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
-    const cfg = l ? resolveLlm(l) : null;
-
-    if (!cfg || !cfg.base || !cfg.model || (l.kind === 'cloud' && !cfg.key)) {
-      return reply.code(400).send({
-        error: '还没配置模型。去「设置 → 模型接入」填 Base URL 和模型名。',
-        code: 'NO_LLM',
-      });
-    }
+    const { cfg, error } = llmOrError(req);
+    if (error) return reply.code(400).send(error);
 
     const { kid, stage = 'explain', persona = 'strict', messages } = req.body;
     const system = buildSystemPrompt(req.userId, { kid, stage, persona });
@@ -255,11 +280,8 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
-    const cfg = l ? resolveLlm(l) : null;
-    if (!cfg || !cfg.base || !cfg.model) {
-      return reply.code(400).send({ error: '还没配置模型', code: 'NO_LLM' });
-    }
+    const { cfg, error } = llmOrError(req);
+    if (error) return reply.code(400).send(error);
 
     const { text, kid } = req.body;
     const prompt = [
@@ -324,11 +346,8 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
-    const cfg = l ? resolveLlm(l) : null;
-    if (!cfg || !cfg.base || !cfg.model) {
-      return reply.code(400).send({ error: '还没配置模型', code: 'NO_LLM' });
-    }
+    const { cfg, error } = llmOrError(req);
+    if (error) return reply.code(400).send(error);
 
     const { kid, mode = 'lesson', userInput = '', history = [], round = 0 } = req.body;
     const tree = getTree();
@@ -437,11 +456,8 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
-    const cfg = l ? resolveLlm(l) : null;
-    if (!cfg || !cfg.base || !cfg.model) {
-      return reply.code(400).send({ error: '还没配置模型', code: 'NO_LLM' });
-    }
+    const { cfg, error } = llmOrError(req);
+    if (error) return reply.code(400).send(error);
 
     const { qid, save = true } = req.body;
     const q = db.prepare('SELECT * FROM questions WHERE id = ?').get(qid);
@@ -499,11 +515,8 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
-    const cfg = l ? resolveLlm(l) : null;
-    if (!cfg || !cfg.base || !cfg.model) {
-      return reply.code(400).send({ error: '还没配置模型', code: 'NO_LLM' });
-    }
+    const { cfg, error } = llmOrError(req);
+    if (error) return reply.code(400).send(error);
 
     const limit = Math.min(8, Math.max(1, Number(req.body?.limit) || 5));
     const kid = req.body?.kid;
@@ -658,11 +671,8 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
-    const cfg = l ? resolveLlm(l) : null;
-    if (!cfg || !cfg.base || !cfg.model) {
-      return reply.code(400).send({ error: '还没配置模型', code: 'NO_LLM' });
-    }
+    const { cfg, error } = llmOrError(req);
+    if (error) return reply.code(400).send(error);
 
     const { kid, fromQid, save = true } = req.body;
     const count = Math.min(5, Math.max(1, Number(req.body?.count) || 3));

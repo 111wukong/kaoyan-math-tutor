@@ -516,12 +516,54 @@ section('12. 设置与 LLM 配置');
 
 section('13. AI 接口的降级行为（没配模型时应给明确报错）');
 {
+  /* 先把「云端填了 Base 和模型名、但没填密钥」这个状态摆出来。
+   *
+   * 这是最容易出问题的配置：请求会带着**空的 Authorization** 打到上游，
+   * 拿回一句 401 —— 而不是「你还没填密钥」。上一节把 cloudBase 清空了，
+   * 所以这里必须显式设回来，否则测的是「啥都没填」而不是「只差密钥」。 */
+  await PUT('/api/settings/llm', {
+    enabled: true, kind: 'cloud',
+    cloudBase: 'https://api.deepseek.com', cloudModel: 'deepseek-chat',
+    cloudKey: '',
+  });
+
   const c = await POST('/api/ai/classroom', { kid, mode: 'lesson', round: 0 });
   ok('未配模型时课堂返回 400 且带 NO_LLM', c.status === 400 && c.data?.code === 'NO_LLM',
     `实得 ${c.status} ${JSON.stringify(c.data)?.slice(0, 120)}`);
 
   const p = await GET('/api/ai/personas');
   ok('人格列表 200', p.status === 200 && p.data?.personas?.length === 4, `实得 ${p.data?.personas?.length}`);
+
+  /* ★ 每一个会打上游的接口都必须过同一道闸门。
+   *
+   * 这里曾经漏了五个：只有 /api/ai/chat 检查了「云端有没有填密钥」，
+   * 其余接口会把请求带着**空的 Authorization** 发到 DeepSeek，
+   * 拿回一句「401 Authentication Fails」再透传给用户 ——
+   * 用户完全不知道是自己没填密钥。
+   *
+   * 默认配置是 kind=cloud + 空 key（schema 里的默认值就是这样），
+   * 所以这一节测的正是「刚注册、还没配模型」的真实状态。 */
+  const aiEndpoints = [
+    ['对话', () => POST('/api/ai/chat', { messages: [{ role: 'user', content: 'hi' }] })],
+    ['知识点提取', () => POST('/api/ai/extract', { text: '一段对话' })],
+    ['多智能体课堂', () => POST('/api/ai/classroom', { kid, mode: 'lesson' })],
+    ['错因归类', () => POST('/api/ai/error-type', { qid: 'q01' })],
+    ['批量错因归类', () => POST('/api/ai/error-types', { limit: 3 })],
+    ['变式题生成', () => POST('/api/ai/generate', { kid, count: 2 })],
+  ];
+  for (const [label, call] of aiEndpoints) {
+    const r = await call();
+    ok(`★ 未配密钥时「${label}」给 NO_LLM 而不是上游 401`,
+      r.status === 400 && r.data?.code === 'NO_LLM',
+      `实得 ${r.status} ${JSON.stringify(r.data)?.slice(0, 110)}`);
+  }
+
+  /* 云端缺密钥时的提示要能指出「是密钥的问题」，
+   * 不能只说「还没配置模型」—— 用户明明填了 Base URL 和模型名。 */
+  const chatNoKey = await POST('/api/ai/chat', { messages: [{ role: 'user', content: 'hi' }] });
+  ok('★ 缺密钥的提示明确提到 API Key',
+    String(chatNoKey.data?.error || '').includes('Key'),
+    JSON.stringify(chatNoKey.data)?.slice(0, 110));
 }
 
 /* AI 的**正常路径**。上面那节只证明了「没配模型会优雅报错」，
