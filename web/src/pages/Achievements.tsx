@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { Panel, Skeleton, SectionTitle, Badge, Segmented } from '@/components/ui/Primitives';
 import { Meter, NumberTicker, ProgressRing } from '@/components/fx/Motion';
-import { TIER_STYLE, cn, pct } from '@/lib/utils';
+import { TIER_STYLE, cn, pct, cssVar, veil } from '@/lib/utils';
 import { useApp } from '@/stores/app';
 
 const TIER_LABEL = { bronze: '铜', silver: '银', gold: '金' } as const;
@@ -67,7 +67,7 @@ export default function Achievements() {
             value={pct(unlocked, total)}
             size={116}
             stroke={9}
-            gradient={['#fbbf24', '#a855f7']}
+            gradient={[cssVar('--color-amber', '#fbbf24'), cssVar('--color-violet', '#a855f7')]}
             label={
               <div className="text-center">
                 <div className="text-[24px] font-bold leading-none text-fg tabular">
@@ -84,7 +84,8 @@ export default function Achievements() {
       {snapshot && (
         <Panel className="p-5">
           <SectionTitle title="当前等级" desc={`${snapshot.levelInfo.title} · 累计 ${snapshot.xp} XP`} className="mb-3" />
-          <Meter value={snapshot.levelInfo.pct} height={7} from="#a855f7" to="#22d3ee" />
+          <Meter value={snapshot.levelInfo.pct} height={7}
+            from={cssVar('--color-violet', '#a855f7')} to={cssVar('--color-cyan', '#22d3ee')} />
           <div className="mt-2 flex justify-between text-[11.5px] text-fg-mute">
             <span>LV {snapshot.level}</span>
             <span className="tabular">{snapshot.levelInfo.into} / {snapshot.levelInfo.need} XP</span>
@@ -154,7 +155,7 @@ export default function Achievements() {
                       </div>
                     ) : a.progress ? (
                       <div className="mt-2.5">
-                        <Meter value={a.progress.pct} height={3} from="rgba(255,255,255,0.2)" to="rgba(255,255,255,0.35)" />
+                        <Meter value={a.progress.pct} height={3} from={veil(0.2)} to={veil(0.35)} />
                         <div className="mt-1 text-[10.5px] text-fg-faint tabular">
                           {a.progress.have} / {a.progress.need}
                         </div>

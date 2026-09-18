@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useFxAccents, hexToHue } from './theme-colors';
 
 /* 星尘背景
  *
@@ -27,6 +28,10 @@ export function Starfield({
   connect?: boolean;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  /* 订阅主题强调色。它进了 effect 依赖，换主题会重建整片星尘 ——
+   * 星点位置会重排，但那是一次性的（换主题本来就该看得出变化），
+   * 比「换了主题星星还是老颜色」好得多。 */
+  const accents = useFxAccents();
 
   useEffect(() => {
     const canvas = ref.current;
@@ -49,7 +54,11 @@ export function Starfield({
     let stars: Star[] = [];
     const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
 
-    const PALETTE = [190, 210, 265, 285];   // 青 / 蓝 / 紫 / 品红
+    /* 星点色相从当前主题的强调色推出来（原来是写死的青/蓝/紫/品红）。
+     * 不跟着主题走的话，「赛博绿」下满屏还是青蓝色的星 ——
+     * 而星尘是铺满整屏的，颜色不对比网格还显眼。 */
+    const PALETTE = [accents.cyan, accents.blue, accents.violet, accents.magenta].map((h, i) =>
+      hexToHue(h, [190, 210, 265, 285][i]));
 
     function build() {
       const rect = canvas!.getBoundingClientRect();
@@ -180,7 +189,7 @@ export function Starfield({
       window.removeEventListener('resize', onResize);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [density, maxParticles, parallax, connect]);
+  }, [density, maxParticles, parallax, connect, accents]);
 
   return (
     <canvas

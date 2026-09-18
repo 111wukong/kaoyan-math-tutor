@@ -13,7 +13,7 @@ import { Toaster } from '@/components/ui/Toaster';
 import { useApp } from '@/stores/app';
 import { useAuth } from '@/stores/auth';
 import { useTheme } from '@/stores/theme';
-import { cn } from '@/lib/utils';
+import { cn, cssVar } from '@/lib/utils';
 import { levelTitle } from '@/lib/achievements';
 import { setSfxEnabled } from '@/lib/sfx';
 
@@ -265,7 +265,8 @@ function SideFooter({
             <span className="text-[13px] font-semibold tabular text-amber-200">{streak}</span>
           </div>
         </div>
-        <Meter value={pct} height={4} className="mt-2.5" from="#a855f7" to="#22d3ee" />
+        <Meter value={pct} height={4} className="mt-2.5"
+          from={cssVar('--color-violet', '#a855f7')} to={cssVar('--color-cyan', '#22d3ee')} />
       </div>
 
       <button

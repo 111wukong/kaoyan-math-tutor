@@ -967,6 +967,67 @@ try {
     })`));
     ok('★ 切回深空后 WebGL 背景画布回来了', backState.t === 'deep-space' && backState.c >= 2, JSON.stringify(backState));
     ok('★ 切回深空后底色回到近黑', /rgb\(5, 6, 12\)/.test(backState.htmlBg), backState.htmlBg);
+
+    /* ★ 暗色主题之间也必须真的换色 —— 这条盯的是一个已经踩过的坑。
+     *
+     * CyberGrid 的着色器强调色原来是写死在组件里的
+     * （const ACCENT = ['#22d3ee','#3b82f6','#a855f7']），只有 CSS 那一半
+     * 跟着主题走。结果「赛博绿」和「深空」的截图几乎一模一样 ——
+     * 按钮绿了，但占满整屏的背景网格还是青蓝色。
+     *
+     * 而当时**所有断言全绿**：data-theme 对、令牌对、对比度对。
+     * 因为「颜色对不对」和「颜色和主题一致不一致」是两回事。
+     * 是给 8 套主题各截一张图、人眼横着比，才发现的。
+     *
+     * 这条断言把它变成机器可判：屏幕整体的「绿-蓝」差值，
+     * 赛博绿必须显著高于深空。背景占了绝大多数像素，
+     * 所以整屏均值能可靠地反映背景色调。 */
+    const meanColor = async () => {
+      const shot = await client.send('Page.captureScreenshot', { format: 'png' });
+      const res = await ev(`(async function(){
+        var img = new Image();
+        img.src = 'data:image/png;base64,${shot.data}';
+        await img.decode();
+        var c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        var g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        var d = g.getImageData(0, 0, c.width, c.height).data;
+        var r = 0, gg = 0, b = 0;
+        for (var i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i+1]; b += d[i+2]; }
+        var n = d.length / 4;
+        return JSON.stringify({ r: r/n, g: gg/n, b: b/n });
+      })()`);
+      return JSON.parse(res.value);
+    };
+
+    const deep = await meanColor();
+    const pickLime = await probe(`
+      var bs = document.querySelectorAll('[data-theme-id]');
+      for (var i = 0; i < bs.length; i++) {
+        if (bs[i].getAttribute('data-theme-id') === 'cyber-lime') { bs[i].click(); return 'ok'; }
+      }
+      return 'NO_CARD';`);
+    ok('能切到赛博绿', pickLime === 'ok', String(pickLime));
+    await sleep(2200);   // 等星尘重建 + 网格跑几帧
+    const lime = await meanColor();
+
+    const deepAdv = deep.g - deep.b;
+    const limeAdv = lime.g - lime.b;
+    console.log(`  全屏均值 深空 rgb(${deep.r.toFixed(1)}, ${deep.g.toFixed(1)}, ${deep.b.toFixed(1)})  ` +
+      `→ 赛博绿 rgb(${lime.r.toFixed(1)}, ${lime.g.toFixed(1)}, ${lime.b.toFixed(1)})`);
+    ok('★ 切到赛博绿后屏幕整体真的变绿了（背景网格跟着主题走）',
+      limeAdv > deepAdv + 1,
+      `绿-蓝差 ${deepAdv.toFixed(2)} → ${limeAdv.toFixed(2)} —— 没变说明着色器强调色还写死在组件里`);
+
+    /* 收尾：切回深空，后面的断言都按默认主题写 */
+    await probe(`
+      var bs = document.querySelectorAll('[data-theme-id]');
+      for (var i = 0; i < bs.length; i++) {
+        if (bs[i].getAttribute('data-theme-id') === 'deep-space') { bs[i].click(); return 'ok'; }
+      }
+      return 'NO_CARD';`);
+    await sleep(900);
   }
 
   /* ============================================================

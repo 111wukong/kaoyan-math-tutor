@@ -120,6 +120,25 @@ export function cssVar(name: string, fallback = ''): string {
   return v || fallback;
 }
 
+/**
+ * 叠层色 + 透明度，返回一个可直接用的颜色字符串。
+ *
+ * ── 为什么需要它 ────────────────────────────────────────────────
+ * Tailwind 工具类里的 `bg-veil/5` 是靠 `color-mix()` 实现透明度的，
+ * 但 `cssVar()` 读出来的是**原始值**（`#ffffff` / `#2b2118`），
+ * 拼接 alpha 后缀（`${v}55`）只对 6 位 hex 成立 —— 令牌一旦写成
+ * `rgba(...)` 就会拼出非法颜色，而且**静默失效**（浏览器忽略该属性）。
+ *
+ * 用 color-mix 就没有这个前提：不管令牌是 hex、rgb() 还是 hsl() 都能算。
+ * Tailwind v4 本身也是这么编译透明度修饰符的，浏览器支持面一致。
+ *
+ * 典型用法：SVG 渐变、canvas 描边、Recharts 的 fill —— 这些地方
+ * 塞不进类名，只能给具体颜色字符串。
+ */
+export function veil(alpha: number): string {
+  return `color-mix(in srgb, var(--color-veil) ${Math.round(alpha * 100)}%, transparent)`;
+}
+
 /** 复制到剪贴板（带降级） */
 export async function copyText(text: string) {
   try {

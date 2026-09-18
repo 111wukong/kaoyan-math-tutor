@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { createShaderRenderer, hexToRgb, type ShaderRenderer } from './webgl';
+import { useFxAccents } from './theme-colors';
 
 /* 赛博网格地平线背景
  *
@@ -184,7 +185,9 @@ void main() {
 
 const UNIFORMS = ['uRes', 'uTime', 'uMouse', 'uC1', 'uC2', 'uC3', 'uIntensity'] as const;
 
-/** 主色板。和 index.css 里的 --color-cyan / blue / violet 保持一致。 */
+/** 兜底色板（= index.css @theme 的默认值）。真正生效的颜色从主题令牌读，
+ *  见 theme-colors.ts —— 写死的话「赛博绿」只会绿掉 CSS 那半边，
+ *  整页背景还是青蓝色。 */
 const ACCENT: [string, string, string] = ['#22d3ee', '#3b82f6', '#a855f7'];
 
 /* WebGL 活着的时候，在 <html> 上挂一个 fx-webgl 类。
@@ -214,6 +217,16 @@ export function CyberGrid({
   intensity?: number;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  /* 渲染器句柄：让「主题换了 → 只重设 uniform」成为可能，
+   * 不用把整个 WebGL 上下文推倒重建（重建会闪一帧黑，还会让
+   * markWebGLAlive 的引用计数抖动，连带 body::after 的透明度跳变）。 */
+  const rendererRef = useRef<ShaderRenderer | null>(null);
+
+  const accents = useFxAccents();
+  /* 主 effect 读它取初始颜色。用 ref 而不是把 accents 放进主 effect 的依赖 ——
+   * 放进去的话每次换主题都会重建渲染器。 */
+  const accentsRef = useRef(accents);
+  accentsRef.current = accents;
 
   useEffect(() => {
     const canvas = ref.current;
@@ -223,11 +236,12 @@ export function CyberGrid({
     /* 拿不到 WebGL2 → 不渲染任何东西，CSS 里的静态背景接管 */
     if (!r) return;
 
+    rendererRef.current = r;
     markWebGLAlive(true);
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    const [c1, c2, c3] = ACCENT.map(hexToRgb);
+    const [c1, c2, c3] = [accentsRef.current.cyan, accentsRef.current.blue, accentsRef.current.violet].map(hexToRgb);
     r.setUniform('uC1', c1);
     r.setUniform('uC2', c2);
     r.setUniform('uC3', c3);
@@ -344,9 +358,27 @@ export function CyberGrid({
       canvas.removeEventListener('webglcontextlost', onLost);
       canvas.removeEventListener('webglcontextrestored', onRestored);
       markWebGLAlive(false);
+      rendererRef.current = null;
       r.dispose();
     };
   }, [intensity]);
+
+  /* 主题换了 → 只重设三个强调色 uniform，不重建渲染器。
+   *
+   * 声明位置在主 effect **之后**：effect 按声明顺序执行，
+   * 主 effect 先跑并写好 rendererRef，这里才拿得到句柄。
+   * 挂载时这次执行是无害的（颜色和主 effect 刚设的一样）。
+   *
+   * 注意依赖是 accents 对象本身 —— useFxAccents 按 theme.id 做了记忆化，
+   * 所以它只在换主题时变，不会每帧触发。 */
+  useEffect(() => {
+    const r = rendererRef.current;
+    if (!r) return;
+    const [c1, c2, c3] = [accents.cyan, accents.blue, accents.violet].map(hexToRgb);
+    r.setUniform('uC1', c1);
+    r.setUniform('uC2', c2);
+    r.setUniform('uC3', c3);
+  }, [accents]);
 
   return (
     <canvas

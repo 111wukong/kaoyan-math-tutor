@@ -10,7 +10,7 @@ import { RichText, InlineMath } from '@/components/ui/Math';
 import { ProgressRing } from '@/components/fx/Motion';
 import { announceAchievements } from '@/components/ui/Toaster';
 import { sfxLevelUp, sfxRating } from '@/lib/sfx';
-import { cn, daysBetween, todayStr } from '@/lib/utils';
+import { cn, daysBetween, todayStr, cssVar } from '@/lib/utils';
 
 const RATINGS = [
   { v: 1, label: '忘了', hint: '完全想不起来', key: '1', cls: 'border-rose/35 hover:bg-rose/12 text-rose-200' },
@@ -112,7 +112,7 @@ export default function Review() {
                 value={100}
                 size={88}
                 stroke={7}
-                gradient={['#34d399', '#22d3ee']}
+                gradient={[cssVar('--color-emerald', '#34d399'), cssVar('--color-cyan', '#22d3ee')]}
                 label={<span className="text-[17px] font-bold text-emerald-200">{total}</span>}
                 sublabel="张卡片"
               />

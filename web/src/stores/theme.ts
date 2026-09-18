@@ -73,9 +73,25 @@ function cacheTheme(id: string) {
   try { localStorage.setItem(THEME_STORAGE_KEY, id); } catch { /* 隐私模式下写不进去，无所谓 */ }
 }
 
+/* ★ 初始状态必须从**本地缓存**推出来，不能写死默认主题。
+ *
+ * 写死 DEFAULT_THEME 的话，冷启动会分成两段：
+ *   1. DOM 上是缓存的主题（applyTheme 已经挂好了）—— 颜色是对的；
+ *   2. 但 store 里的 id/theme 还是默认主题，于是 `theme.fx` 是 true，
+ *      **亮色主题下会先把赛博网格和星尘挂上**，等 loadFromServer 回来才卸掉。
+ *
+ * 表现是「冷启动时亮色页面闪一下霓虹背景」。实测就是这么发现的：
+ * 给 8 套主题截图，亮色那三张的 canvas 数量是 2，而正确值应该是 0 ——
+ * 因为截图脚本没等够时间，正好落在那个窗口里。
+ *
+ * 顺带一提，这个 bug 在浏览器回归测试里**测不出来**：那里的主题是点出来的，
+ * store 已经被 setTheme 更新过了，不存在不同步的窗口。所以它是靠截图
+ * （另一条完全不同的路径）才暴露的 —— 多一条验证路径的价值就在这。 */
+const INITIAL_THEME = readCachedTheme();
+
 export const useTheme = create<ThemeState>((set, get) => ({
-  id: DEFAULT_THEME,
-  theme: themeOf(DEFAULT_THEME),
+  id: INITIAL_THEME,
+  theme: themeOf(INITIAL_THEME),
   synced: false,
 
   setTheme: (id, opts = {}) => {

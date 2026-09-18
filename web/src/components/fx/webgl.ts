@@ -176,9 +176,7 @@ export function hexToRgb(hex: string): [number, number, number] {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
-/** 读一个 CSS 自定义属性的值（用来让着色器和设计令牌保持一致） */
-export function cssVar(name: string, fallback: string): string {
-  if (typeof window === 'undefined') return fallback;
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return v || fallback;
-}
+/* cssVar 统一放在 lib/utils.ts —— 这里原来有一份独立实现，
+ * 两处都读同一个令牌却各写各的兜底值，迟早会漂移。
+ * 需要的话从这里 re-export，别再复制一份。 */
+export { cssVar } from '@/lib/utils';
