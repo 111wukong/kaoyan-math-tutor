@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from 'react';
-import { cn } from '@/lib/utils';
+import { cn, cssVar, withAlpha } from '@/lib/utils';
 
 /* ============================================================
    HUD 装饰层 —— 把"玻璃卡片"变成"仪表读数区"
@@ -20,20 +20,33 @@ import { cn } from '@/lib/utils';
    它们绝不能挡住底下的按钮。 */
 /* ============================================================ */
 
+/* 每个色调记的是**令牌名**而不是色值。
+ * 原来这里是写死的 rgba(34,211,238,0.55) 之类 —— 深空专用。
+ * 亮色主题下强调色已经加深了，这些描边高光却还是亮青色，看着没跟上。 */
 const TONE = {
-  cyan: { line: 'border-cyan/45', glow: 'rgba(34,211,238,0.55)', text: 'text-cyan-200/80' },
-  blue: { line: 'border-blue/45', glow: 'rgba(59,130,246,0.55)', text: 'text-blue-200/80' },
-  violet: { line: 'border-violet/45', glow: 'rgba(168,85,247,0.55)', text: 'text-violet-200/80' },
-  emerald: { line: 'border-emerald/45', glow: 'rgba(52,211,153,0.55)', text: 'text-emerald-200/80' },
-  amber: { line: 'border-amber/45', glow: 'rgba(251,191,36,0.55)', text: 'text-amber-200/80' },
-  rose: { line: 'border-rose/45', glow: 'rgba(251,113,133,0.55)', text: 'text-rose-200/80' },
+  cyan: { line: 'border-cyan/45', token: '--color-cyan', text: 'text-cyan-200/80' },
+  blue: { line: 'border-blue/45', token: '--color-blue', text: 'text-blue-200/80' },
+  violet: { line: 'border-violet/45', token: '--color-violet', text: 'text-violet-200/80' },
+  emerald: { line: 'border-emerald/45', token: '--color-emerald', text: 'text-emerald-200/80' },
+  amber: { line: 'border-amber/45', token: '--color-amber', text: 'text-amber-200/80' },
+  rose: { line: 'border-rose/45', token: '--color-rose', text: 'text-rose-200/80' },
 } as const;
 
 export type HudTone = keyof typeof TONE;
 
-/** 把 tone 的半透明色改成指定 alpha。用于同一色系里区分"刻度"和"主刻度"。 */
-function withAlpha(rgba: string, a: number): string {
-  return rgba.replace(/[\d.]+\)$/, `${a})`);
+/**
+ * 取某个色调的强调色，套上指定透明度。
+ *
+ * 原来这里是把写死的 rgba 字符串用正则改末尾的透明度 —— 换成令牌之后
+ * 那条路走不通了（令牌值不是 rgba 字面量），改用 lib/utils 的 withAlpha
+ * （内部是 color-mix，对 hex / rgb / hsl 都成立）。
+ *
+ * ⚠️ 这里产出的颜色只用在**内联 style** 和 **CSS 变量**上
+ * （刻度渐变、`--hud-glow`），两者都吃 color-mix。
+ * canvas 上不能用 —— 那边要走 fx/theme-colors 的 canvasColor()。
+ */
+function glowOf(tone: HudTone, alpha = 0.55): string {
+  return withAlpha(cssVar(TONE[tone].token, '#22d3ee'), alpha);
 }
 
 /* ---------- 四角角标 ----------
@@ -81,7 +94,7 @@ export function TickRule({
   height?: number;
   major?: number;
 }) {
-  const glow = TONE[tone].glow;
+  const glowAt = (a: number) => glowOf(tone, a);
   return (
     <div
       aria-hidden
@@ -89,8 +102,8 @@ export function TickRule({
       style={{
         height,
         backgroundImage: [
-          `repeating-linear-gradient(90deg, ${withAlpha(glow, 0.62)} 0 1px, transparent 1px ${gap * major}px)`,
-          `repeating-linear-gradient(90deg, ${withAlpha(glow, 0.28)} 0 1px, transparent 1px ${gap}px)`,
+          `repeating-linear-gradient(90deg, ${glowAt(0.62)} 0 1px, transparent 1px ${gap * major}px)`,
+          `repeating-linear-gradient(90deg, ${glowAt(0.28)} 0 1px, transparent 1px ${gap}px)`,
         ].join(', '),
       }}
     />
@@ -172,7 +185,7 @@ export function HudPanel({
       ref={ref}
       onPointerMove={track}
       className={cn('glass hud-edge group/hud relative rounded-xl', className)}
-      style={{ ['--hud-glow' as string]: TONE[tone].glow, ...style }}
+      style={{ ['--hud-glow' as string]: glowOf(tone), ...style }}
       {...rest}
     >
       {corners && <HudCorners tone={tone} />}
@@ -255,8 +268,8 @@ export function HudStatCard({
               className="h-full rounded-full"
               style={{
                 width: `${v}%`,
-                background: `linear-gradient(90deg, ${TONE[tone].glow}, transparent)`,
-                boxShadow: `0 0 10px -2px ${TONE[tone].glow}`,
+                background: `linear-gradient(90deg, ${glowOf(tone)}, transparent)`,
+                boxShadow: `0 0 10px -2px ${glowOf(tone)}`,
                 transition: 'width 1s cubic-bezier(0.16,1,0.3,1)',
               }}
             />

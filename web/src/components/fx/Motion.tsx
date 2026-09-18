@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { cn, cssVar } from '@/lib/utils';
+import { cn, cssVar, veil } from '@/lib/utils';
 import { useTheme } from '@/stores/theme';
 
 /* 环形/条形进度条的主题适配说明
@@ -139,7 +139,7 @@ export function TiltCard({
             className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
             style={{
               background:
-                'radial-gradient(300px circle at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.07), transparent 62%)',
+                `radial-gradient(300px circle at var(--mx, 50%) var(--my, 50%), ${veil(0.07)}, transparent 62%)`,
             }}
           />
         )}

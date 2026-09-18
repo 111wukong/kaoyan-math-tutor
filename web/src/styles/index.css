@@ -739,6 +739,33 @@ html.fx-webgl body::before { opacity: 0.55; }
 }
 
 /* ============================================================
+   强调色光晕
+   ============================================================
+   按钮 / 输入框 / 滑块底下那层「品牌色投影」。
+
+   原来这些是散在各处的 Tailwind 任意值，写死了 rgba(34,211,238,…) 这种
+   深空专用的亮青色。深空主题下没问题，但亮色主题的强调色已经加深到
+   #0e7490 了，底下却还压着一层亮青光 —— 看着像「颜色没跟上」。
+
+   提成类还有个实际好处：这些值都是「颜色 + 透明度」，写成 Tailwind
+   任意值要拼 `color-mix(in_srgb,var(--color-cyan)_65%,transparent)`
+   （下划线转义 + 括号），又长又容易写错。写在 CSS 里一眼能看懂。
+   ============================================================ */
+.glow-cyan     { box-shadow: 0 10px 30px -12px color-mix(in srgb, var(--color-cyan) 65%, transparent); }
+.glow-emerald  { box-shadow: 0 10px 30px -12px color-mix(in srgb, var(--color-emerald) 60%, transparent); }
+.glow-rose     { box-shadow: 0 10px 30px -14px color-mix(in srgb, var(--color-rose) 60%, transparent); }
+/* 输入框获得焦点时的外圈光晕（4px，很淡） */
+.halo-cyan     { box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-cyan) 9%, transparent); }
+/* 悬停时卡片抬起来的那层投影 */
+.lift-cyan     { box-shadow: 0 18px 44px -24px color-mix(in srgb, var(--color-cyan) 50%, transparent); }
+/* 热力图上「这天学得不少」的小格光晕 */
+.spark-cyan    { box-shadow: 0 0 6px -1px color-mix(in srgb, var(--color-cyan) 60%, transparent); }
+/* 滑块的圆点 */
+.slider-glow::-webkit-slider-thumb {
+  box-shadow: 0 0 12px -1px color-mix(in srgb, var(--color-cyan) 90%, transparent);
+}
+
+/* ============================================================
    文字与光谱
    ============================================================ */
 .text-spectrum {

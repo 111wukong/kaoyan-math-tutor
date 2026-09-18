@@ -231,7 +231,7 @@ function NavItem({
           />
           <span className="relative flex-1 font-medium">{label}</span>
           {badgeCount > 0 && (
-            <span className="relative grid h-[19px] min-w-[19px] place-items-center rounded-full bg-gradient-to-r from-cyan to-blue px-1.5 text-[10.5px] font-bold text-ink-1000">
+            <span className="relative grid h-[19px] min-w-[19px] place-items-center rounded-full bg-gradient-to-r from-cyan to-blue px-1.5 text-[10.5px] font-bold text-on-accent">
               {badgeCount > 99 ? '99+' : badgeCount}
             </span>
           )}

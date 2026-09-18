@@ -36,11 +36,11 @@ type ButtonSize = 'sm' | 'md' | 'lg' | 'icon';
 
 const BTN_VARIANT: Record<ButtonVariant, string> = {
   primary:
-    'text-ink-1000 font-semibold bg-gradient-to-r from-cyan to-blue hover:from-cyan hover:to-violet shadow-[0_10px_30px_-12px_rgba(34,211,238,0.65)]',
+    'text-on-accent font-semibold bg-gradient-to-r from-cyan to-blue hover:from-cyan hover:to-violet glow-cyan',
   success:
-    'text-ink-1000 font-semibold bg-gradient-to-r from-emerald to-cyan shadow-[0_10px_30px_-12px_rgba(52,211,153,0.6)]',
+    'text-on-accent font-semibold bg-gradient-to-r from-emerald to-cyan glow-emerald',
   danger:
-    'text-white font-medium bg-gradient-to-r from-rose/90 to-magenta/80 hover:from-rose hover:to-magenta shadow-[0_10px_30px_-14px_rgba(251,113,133,0.6)]',
+    'text-white font-medium bg-gradient-to-r from-rose/90 to-magenta/80 hover:from-rose hover:to-magenta glow-rose',
   outline:
     'text-fg border border-hairline-strong bg-veil/4 hover:bg-veil/8 hover:border-cyan/40',
   ghost:
@@ -118,7 +118,7 @@ export const Input = forwardRef<HTMLInputElement, {
           className={cn(
             'h-11 w-full rounded-xl border bg-veil/4 px-3.5 text-sm text-fg outline-none transition-all duration-200',
             'placeholder:text-fg-faint',
-            'focus:border-cyan/50 focus:bg-veil/6 focus:shadow-[0_0_0_4px_rgba(34,211,238,0.09)]',
+            'focus:border-cyan/50 focus:bg-veil/6 focus:halo-cyan',
             error ? 'border-rose/55' : 'border-hairline',
             icon ? 'pl-10' : null,
             className,
@@ -155,7 +155,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, {
         id={areaId}
         className={cn(
           'w-full resize-y rounded-xl border border-hairline bg-veil/4 px-3.5 py-2.5 text-sm text-fg outline-none transition-all duration-200',
-          'placeholder:text-fg-faint focus:border-cyan/50 focus:bg-veil/6 focus:shadow-[0_0_0_4px_rgba(34,211,238,0.09)]',
+          'placeholder:text-fg-faint focus:border-cyan/50 focus:bg-veil/6 focus:halo-cyan',
           className,
         )}
         {...rest}
@@ -224,7 +224,7 @@ export function Segmented<T extends string>({
               'relative rounded-[10px] font-medium transition-all duration-250',
               size === 'sm' ? 'px-2.5 py-1 text-[12px]' : 'px-3.5 py-1.5 text-[13px]',
               active
-                ? 'bg-gradient-to-r from-cyan/22 to-violet/18 text-fg shadow-[0_1px_0_rgba(255,255,255,0.07)_inset]'
+                ? 'bg-gradient-to-r from-cyan/22 to-violet/18 text-fg shadow-[0_1px_0_var(--glass-edge)_inset]'
                 : 'text-fg-mute hover:text-fg-soft',
             )}
           >

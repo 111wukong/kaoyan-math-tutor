@@ -55,7 +55,7 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
       className={cn(
         'glass-strong pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-xl border px-3.5 py-3',
         TONES[toast.kind],
-        isBig && 'shadow-[0_18px_50px_-20px_rgba(0,0,0,0.95)]',
+        isBig && 'shadow-[0_18px_50px_-20px_var(--glass-shadow-strong)]',
       )}
     >
       <div className={cn('mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border bg-veil/6', TONES[toast.kind])}>

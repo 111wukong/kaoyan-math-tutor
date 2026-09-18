@@ -192,7 +192,7 @@ export default function Dashboard() {
                   variant="default"
                   className={cn(
                     'relative overflow-hidden p-4 transition-all duration-300',
-                    'hover:border-cyan/30 hover:shadow-[0_18px_44px_-24px_rgba(34,211,238,0.5)]',
+                    'hover:border-cyan/30 hover:lift-cyan',
                   )}
                 >
                   <div className={cn('pointer-events-none absolute -left-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br to-transparent opacity-70 blur-2xl', meta.ring)} />

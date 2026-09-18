@@ -4,6 +4,7 @@ import { FlaskConical, Info, Move3d } from 'lucide-react';
 import { Panel, SectionTitle, Segmented, Badge } from '@/components/ui/Primitives';
 import { InlineMath, RichText } from '@/components/ui/Math';
 import { cn, cssVar } from '@/lib/utils';
+import { canvasColor } from '@/components/fx/theme-colors';
 
 /* 公式实验室
  * 四个"可以拖"的数学模块。设计原则：
@@ -234,7 +235,7 @@ function Slider({
         className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-veil/10 outline-none
           [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none
           [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan
-          [&::-webkit-slider-thumb]:shadow-[0_0_12px_-1px_rgba(34,211,238,0.9)]
+          slider-glow
           [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-115
           [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full
           [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-cyan"
@@ -242,6 +243,29 @@ function Slider({
     </div>
   );
 }
+
+/* ---------- 画布配色 ----------
+ *
+ * 一律从主题令牌取，**绘制时**求值（写成函数而不是常量 —— 常量会在
+ * import 那一刻冻结，切主题不更新）。
+ *
+ * 原来这里全是写死的值，两个后果：
+ *   1. 标签用 rgba(255,255,255,0.5) —— 亮色主题下白字压白底，**直接看不见**。
+ *      而它承载的是「n = 4」「近似有效区间」「A = 1」这种关键信息。
+ *   2. 曲线用 #22d3ee / #c084fc 这类浅色 —— 白底上对比度只有 2:1 左右。
+ *
+ * ⚠️ 透明度走 canvasColor()（内部拼 rgba），不用 lib/utils 的 withAlpha ——
+ *   后者产出 color-mix()，canvas 支持得晚且**静默失效**。
+ */
+const C = {
+  cyan: (a = 1) => canvasColor('--color-cyan', a, '#22d3ee'),
+  violet: (a = 1) => canvasColor('--color-violet', a, '#a855f7'),
+  emerald: (a = 1) => canvasColor('--color-emerald', a, '#34d399'),
+  amber: (a = 1) => canvasColor('--color-amber', a, '#fbbf24'),
+  rose: (a = 1) => canvasColor('--color-rose', a, '#fb7185'),
+  /* 画布上的说明文字。原来是白色 50% —— 亮色下等于没画。 */
+  text: (a = 0.75) => canvasColor('--color-fg-soft', a, '#a8b0c6'),
+};
 
 /* ---------- 绘图工具 ---------- */
 function makeMapper(W: number, H: number, xr: [number, number], yr: [number, number]) {
@@ -260,7 +284,7 @@ function grid(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>) {
   ctx.save();
   /* 画布只吃具体颜色字符串，塞不进 Tailwind 类名 —— 所以在这里读令牌。
    * 写死白色的话，亮色主题下网格线是白压白，整片消失（曲线还悬在空中）。 */
-  ctx.strokeStyle = cssVar('--mesh-line', 'rgba(255,255,255,0.055)');
+  ctx.strokeStyle = cssVar('--mesh-line', C.text(0.055));
   ctx.lineWidth = 1;
   for (let x = Math.ceil(xr[0]); x <= xr[1]; x++) {
     ctx.beginPath(); ctx.moveTo(X(x), pad); ctx.lineTo(X(x), H - pad); ctx.stroke();
@@ -269,7 +293,7 @@ function grid(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>) {
     ctx.beginPath(); ctx.moveTo(pad, Y(y)); ctx.lineTo(W - pad, Y(y)); ctx.stroke();
   }
   // 坐标轴
-  ctx.strokeStyle = cssVar('--color-hairline-strong', 'rgba(255,255,255,0.2)');
+  ctx.strokeStyle = cssVar('--color-hairline-strong', C.text(0.2));
   ctx.lineWidth = 1.2;
   if (yr[0] <= 0 && yr[1] >= 0) {
     ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(W - pad, Y(0)); ctx.stroke();
@@ -310,9 +334,10 @@ function dot(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>, x:
   ctx.restore();
 }
 
-function label(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>, x: number, y: number, text: string, color = '#a8b0c6') {
+function label(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>, x: number, y: number, text: string, color?: string) {
   ctx.save();
-  ctx.fillStyle = color;
+  /* 默认色在函数体内解析 —— 写在参数默认值里会冻结在模块加载那一刻 */
+  ctx.fillStyle = color ?? C.text(0.9);
   ctx.font = '11px "PingFang SC", system-ui, sans-serif';
   ctx.fillText(text, m.X(x) + 7, m.Y(y) - 7);
   ctx.restore();
@@ -323,7 +348,7 @@ function drawSecant(ctx: CanvasRenderingContext2D, W: number, H: number, a: numb
   const m = makeMapper(W, H, [-3, 3.6], [-1.4, 9]);
   const f = (x: number) => x * x;
   grid(ctx, m);
-  curve(ctx, m, f, '#a855f7');
+  curve(ctx, m, f, C.violet());
 
   const a2 = a + h;
   const slope = (f(a2) - f(a)) / (a2 - a);
@@ -333,7 +358,7 @@ function drawSecant(ctx: CanvasRenderingContext2D, W: number, H: number, a: numb
   // 切线（参考）
   ctx.save();
   ctx.setLineDash([5, 5]);
-  ctx.strokeStyle = 'rgba(52,211,153,0.55)';
+  ctx.strokeStyle = C.emerald(0.55);
   ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.moveTo(m.X(m.xr[0]), m.Y(tanLine(m.xr[0])));
@@ -343,8 +368,8 @@ function drawSecant(ctx: CanvasRenderingContext2D, W: number, H: number, a: numb
 
   // 割线
   ctx.save();
-  ctx.strokeStyle = '#22d3ee';
-  ctx.shadowColor = '#22d3ee';
+  ctx.strokeStyle = C.cyan();
+  ctx.shadowColor = C.cyan();
   ctx.shadowBlur = 10;
   ctx.lineWidth = 2.2;
   ctx.beginPath();
@@ -355,7 +380,7 @@ function drawSecant(ctx: CanvasRenderingContext2D, W: number, H: number, a: numb
 
   // 增量三角形
   ctx.save();
-  ctx.strokeStyle = 'rgba(251,191,36,0.75)';
+  ctx.strokeStyle = C.amber(0.75);
   ctx.lineWidth = 1.5;
   ctx.setLineDash([3, 3]);
   ctx.beginPath();
@@ -365,17 +390,17 @@ function drawSecant(ctx: CanvasRenderingContext2D, W: number, H: number, a: numb
   ctx.stroke();
   ctx.restore();
   ctx.save();
-  ctx.fillStyle = 'rgba(251,191,36,0.95)';
+  ctx.fillStyle = C.amber(0.95);
   ctx.font = '11px "PingFang SC", system-ui';
   ctx.fillText('h', (m.X(a) + m.X(a2)) / 2 - 3, m.Y(f(a)) + 14);
   ctx.fillText('Δy', m.X(a2) + 5, (m.Y(f(a)) + m.Y(f(a2))) / 2);
   ctx.restore();
 
-  dot(ctx, m, a, f(a), '#34d399');
-  dot(ctx, m, a2, f(a2), '#22d3ee');
-  label(ctx, m, a, f(a), `A(${a.toFixed(1)}, ${f(a).toFixed(1)})`, '#34d399');
-  label(ctx, m, a2, f(a2), `B`, '#22d3ee');
-  label(ctx, m, -2.8, 8.2, 'f(x) = x²', '#c084fc');
+  dot(ctx, m, a, f(a), C.emerald());
+  dot(ctx, m, a2, f(a2), C.cyan());
+  label(ctx, m, a, f(a), `A(${a.toFixed(1)}, ${f(a).toFixed(1)})`, C.emerald());
+  label(ctx, m, a2, f(a2), `B`, C.cyan());
+  label(ctx, m, -2.8, 8.2, 'f(x) = x²', C.violet(0.85));
 }
 
 /* ---------- 2. 黎曼和 ---------- */
@@ -409,25 +434,25 @@ function drawRiemann(ctx: CanvasRenderingContext2D, W: number, H: number, n: num
     const y1 = m.Y(yTop);
 
     const grad = ctx.createLinearGradient(0, y1, 0, y0);
-    grad.addColorStop(0, 'rgba(34,211,238,0.42)');
-    grad.addColorStop(1, 'rgba(34,211,238,0.06)');
+    grad.addColorStop(0, C.cyan(0.42));
+    grad.addColorStop(1, C.cyan(0.06));
     ctx.fillStyle = grad;
     ctx.fillRect(x1, y1, Math.max(0.8, x2 - x1), y0 - y1);
     if (n <= 24) {
-      ctx.strokeStyle = 'rgba(34,211,238,0.7)';
+      ctx.strokeStyle = C.cyan(0.7);
       ctx.lineWidth = 1;
       ctx.strokeRect(x1, y1, Math.max(0.8, x2 - x1), y0 - y1);
     }
   }
 
-  curve(ctx, m, f, '#a855f7', 2.6);
+  curve(ctx, m, f, C.violet(), 2.6);
 
   ctx.save();
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillStyle = C.text(0.5);
   ctx.font = '11px "PingFang SC", system-ui';
   ctx.fillText(`n = ${n}`, m.X(-0.35), m.Y(4.4));
   ctx.restore();
-  label(ctx, m, 1.05, 4.2, 'y = x²', '#c084fc');
+  label(ctx, m, 1.05, 4.2, 'y = x²', C.violet(0.85));
 }
 
 /* ---------- 3. 泰勒展开 ---------- */
@@ -453,20 +478,20 @@ function drawTaylor(ctx: CanvasRenderingContext2D, W: number, H: number, terms: 
   grid(ctx, m);
 
   // 真实 sin
-  curve(ctx, m, Math.sin, '#22d3ee', 2.4);
+  curve(ctx, m, Math.sin, C.cyan(), 2.4);
 
   // 泰勒多项式
-  curve(ctx, m, (x) => taylorSin(x, terms), '#fbbf24', 2.4);
+  curve(ctx, m, (x) => taylorSin(x, terms), C.amber(), 2.4);
 
   // 展开点
-  dot(ctx, m, 0, 0, '#34d399', 4);
+  dot(ctx, m, 0, 0, C.emerald(), 4);
 
   // 有效范围提示
   const bound = Math.min(7.5, 2.2 + terms * 1.15);
   ctx.save();
-  ctx.fillStyle = 'rgba(52,211,153,0.08)';
+  ctx.fillStyle = C.emerald(0.08);
   ctx.fillRect(m.X(-bound), m.Y(3.2), m.X(bound) - m.X(-bound), m.Y(-3.2) - m.Y(3.2));
-  ctx.strokeStyle = 'rgba(52,211,153,0.35)';
+  ctx.strokeStyle = C.emerald(0.35);
   ctx.setLineDash([4, 4]);
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -476,13 +501,13 @@ function drawTaylor(ctx: CanvasRenderingContext2D, W: number, H: number, terms: 
   ctx.restore();
 
   ctx.save();
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillStyle = C.text(0.5);
   ctx.font = '11px "PingFang SC", system-ui';
   ctx.fillText('近似有效区间', m.X(-bound) + 6, m.Y(3.2) + 15);
   ctx.restore();
 
-  label(ctx, m, -7.6, 2.9, 'sin x', '#22d3ee');
-  label(ctx, m, -7.6, 2.3, `泰勒 ${terms} 项`, '#fbbf24');
+  label(ctx, m, -7.6, 2.9, 'sin x', C.cyan());
+  label(ctx, m, -7.6, 2.3, `泰勒 ${terms} 项`, C.amber());
 }
 
 /* ---------- 4. ε-N ---------- */
@@ -495,9 +520,9 @@ function drawEpsilon(ctx: CanvasRenderingContext2D, W: number, H: number, eps: n
 
   // ε 带
   ctx.save();
-  ctx.fillStyle = 'rgba(34,211,238,0.10)';
+  ctx.fillStyle = C.cyan(0.10);
   ctx.fillRect(m.X(m.xr[0]), m.Y(a + eps), m.X(m.xr[1]) - m.X(m.xr[0]), m.Y(a - eps) - m.Y(a + eps));
-  ctx.strokeStyle = 'rgba(34,211,238,0.5)';
+  ctx.strokeStyle = C.cyan(0.5);
   ctx.setLineDash([5, 4]);
   ctx.lineWidth = 1.2;
   ctx.beginPath();
@@ -508,7 +533,7 @@ function drawEpsilon(ctx: CanvasRenderingContext2D, W: number, H: number, eps: n
 
   // 极限线
   ctx.save();
-  ctx.strokeStyle = 'rgba(52,211,153,0.8)';
+  ctx.strokeStyle = C.emerald(0.8);
   ctx.lineWidth = 1.8;
   ctx.beginPath();
   ctx.moveTo(m.X(m.xr[0]), m.Y(a)); ctx.lineTo(m.X(m.xr[1]), m.Y(a));
@@ -517,7 +542,7 @@ function drawEpsilon(ctx: CanvasRenderingContext2D, W: number, H: number, eps: n
 
   // N 竖线
   ctx.save();
-  ctx.strokeStyle = 'rgba(251,191,36,0.75)';
+  ctx.strokeStyle = C.amber(0.75);
   ctx.lineWidth = 1.6;
   ctx.setLineDash([4, 3]);
   ctx.beginPath();
@@ -529,16 +554,16 @@ function drawEpsilon(ctx: CanvasRenderingContext2D, W: number, H: number, eps: n
   for (let i = 1; i <= 21; i++) {
     const y = 1 + 1 / i;
     const inside = i > N;
-    dot(ctx, m, i, y, inside ? '#22d3ee' : '#fb7185', 3.4);
+    dot(ctx, m, i, y, inside ? C.cyan() : C.rose(), 3.4);
   }
 
   ctx.save();
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.fillStyle = C.text(0.55);
   ctx.font = '11px "PingFang SC", system-ui';
   ctx.fillText(`A = 1`, m.X(0.2), m.Y(a) - 6);
   ctx.fillText(`A + ε`, m.X(0.2), m.Y(a + eps) - 6);
   ctx.fillText(`A − ε`, m.X(0.2), m.Y(a - eps) + 15);
-  ctx.fillStyle = 'rgba(251,191,36,0.9)';
+  ctx.fillStyle = C.amber(0.9);
   ctx.fillText(`n = N = ${N}`, m.X(N) + 5, m.Y(m.yr[1]) + 14);
   ctx.restore();
 }

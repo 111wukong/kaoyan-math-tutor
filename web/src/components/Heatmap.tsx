@@ -95,7 +95,7 @@ export function Heatmap({
                     'h-[11px] w-[11px] shrink-0 rounded-[2.5px] transition-all duration-150',
                     isFuture ? 'bg-transparent' : LEVEL_BG[lv],
                     !isFuture && 'hover:ring-1 hover:ring-cyan/60',
-                    lv >= 3 && 'shadow-[0_0_6px_-1px_rgba(34,211,238,0.6)]',
+                    lv >= 3 && 'spark-cyan',
                   )}
                 />
               );

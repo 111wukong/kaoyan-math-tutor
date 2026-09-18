@@ -171,7 +171,7 @@ export function QuestionCard({
               className={cn(
                 'h-11 flex-1 rounded-xl border bg-veil/4 px-3.5 font-mono text-[14px] text-fg outline-none transition-all',
                 'placeholder:font-sans placeholder:text-fg-faint',
-                'focus:border-cyan/50 focus:shadow-[0_0_0_4px_rgba(34,211,238,0.09)]',
+                'focus:border-cyan/50 focus:halo-cyan',
                 result?.correct === false ? 'border-rose/45' : result?.correct ? 'border-emerald/45' : 'border-hairline',
               )}
             />

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { cssVar } from '@/lib/utils';
 import { useTheme } from '@/stores/theme';
+import { hexToRgb } from './webgl';
 
 /* 背景特效层的主题色
  *
@@ -49,6 +50,29 @@ export function useFxAccents(): FxAccents {
     violet: cssVar('--color-violet', FALLBACK.violet),
     magenta: cssVar('--color-magenta', FALLBACK.magenta),
   }), [themeId]);
+}
+
+/**
+ * canvas 专用的「主题令牌色 + 透明度」。
+ *
+ * ── 为什么不直接用 lib/utils 的 withAlpha ────────────────────────
+ * `withAlpha` 产出的是 `color-mix(in srgb, …)`。那个东西在**内联 style、
+ * SVG、Recharts** 上都没问题，但 canvas 的 `strokeStyle` / `fillStyle`
+ * 对它支持得晚（Chrome 111+），而且不支持时是**静默失效** ——
+ * 整条线直接消失，控制台一声不响。实测在旧内核上就是连线/曲线全没了。
+ *
+ * 所以这里手动把令牌值转成 rgb 三元组再拼 rgba()。代价是只认 hex 形式的
+ * 令牌（`hexToRgb` 解析不了就返回白色）—— 目前 index.css 里所有强调色
+ * 都是 hex，这条约束写在那边。
+ *
+ * ⚠️ 必须在**绘制时**调用，不能在模块顶层算成常量。
+ */
+export function canvasColor(name: string, alpha = 1, fallback = '#22d3ee'): string {
+  const [r, g, b] = hexToRgb(cssVar(name, fallback));
+  const to255 = (v: number) => Math.round(v * 255);
+  return alpha >= 1
+    ? `rgb(${to255(r)}, ${to255(g)}, ${to255(b)})`
+    : `rgba(${to255(r)}, ${to255(g)}, ${to255(b)}, ${alpha})`;
 }
 
 /**
