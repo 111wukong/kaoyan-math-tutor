@@ -90,6 +90,10 @@ npm run dev
 登录后侧栏会多出一个「管理」分组，里面有用户管理：搜人、看学情概览、
 改角色 / 状态 / 备注、重置密码、强制下线、删号，以及一份管理操作审计。
 
+<p>
+  <img src="docs/screenshots/07-admin.jpg" alt="管理台" width="100%">
+</p>
+
 > 停用和删号都会当场生效：停用会立刻注销该账号的全部登录会话，
 > 删号靠外键级联清掉他全部学习数据（作答、卡片、错题、笔记、成就）。
 > 服务端另外挡了三条会把系统搞成「没有管理员」的操作 ——
@@ -380,7 +384,12 @@ npm run gallery        # 生成主题画廊（8 套主题各一张，进 docs/sc
 ```bash
 THEME=paper OUT=/tmp/shots-paper npm run shots    # 亮色下把所有页面过一遍
 THEME=cyber-lime npm run shots                    # 文件名自动加 -cyber-lime 后缀
+FORMAT=jpeg npm run shots                         # 给文档用（体积约 1/6）
 ```
+
+它覆盖 16 个页面（含 `/admin`，会自动用引导管理员登录；登录不上就跳过并出声）。
+输出格式默认 PNG（供人细看），`FORMAT=jpeg` 走 CDP 自己的编码器 ——
+所以想重新生成 README 里的文档图，不需要装任何图片处理库。
 
 截图默认是桌面 1440×900，视口可以覆盖 —— 全屏 WebGL 背景、HUD 装饰层、
 3D 星系这三样都是按桌面比例调的，窄屏上会不会挤成一团，桌面截图里一个都看不出来：

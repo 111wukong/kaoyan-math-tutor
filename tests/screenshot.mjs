@@ -44,6 +44,17 @@ const MOBILE = process.env.MOBILE === '1';
 const THEME = process.env.THEME || 'deep-space';
 const DEFAULT_THEME = 'deep-space';
 
+/* 输出格式。默认 PNG —— 逐页截图是给人**细看**的，PNG 无损。
+ *
+ *   FORMAT=jpeg npm run shots     # 给文档用，体积只有 PNG 的 1/6 左右
+ *
+ * 为什么要有这个开关：仓库里那些 README 用的截图必须是 JPEG
+ * （一张 1440×900 @DPR2 的 PNG 约 1.7MB，8 张就 14MB，进不了仓库）。
+ * 靠外部工具转的话，别人想重新生成文档图就得先装个 sharp ——
+ * 而这个项目是零图片编码依赖的。CDP 自己就能出 JPEG，白拿。 */
+const FORMAT = process.env.FORMAT === 'jpeg' ? 'jpeg' : 'png';
+const QUALITY = Number(process.env.QUALITY || 74);
+
 /* ---------------- 1. 找浏览器 ---------------- */
 function findBrowser() {
   const cands = [
@@ -65,19 +76,26 @@ function findBrowser() {
 const jar = new Map();
 const cookieHeader = () => [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
 
-async function api(method, p, body) {
+/**
+ * @param into 用哪个 cookie jar。默认是主 jar（截图专用账号）。
+ *   ★ 必须能换 jar：finally 里那句 DELETE /api/auth/account 删的是
+ *   「jar 里当前是谁」。管理台那一段如果直接用主 jar 登录成管理员，
+ *   收尾时就会**把管理员账号删掉**（连带外键级联清掉它全部数据）。
+ *   所以管理台走独立的 jar。
+ */
+async function api(method, p, body, into = jar) {
   const res = await fetch(BASE + p, {
     method,
     headers: {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(jar.size ? { Cookie: cookieHeader() } : {}),
+      ...(into.size ? { Cookie: [...into].map(([k, v]) => `${k}=${v}`).join('; ') } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   for (const c of res.headers.getSetCookie?.() || []) {
     const [pair] = c.split(';');
     const i = pair.indexOf('=');
-    if (i > 0) jar.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim());
+    if (i > 0) into.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim());
   }
   const text = await res.text();
   try { return { status: res.status, data: text ? JSON.parse(text) : null }; }
@@ -345,14 +363,16 @@ try {
     let shot = null;
     for (let attempt = 1; attempt <= 3 && !shot; attempt++) {
       try {
-        shot = await client.send('Page.captureScreenshot', { format: 'png' });
+        shot = await client.send('Page.captureScreenshot',
+          FORMAT === 'jpeg' ? { format: 'jpeg', quality: QUALITY } : { format: 'png' });
       } catch (e) {
         if (attempt === 3) throw e;
         console.log(`\x1b[90m   · ${name} 截图超时，重试 ${attempt + 1}/3\x1b[0m`);
         await sleep(900);
       }
     }
-    const file = path.join(OUT, `${name}${THEME === DEFAULT_THEME ? '' : '-' + THEME}.png`);
+    const ext = FORMAT === 'jpeg' ? 'jpg' : 'png';
+    const file = path.join(OUT, `${name}${THEME === DEFAULT_THEME ? '' : '-' + THEME}.${ext}`);
     fs.writeFileSync(file, Buffer.from(shot.data, 'base64'));
     const kb = (fs.statSync(file).size / 1024).toFixed(0);
     const title = (await ev('document.title')).value || '';
@@ -390,6 +410,44 @@ try {
   await shoot('13-课堂', '/classroom', { waitFor: SHELL, settle: 1800 });
   await shoot('14-成就', '/achievements', { waitFor: SHELL, settle: 1800 });
   await shoot('15-设置', '/settings', { waitFor: SHELL, settle: 1600 });
+
+  /* ---- 管理台 ----
+   * 它不在上面那张列表里：那一串是普通用户能看到的页面，/admin 需要管理员会话。
+   * 少了这一张的话，「新建的管理台在亮色主题下长什么样」就永远没人看过 ——
+   * 而这个项目已经因为「只验证了默认主题」漏过好几次。
+   *
+   * 凭据和 server/src/db/migrate.js 的引导管理员保持一致。
+   * 登录失败**不算错**（你可能已经改过管理员密码了），跳过并出声即可。 */
+  console.log('⑥ 管理台');
+  const adminJar = new Map();
+  const adminEmail = (process.env.ADMIN_EMAIL || 'wukong@qq.com').trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD || 'wgh123456';
+  const adminLogin = await api('POST', '/api/auth/login', { email: adminEmail, password: adminPassword }, adminJar);
+
+  if (adminLogin.status !== 200) {
+    console.log(`\x1b[33m   · 跳过管理台截图：管理员登录失败（HTTP ${adminLogin.status}）\x1b[0m`);
+    console.log('\x1b[90m     改过管理员密码的话，用 ADMIN_EMAIL / ADMIN_PASSWORD 传进来\x1b[0m');
+  } else {
+    /* ★ 管理员账号的主题也要单独设一遍。
+     *
+     * 外观是**跟着账号走**的（存在各自的 user_settings.theme），
+     * 上面那次 PUT 设的是截图专用账号的。不设管理员这一份的话，
+     * 换成管理员会话后 loadFromServer() 会读回 deep-space ——
+     * 于是 THEME=paper 跑出来的管理台截图其实是暗色的。
+     *
+     * 实测踩过：日志里那张写着「WebGL 1800x1125」而不是「亮色·静态底」，
+     * 一眼看过去还以为管理台在亮色下也挂了 WebGL 背景。 */
+    if (THEME !== DEFAULT_THEME) {
+      const r = await api('PUT', '/api/settings', { theme: THEME }, adminJar);
+      if (r.status !== 200) console.log(`\x1b[33m   · 管理员主题没设上（HTTP ${r.status}）\x1b[0m`);
+    }
+    await client.send('Network.setCookie', {
+      name: 'yanshu_session', value: adminJar.get('yanshu_session'), url: BASE, path: '/', httpOnly: true, sameSite: 'Lax',
+    });
+    await shoot('16-管理台', '/admin', {
+      waitFor: '!!document.querySelector("#main-scroll table")', settle: 2200,
+    });
+  }
 
   console.log(`\n截图输出：${OUT}`);
 } catch (e) {
