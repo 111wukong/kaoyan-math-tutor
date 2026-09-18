@@ -60,6 +60,7 @@ async function req(method, path, body) {
 const GET = (p) => req('GET', p);
 const POST = (p, b) => req('POST', p, b);
 const PUT = (p, b) => req('PUT', p, b);
+const PATCH = (p, b) => req('PATCH', p, b);
 const DEL = (p) => req('DELETE', p);
 
 /* ============================================================ */
@@ -95,7 +96,10 @@ section('0. 健康检查与鉴权边界');
 {
   const h = await GET('/api/health');
   ok('健康检查 200', h.status === 200);
-  ok('数据库 25 张表', h.data?.db?.tables === 25, `实得 ${h.data?.db?.tables}`);
+  /* 26 = 原来的 25 张 + admin_log。
+   * 这个数字是**故意钉死的**：它盯的是「建表脚本有没有被误改」。
+   * 加表时同步改这里，是让改动者被迫确认一次「我知道我加了一张表」。 */
+  ok('数据库 26 张表', h.data?.db?.tables === 26, `实得 ${h.data?.db?.tables}`);
   ok('数据库连接正常', h.data?.db?.ok === true);
 
   const guarded = await GET('/api/study/snapshot');
@@ -423,6 +427,25 @@ section('12. 设置与 LLM 配置');
   const st = await GET('/api/storage');
   ok('存储用量 200', st.status === 200 && typeof st.data?.dbMb === 'number', JSON.stringify(st.data)?.slice(0, 100));
 
+  /* ---------- 主题 ----------
+   * 主题 id 是「服务端白名单 + 前端注册表」两份。这里盯服务端这一半：
+   * 合法值要存得住，非法值要收敛回默认（而不是 400，也不是原样落库）。 */
+  const themes = await GET('/api/settings');
+  ok('设置返回主题清单', Array.isArray(themes.data?.settings?.themes) && themes.data.settings.themes.length >= 8,
+    `实得 ${JSON.stringify(themes.data?.settings?.themes)}`);
+  ok('主题清单含默认值', themes.data?.settings?.defaultTheme === 'deep-space',
+    `实得 ${themes.data?.settings?.defaultTheme}`);
+
+  const setPaper = await PUT('/api/settings', { theme: 'paper' });
+  ok('保存合法主题', setPaper.data?.settings?.theme === 'paper', `实得 ${setPaper.data?.settings?.theme}`);
+  const readBack = await GET('/api/settings');
+  ok('主题能读回', readBack.data?.settings?.theme === 'paper', `实得 ${readBack.data?.settings?.theme}`);
+
+  const setBad = await PUT('/api/settings', { theme: '不存在的主题<script>' });
+  ok('★ 非法主题被收敛成默认（不是 400、不是原样落库）',
+    setBad.data?.settings?.theme === 'deep-space', `实得 ${setBad.data?.settings?.theme}`);
+  await PUT('/api/settings', { theme: 'deep-space' });
+
   // 清掉，别把测试 Key 留在库里
   await PUT('/api/settings/llm', { enabled: false, kind: 'cloud', cloudBase: '', cloudModel: '', cloudKey: '' });
   const l3 = await GET('/api/settings/llm');
@@ -632,6 +655,224 @@ section('15. 数据隔离（另一个账号看不到你的数据）');
 
   jar.clear();
   for (const [k, v] of savedJar) jar.set(k, v);
+}
+
+section('16. 管理员与权限');
+/* 这一节测的是「权限真的被挡住了」，不是「按钮藏起来了」。
+ * 前端把管理入口藏掉只是不碍眼 —— 手敲 /admin、直接 curl 接口都绕得过去，
+ * 所以每一条都必须打到服务端上验。
+ *
+ * 引导管理员（wukong@qq.com）由服务端启动时自动创建，见 db/migrate.js。 */
+{
+  /* ---------- 16.1 普通用户越权 ----------
+   * 此刻 jar 里还是上一个普通用户的会话（第 15 节末尾恢复的）。
+   * 专门用它去撞管理接口 —— 这是本节最有价值的一组断言：
+   * 前端把入口藏掉不算数，服务端必须自己挡。 */
+  const denyRead = await GET('/api/admin/users');
+  ok('普通用户读用户列表 403', denyRead.status === 403, `实得 ${denyRead.status}`);
+  ok('403 带 FORBIDDEN 码', denyRead.data?.code === 'FORBIDDEN', JSON.stringify(denyRead.data));
+  ok('403 里不含任何用户数据', !JSON.stringify(denyRead.data).includes('@'), JSON.stringify(denyRead.data).slice(0, 80));
+
+  const denyOverview = await GET('/api/admin/overview');
+  ok('普通用户读总览 403', denyOverview.status === 403, `实得 ${denyOverview.status}`);
+
+  const denyWrite = await PATCH('/api/admin/users/1', { role: 'admin' });
+  ok('★ 普通用户改别人角色 403', denyWrite.status === 403, `实得 ${denyWrite.status}`);
+
+  const denyDelete = await DEL('/api/admin/users/1');
+  ok('★ 普通用户删账号 403', denyDelete.status === 403, `实得 ${denyDelete.status}`);
+
+  const denyLogs = await GET('/api/admin/logs');
+  ok('普通用户读审计日志 403', denyLogs.status === 403, `实得 ${denyLogs.status}`);
+
+  /* ---------- 16.2 管理员登录 ---------- */
+  jar.clear();
+  const badPwd = await POST('/api/auth/login', { email: 'wukong@qq.com', password: '肯定不是这个' });
+  ok('管理员错误密码被拒 401', badPwd.status === 401, `实得 ${badPwd.status}`);
+
+  const adm = await POST('/api/auth/login', { email: 'wukong@qq.com', password: 'wgh123456' });
+  ok('引导管理员能登录', adm.status === 200, JSON.stringify(adm.data).slice(0, 120));
+  ok('★ /me 里带 role=admin', adm.data?.user?.role === 'admin', `实得 ${adm.data?.user?.role}`);
+  const adminId = adm.data?.user?.id;
+  ok('管理员 id 有效', Number.isInteger(adminId), `实得 ${adminId}`);
+
+  /* ---------- 16.3 总览 ---------- */
+  const ov = await GET('/api/admin/overview');
+  ok('总览 200', ov.status === 200, JSON.stringify(ov.data)?.slice(0, 140));
+  ok('总览统计了用户数', (ov.data?.totals?.users || 0) >= 3, `实得 ${ov.data?.totals?.users}`);
+  ok('总览统计了管理员数', ov.data?.totals?.admins >= 1, `实得 ${ov.data?.totals?.admins}`);
+  ok('总览含全库作答数', typeof ov.data?.activity?.attempts === 'number', JSON.stringify(ov.data?.activity));
+  ok('总览返回最近注册的用户', Array.isArray(ov.data?.recentUsers), '');
+
+  /* ---------- 16.4 列表与隐私 ---------- */
+  const list = await GET('/api/admin/users?limit=200');
+  ok('用户列表 200', list.status === 200);
+  ok('列表返回了多个用户', (list.data?.users?.length || 0) >= 3, `实得 ${list.data?.users?.length}`);
+  ok('列表带学情统计', typeof list.data?.users?.[0]?.stats?.level === 'number',
+    JSON.stringify(list.data?.users?.[0]?.stats));
+  ok('列表带角色与状态', !!list.data?.users?.[0]?.role && !!list.data?.users?.[0]?.status,
+    JSON.stringify(list.data?.users?.[0])?.slice(0, 140));
+
+  const listRaw = JSON.stringify(list.data);
+  ok('★ 列表不泄露密码哈希/盐', !/password_(hash|salt)/.test(listRaw));
+  ok('★ 列表不泄露任何人的 API Key', !listRaw.includes('cloud_key') && !listRaw.includes('sk-'));
+  ok('列表不含聊天记录正文', !listRaw.includes('"history"'));
+
+  const search = await GET('/api/admin/users?q=wukong');
+  ok('按邮箱/昵称搜索生效', (search.data?.users || []).length === 1
+    && search.data.users[0].email === 'wukong@qq.com', JSON.stringify(search.data?.users?.map((u) => u.email)));
+  const noHit = await GET('/api/admin/users?q=绝对搜不到的东西zzz');
+  ok('搜不到时返回空列表而非报错', noHit.status === 200 && noHit.data?.users?.length === 0, `实得 ${noHit.data?.users?.length}`);
+
+  const byRole = await GET('/api/admin/users?role=admin');
+  ok('按角色筛选生效', (byRole.data?.users || []).every((u) => u.role === 'admin'), '');
+  const byStatus = await GET('/api/admin/users?status=disabled');
+  ok('按状态筛选生效', (byStatus.data?.users || []).every((u) => u.status === 'disabled'), '');
+
+  /* 排序是**白名单映射**，不是把前端字符串拼进 ORDER BY。
+   * 这条断言验的就是那个白名单：注入串会被当成未知 key 落回默认排序。 */
+  const injectSort = await GET(`/api/admin/users?sort=${encodeURIComponent('1;DROP TABLE users')}`);
+  ok('★ 排序参数注入被白名单挡住', injectSort.status === 200, `实得 ${injectSort.status}`);
+  const stillAlive = await GET('/api/admin/users');
+  ok('★ 注入尝试后 users 表还在', stillAlive.status === 200 && (stillAlive.data?.users?.length || 0) >= 3,
+    `实得 ${stillAlive.data?.users?.length}`);
+
+  /* ---------- 16.5 新建 ---------- */
+  const TARGET = `managed_${Date.now()}@test.local`;
+  const created = await POST('/api/admin/users', {
+    email: TARGET, username: '被管理的', password: 'Managed2027!', role: 'user', note: '冒烟测试建的',
+  });
+  ok('管理员新建用户 200', created.status === 200, JSON.stringify(created.data)?.slice(0, 140));
+  const tid = created.data?.user?.id;
+  ok('新用户带备注', created.data?.user?.note === '冒烟测试建的', created.data?.user?.note);
+  ok('新用户默认 active', created.data?.user?.status === 'active', created.data?.user?.status);
+
+  const dup = await POST('/api/admin/users', { email: TARGET, username: 'x', password: 'Managed2027!' });
+  ok('重复邮箱被拒 409', dup.status === 409, `实得 ${dup.status}`);
+  const weakNew = await POST('/api/admin/users', { email: `w_${Date.now()}@t.local`, username: 'x', password: '123' });
+  ok('新建时的弱密码被拒 400', weakNew.status === 400, `实得 ${weakNew.status}`);
+  const badMail = await POST('/api/admin/users', { email: '不是邮箱', username: 'x', password: 'Managed2027!' });
+  ok('新建时的非法邮箱被拒 400', badMail.status === 400, `实得 ${badMail.status}`);
+
+  /* ---------- 16.6 修改 ---------- */
+  const upd = await PATCH(`/api/admin/users/${tid}`, { username: '改过名的', note: '备注也改了' });
+  ok('改昵称/备注 200', upd.status === 200 && upd.data?.user?.username === '改过名的',
+    JSON.stringify(upd.data?.user)?.slice(0, 140));
+  ok('★ 返回改动前后值（审计要用）', Array.isArray(upd.data?.changed?.username),
+    JSON.stringify(upd.data?.changed));
+
+  const noop = await PATCH(`/api/admin/users/${tid}`, { username: '改过名的' });
+  ok('改成同样的值不算改动', Object.keys(noop.data?.changed || {}).length === 0,
+    JSON.stringify(noop.data?.changed));
+
+  const badRole = await PATCH(`/api/admin/users/${tid}`, { role: 'superuser' });
+  ok('非法角色被拒 400', badRole.status === 400, `实得 ${badRole.status}`);
+  const badStatus = await PATCH(`/api/admin/users/${tid}`, { status: 'frozen' });
+  ok('非法状态被拒 400', badStatus.status === 400, `实得 ${badStatus.status}`);
+  const emailTaken = await PATCH(`/api/admin/users/${tid}`, { email: 'wukong@qq.com' });
+  ok('改成已占用的邮箱 409', emailTaken.status === 409, `实得 ${emailTaken.status}`);
+
+  /* ---------- 16.7 护栏：不能把系统搞成"没有管理员" ---------- */
+  const selfDemote = await PATCH(`/api/admin/users/${adminId}`, { role: 'user' });
+  ok('★ 不能取消自己的管理员权限', selfDemote.status === 400 && selfDemote.data?.code === 'SELF_DEMOTE',
+    JSON.stringify(selfDemote.data));
+  const selfDisable = await PATCH(`/api/admin/users/${adminId}`, { status: 'disabled' });
+  ok('★ 不能停用自己的账号', selfDisable.status === 400 && selfDisable.data?.code === 'SELF_DISABLE',
+    JSON.stringify(selfDisable.data));
+  const selfDelete = await DEL(`/api/admin/users/${adminId}`);
+  ok('★ 不能删除自己的账号', selfDelete.status === 400 && selfDelete.data?.code === 'SELF_DELETE',
+    JSON.stringify(selfDelete.data));
+  const stillAdmin = await GET('/api/auth/me');
+  ok('★ 护栏生效后自己仍是管理员', stillAdmin.data?.user?.role === 'admin', stillAdmin.data?.user?.role);
+
+  // 提一个临时管理员，验「最后一个管理员不能降级」
+  const promoted = await PATCH(`/api/admin/users/${tid}`, { role: 'admin' });
+  ok('能把别人提为管理员', promoted.status === 200 && promoted.data?.user?.role === 'admin',
+    promoted.data?.user?.role);
+  const demoteOther = await PATCH(`/api/admin/users/${tid}`, { role: 'user' });
+  ok('管理员数量 >1 时降级别人是允许的', demoteOther.status === 200, `实得 ${demoteOther.status}`);
+
+  /* ---------- 16.8 重置密码 ---------- */
+  const reset = await POST(`/api/admin/users/${tid}/password`, { password: 'Reset2027!' });
+  ok('重置密码 200', reset.status === 200, JSON.stringify(reset.data));
+  const weakReset = await POST(`/api/admin/users/${tid}/password`, { password: 'abc' });
+  ok('重置时的弱密码被拒 400', weakReset.status === 400, `实得 ${weakReset.status}`);
+
+  const auditNow = await GET('/api/admin/logs');
+  ok('★ 审计日志里不含密码原文', !JSON.stringify(auditNow.data).includes('Reset2027!'), '');
+  ok('★ 审计日志里不含密码哈希', !/password_(hash|salt)/.test(JSON.stringify(auditNow.data)));
+
+  // 被重置的人能用新密码登录 → 证明重置真的改了密码，不只是写了个字段
+  const outerJar = new Map(jar);
+  jar.clear();
+  const relogin = await POST('/api/auth/login', { email: TARGET, password: 'Reset2027!' });
+  ok('★ 被重置的账号能用新密码登录', relogin.status === 200, JSON.stringify(relogin.data)?.slice(0, 100));
+  const oldPwd = await POST('/api/auth/login', { email: TARGET, password: 'Managed2027!' });
+  ok('★ 旧密码已失效', oldPwd.status === 401, `实得 ${oldPwd.status}`);
+
+  /* ---------- 16.9 停用：当场踢会话 + 拦住登录 ---------- */
+  const innerJar = new Map(jar);
+  jar.clear();
+  for (const [k, v] of outerJar) jar.set(k, v);
+
+  const disable = await PATCH(`/api/admin/users/${tid}`, { status: 'disabled' });
+  ok('停用 200', disable.status === 200 && disable.data?.user?.status === 'disabled',
+    JSON.stringify(disable.data?.changed));
+
+  // 被停用的人手里那个 cookie 必须当场失效，不能等它自然过期
+  jar.clear();
+  for (const [k, v] of innerJar) jar.set(k, v);
+  const killedSession = await GET('/api/auth/me');
+  ok('★ 停用后他手里的会话立刻失效', killedSession.status === 401, `实得 ${killedSession.status}`);
+  jar.clear();
+  const blocked = await POST('/api/auth/login', { email: TARGET, password: 'Reset2027!' });
+  ok('★ 停用后登录被拦 403', blocked.status === 403 && blocked.data?.code === 'ACCOUNT_DISABLED',
+    JSON.stringify(blocked.data));
+  jar.clear();
+  for (const [k, v] of outerJar) jar.set(k, v);
+  const reEnable = await PATCH(`/api/admin/users/${tid}`, { status: 'active' });
+  ok('恢复启用 200', reEnable.status === 200 && reEnable.data?.user?.status === 'active');
+
+  /* ---------- 16.10 详情 ---------- */
+  const detail = await GET(`/api/admin/users/${tid}`);
+  ok('详情 200', detail.status === 200, JSON.stringify(detail.data)?.slice(0, 120));
+  ok('详情含备考设置', detail.data?.settings !== null && detail.data?.settings !== undefined, '');
+  ok('详情含活跃会话列表', Array.isArray(detail.data?.sessions), '');
+  ok('★ 详情不返回会话 token', !JSON.stringify(detail.data).includes('token_hash'), '');
+  ok('★ 详情不泄露用户的 LLM 密钥', !JSON.stringify(detail.data).includes('cloud_key'), '');
+  ok('详情含该账号被管理过的记录', (detail.data?.logs || []).length > 0, `${detail.data?.logs?.length} 条`);
+  const missing = await GET('/api/admin/users/999999');
+  ok('不存在的用户 404', missing.status === 404, `实得 ${missing.status}`);
+
+  /* ---------- 16.11 强制下线 ---------- */
+  const kick = await POST(`/api/admin/users/${tid}/logout`);
+  ok('强制下线 200', kick.status === 200, JSON.stringify(kick.data));
+
+  /* ---------- 16.12 删除（级联清数据） ---------- */
+  const del = await DEL(`/api/admin/users/${tid}`);
+  ok('删除 200', del.status === 200, JSON.stringify(del.data));
+  ok('★ 删除返回被清掉的数据量', typeof del.data?.wiped?.attempts === 'number', JSON.stringify(del.data?.wiped));
+  const gone = await GET(`/api/admin/users/${tid}`);
+  ok('删完查不到', gone.status === 404, `实得 ${gone.status}`);
+  const delAgain = await DEL(`/api/admin/users/${tid}`);
+  ok('重复删除 404', delAgain.status === 404, `实得 ${delAgain.status}`);
+  const delMissing = await DEL('/api/admin/users/999999');
+  ok('删不存在的用户 404', delMissing.status === 404, `实得 ${delMissing.status}`);
+
+  /* ---------- 16.13 审计 ---------- */
+  const logs = await GET('/api/admin/logs');
+  ok('审计日志 200', logs.status === 200 && (logs.data?.logs?.length || 0) > 0, `${logs.data?.logs?.length} 条`);
+  const first = logs.data?.logs?.[0];
+  ok('日志带操作者与目标', !!first?.actorEmail && !!first?.action, JSON.stringify(first)?.slice(0, 140));
+  ok('日志带时间戳', !!first?.at, '');
+  const actions = new Set((logs.data?.logs || []).map((l) => l.action));
+  ok('★ 建/改/删/重置密码都留了痕',
+    ['user_create', 'user_update', 'user_delete', 'password_reset'].every((a) => actions.has(a)),
+    JSON.stringify([...actions]));
+
+  /* ---------- 恢复：后续没有别的节了，但保持一致的收尾习惯 ---------- */
+  jar.clear();
+  for (const [k, v] of outerJar) jar.set(k, v);
 }
 
 /* ============================================================

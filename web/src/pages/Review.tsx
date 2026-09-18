@@ -161,7 +161,7 @@ export default function Review() {
             <Badge tone="neutral">{card.type === 'mistake' ? '错题卡' : '知识卡'}</Badge>
           </div>
         </div>
-        <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-white/6">
+        <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-veil/6">
           <div
             className="h-full rounded-full bg-gradient-to-r from-cyan to-violet transition-all duration-500"
             style={{ width: `${progress}%` }}
@@ -227,7 +227,7 @@ export default function Review() {
                         </div>
                       )}
                       {card.analysis && (
-                        <div className="mt-3 rounded-xl border border-white/8 bg-white/3 px-3.5 py-3">
+                        <div className="mt-3 rounded-xl border border-veil/8 bg-veil/3 px-3.5 py-3">
                           <div className="mb-1.5 text-[11.5px] font-medium text-fg-mute">解析</div>
                           <div className="text-[13px] leading-relaxed text-fg-soft">
                             <RichText text={card.analysis} bareLatex />
@@ -261,7 +261,7 @@ export default function Review() {
                   key={r.v}
                   onClick={() => grade(r.v)}
                   className={cn(
-                    'group flex flex-col items-center gap-1 rounded-xl border bg-white/3 px-3 py-3.5 transition-all duration-200 active:scale-[0.97]',
+                    'group flex flex-col items-center gap-1 rounded-xl border bg-veil/3 px-3 py-3.5 transition-all duration-200 active:scale-[0.97]',
                     r.cls,
                   )}
                 >

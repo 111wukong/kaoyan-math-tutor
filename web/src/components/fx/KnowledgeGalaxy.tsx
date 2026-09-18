@@ -425,7 +425,7 @@ export function KnowledgeGalaxy({
         </span>
         <button
           onClick={reset}
-          className="pointer-events-auto flex items-center gap-1.5 rounded-lg border border-hairline bg-white/5 px-2.5 py-1 text-[11px] text-fg-mute transition-colors hover:border-cyan/30 hover:text-fg-soft"
+          className="pointer-events-auto flex items-center gap-1.5 rounded-lg border border-hairline bg-veil/5 px-2.5 py-1 text-[11px] text-fg-mute transition-colors hover:border-cyan/30 hover:text-fg-soft"
         >
           <RotateCcw size={11} /> 复位
         </button>

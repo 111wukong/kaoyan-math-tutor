@@ -52,7 +52,7 @@ export function Modal({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-0 bg-ink-1000/72 backdrop-blur-sm"
+            className="absolute inset-0 bg-scrim/72 backdrop-blur-sm"
             onClick={onClose}
           />
           <motion.div
@@ -74,7 +74,7 @@ export function Modal({
                 <button
                   onClick={onClose}
                   aria-label="关闭"
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-fg-mute transition-colors hover:bg-white/7 hover:text-fg"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-fg-mute transition-colors hover:bg-veil/7 hover:text-fg"
                 >
                   <X size={16} />
                 </button>

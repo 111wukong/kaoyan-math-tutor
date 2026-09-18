@@ -3,20 +3,25 @@ import { motion } from 'motion/react';
 import { CyberGrid } from '@/components/fx/CyberGrid';
 import { Starfield } from '@/components/fx/Starfield';
 import { InlineMath } from '@/components/ui/Math';
+import { useTheme } from '@/stores/theme';
 import { Brain, CalendarCheck, LineChart, Sparkles } from 'lucide-react';
 
 /* 认证页外壳：左侧品牌叙事 + 右侧表单
  *
  * 左侧不是装饰 —— 首次访问的人需要在这里搞清楚"这是干什么的"，
  * 否则注册页就是一个不知道为什么要填的表格。
- */
+ *
+ * 主题订阅也在这里：登录页不在 AppShell 底下，不订阅的话
+ * 切主题后这张页面不会重渲染（cssVar 读到的还是旧值）。 */
 export function AuthLayout({ children, mode }: { children: ReactNode; mode: 'login' | 'register' }) {
+  const { theme } = useTheme();
   return (
     <div className="relative grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
       {/* 认证页内容少、留白大，是唯一可以"放肆"的地方 —— 亮度给到 0.72。
-       * 仪表盘那边同样这个效果但要压到 0.62，因为那边满屏都是要读的字。 */}
-      <CyberGrid intensity={0.72} />
-      <Starfield density={0.00013} />
+       * 仪表盘那边同样这个效果但要压到 0.62，因为那边满屏都是要读的字。
+       * 亮色主题不挂这两层，理由见 AppShell 里的注释。 */}
+      {theme.fx && <CyberGrid intensity={0.72} />}
+      {theme.fx && <Starfield density={0.00013} />}
 
       {/* 左：品牌 */}
       <section className="relative hidden flex-col justify-between overflow-hidden border-r border-hairline px-10 py-12 lg:flex xl:px-16">
@@ -35,7 +40,7 @@ export function AuthLayout({ children, mode }: { children: ReactNode; mode: 'log
           transition={{ duration: 0.5 }}
           className="relative flex items-center gap-3"
         >
-          <div className="relative grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-cyan/30 to-violet/24 ring-1 ring-white/12">
+          <div className="relative grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-cyan/30 to-violet/24 ring-1 ring-veil/12">
             <span className="text-[21px] font-semibold">
               <span className="text-aurora">∫</span>
             </span>
@@ -80,7 +85,7 @@ export function AuthLayout({ children, mode }: { children: ReactNode; mode: 'log
               { icon: LineChart, title: '每个考点都有掌握概率', desc: '知道你到底哪不会，而不是凭感觉' },
             ].map((f, i) => (
               <div key={f.title} className="flex items-start gap-3">
-                <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/8 bg-white/4 text-cyan">
+                <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-veil/8 bg-veil/4 text-cyan">
                   <f.icon size={15} />
                 </div>
                 <div>
@@ -128,7 +133,7 @@ export function AuthLayout({ children, mode }: { children: ReactNode; mode: 'log
         >
           {/* 移动端顶部品牌 */}
           <div className="mb-7 flex items-center gap-2.5 lg:hidden">
-            <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-cyan/28 to-violet/22 ring-1 ring-white/12">
+            <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-cyan/28 to-violet/22 ring-1 ring-veil/12">
               <span className="text-[17px] font-semibold">
                 <span className="text-aurora">∫</span>
               </span>

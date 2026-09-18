@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   LayoutDashboard, Network, PenLine, RotateCcw, CircleAlert, FlaskConical,
   Zap, Layers, MessagesSquare, Users, ChartNoAxesColumn, Trophy, Settings,
-  Menu, X, Volume2, VolumeX, Flame, ChevronsUpDown, LogOut,
+  Menu, X, Volume2, VolumeX, Flame, ChevronsUpDown, LogOut, ShieldCheck,
 } from 'lucide-react';
 import { CyberGrid } from '@/components/fx/CyberGrid';
 import { Starfield } from '@/components/fx/Starfield';
@@ -12,49 +12,71 @@ import { Meter } from '@/components/fx/Motion';
 import { Toaster } from '@/components/ui/Toaster';
 import { useApp } from '@/stores/app';
 import { useAuth } from '@/stores/auth';
+import { useTheme } from '@/stores/theme';
 import { cn } from '@/lib/utils';
 import { levelTitle } from '@/lib/achievements';
 import { setSfxEnabled } from '@/lib/sfx';
 
-const NAV: { group: string; items: { to: string; icon: any; label: string; badge?: 'due' | 'wrong' }[] }[] = [
-  {
-    group: '学习',
-    items: [
-      { to: '/', icon: LayoutDashboard, label: '仪表盘' },
-      { to: '/learn', icon: Network, label: '知识树' },
-      { to: '/quiz', icon: PenLine, label: '每日一练' },
-      { to: '/review', icon: RotateCcw, label: '复习队列', badge: 'due' },
-      { to: '/mistakes', icon: CircleAlert, label: '错题本', badge: 'wrong' },
-    ],
-  },
-  {
-    group: '训练',
-    items: [
-      { to: '/lab', icon: FlaskConical, label: '公式实验室' },
-      { to: '/blitz', icon: Zap, label: '闪电战' },
-      { to: '/deck', icon: Layers, label: '卡片库' },
-    ],
-  },
-  {
-    group: 'AI',
-    items: [
-      { to: '/chat', icon: MessagesSquare, label: 'AI 对话' },
-      { to: '/classroom', icon: Users, label: '课堂' },
-    ],
-  },
-  {
-    group: '我的',
-    items: [
-      { to: '/stats', icon: ChartNoAxesColumn, label: '统计' },
-      { to: '/achievements', icon: Trophy, label: '成就' },
-      { to: '/settings', icon: Settings, label: '设置' },
-    ],
-  },
-];
+/* 侧栏导航。
+ *
+ * 「管理」组是**条件渲染**的 —— 只有管理员看得到。
+ * ⚠️ 这只是"不显示入口"，不是鉴权。真正的门在服务端
+ * （server/src/routes/admin.js 每个路由都挂 requireAdmin）。
+ * 把前端藏起来当成安全措施是最经典的自欺欺人：
+ * 用户手敲 /admin 就进来了，页面里再发请求，服务端必须自己挡。 */
+function navGroups(isAdmin: boolean) {
+  const groups: { group: string; items: { to: string; icon: any; label: string; badge?: 'due' | 'wrong' }[] }[] = [
+    {
+      group: '学习',
+      items: [
+        { to: '/', icon: LayoutDashboard, label: '仪表盘' },
+        { to: '/learn', icon: Network, label: '知识树' },
+        { to: '/quiz', icon: PenLine, label: '每日一练' },
+        { to: '/review', icon: RotateCcw, label: '复习队列', badge: 'due' },
+        { to: '/mistakes', icon: CircleAlert, label: '错题本', badge: 'wrong' },
+      ],
+    },
+    {
+      group: '训练',
+      items: [
+        { to: '/lab', icon: FlaskConical, label: '公式实验室' },
+        { to: '/blitz', icon: Zap, label: '闪电战' },
+        { to: '/deck', icon: Layers, label: '卡片库' },
+      ],
+    },
+    {
+      group: 'AI',
+      items: [
+        { to: '/chat', icon: MessagesSquare, label: 'AI 对话' },
+        { to: '/classroom', icon: Users, label: '课堂' },
+      ],
+    },
+    {
+      group: '我的',
+      items: [
+        { to: '/stats', icon: ChartNoAxesColumn, label: '统计' },
+        { to: '/achievements', icon: Trophy, label: '成就' },
+        { to: '/settings', icon: Settings, label: '设置' },
+      ],
+    },
+  ];
+
+  if (isAdmin) {
+    groups.push({
+      group: '管理',
+      items: [{ to: '/admin', icon: ShieldCheck, label: '用户管理' }],
+    });
+  }
+  return groups;
+}
 
 export function AppShell() {
   const { snapshot, refreshSnapshot, sfx, toggleSfx, navOpen, setNavOpen } = useApp();
   const location = useLocation();
+  const { user } = useAuth();
+  const { theme } = useTheme();
+
+  const NAV = useMemo(() => navGroups(user?.role === 'admin'), [user?.role]);
 
   useEffect(() => {
     refreshSnapshot();
@@ -90,9 +112,16 @@ export function AppShell() {
        *   CyberGrid(-z-20) 赛博网格地平线 —— 唯一有"地面"的层，负责纵深
        *   CSS 光晕/静态网格   由 body::before / ::after 画，负责色彩与降级
        *   Starfield(-z-10)   星尘 —— 浮在最前，天空里要有星星
-       * 顺序不能换：星星在网格后面就变成"地上的星星"了。 */}
-      <CyberGrid />
-      <Starfield />
+       * 顺序不能换：星星在网格后面就变成"地上的星星"了。
+       *
+       * ★ 这两层只在**暗色主题**挂载（theme.fx）。原因不是性能，是审美：
+       *   霓虹赛博网格 + 磷光星尘画在宣纸那种暖白底上，会变成一片灰蒙蒙的
+       *   脏点，既不像纸也不像夜。亮色主题改用 CSS 层的淡色光晕 + 细网格 ——
+       *   那本来就是为了"WebGL 挂掉时顶上来"而写的降级路径，正好合适。
+       *   不挂载还顺带解决了另一个问题：Starfield 是 Canvas2D，粒子按屏幕面积
+       *   算，白底上它那些半透明白点根本看不见，却还在每帧重绘。 */}
+      {theme.fx && <CyberGrid />}
+      {theme.fx && <Starfield />}
 
       {/* 移动端遮罩 */}
       <AnimatePresence>
@@ -101,7 +130,7 @@ export function AppShell() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
             onClick={() => setNavOpen(false)}
-            className="fixed inset-0 z-40 bg-ink-1000/70 backdrop-blur-sm lg:hidden"
+            className="fixed inset-0 z-40 bg-scrim/70 backdrop-blur-sm lg:hidden"
           />
         )}
       </AnimatePresence>
@@ -161,7 +190,7 @@ export function AppShell() {
 function Brand() {
   return (
     <div className="flex items-center gap-2.5 px-4 pb-3 pt-5">
-      <div className="relative grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-cyan/28 to-violet/22 text-[17px] font-semibold text-cyan-100 ring-1 ring-white/12">
+      <div className="relative grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-cyan/28 to-violet/22 text-[17px] font-semibold text-cyan-100 ring-1 ring-veil/12">
         <span className="text-aurora">∫</span>
         <span className="absolute inset-0 rounded-xl bg-cyan/18 blur-md -z-10" />
       </div>
@@ -184,7 +213,7 @@ function NavItem({
       end={to === '/'}
       className={({ isActive }) => cn(
         'group relative flex items-center gap-2.5 rounded-xl px-2.5 py-[9px] text-[13px] transition-all duration-200',
-        isActive ? 'text-fg' : 'text-fg-mute hover:bg-white/5 hover:text-fg-soft',
+        isActive ? 'text-fg' : 'text-fg-mute hover:bg-veil/5 hover:text-fg-soft',
       )}
     >
       {({ isActive }) => (
@@ -223,7 +252,7 @@ function SideFooter({
       <div className="glass-subtle rounded-xl p-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-violet/30 to-cyan/22 text-[12px] font-bold text-fg ring-1 ring-white/10">
+            <div className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-violet/30 to-cyan/22 text-[12px] font-bold text-fg ring-1 ring-veil/10">
               {level}
             </div>
             <div className="leading-none">
@@ -242,7 +271,7 @@ function SideFooter({
       <button
         onClick={onToggleSfx}
         aria-pressed={sfx}
-        className="mt-2 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] text-fg-mute transition-colors hover:bg-white/5 hover:text-fg-soft"
+        className="mt-2 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] text-fg-mute transition-colors hover:bg-veil/5 hover:text-fg-soft"
       >
         {sfx ? <Volume2 size={14} /> : <VolumeX size={14} />}
         <span>音效 {sfx ? '开' : '关'}</span>
@@ -256,8 +285,12 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
 
+  /* 标题从导航表里反查，保证「侧栏高亮哪一项」和「顶栏写什么」永远一致 ——
+   * 两处各写一张路由→标题的映射，迟早会漂移。
+   * 这里自己调一次 navGroups 而不是接 props：TopBar 不是 AppShell 的直接子元素
+   * （它和 <Outlet/> 平级），传下去要绕一层，不如就地算。 */
   const title = (() => {
-    for (const g of NAV) {
+    for (const g of navGroups(user?.role === 'admin')) {
       for (const it of g.items) {
         if (it.to === '/' ? location.pathname === '/' : location.pathname.startsWith(it.to)) return it.label;
       }
@@ -273,7 +306,7 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
         <button
           onClick={onMenu}
           aria-label="打开导航菜单"
-          className="grid h-9 w-9 place-items-center rounded-lg text-fg-soft transition-colors hover:bg-white/6 lg:hidden"
+          className="grid h-9 w-9 place-items-center rounded-lg text-fg-soft transition-colors hover:bg-veil/6 lg:hidden"
         >
           <Menu size={18} />
         </button>
@@ -283,7 +316,7 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
         <div className="relative">
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex items-center gap-2 rounded-xl border border-hairline bg-white/4 py-1.5 pl-1.5 pr-2.5 transition-colors hover:bg-white/8"
+            className="flex items-center gap-2 rounded-xl border border-hairline bg-veil/4 py-1.5 pl-1.5 pr-2.5 transition-colors hover:bg-veil/8"
             aria-expanded={menuOpen}
             aria-haspopup="menu"
           >

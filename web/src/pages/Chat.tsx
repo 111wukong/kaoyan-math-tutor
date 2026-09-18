@@ -256,7 +256,7 @@ export default function Chat() {
                 key={q.text}
                 onClick={() => send(q.text)}
                 disabled={streaming || !kid}
-                className="flex items-center gap-1.5 rounded-lg border border-white/8 bg-white/4 px-2.5 py-1.5 text-[11.5px] text-fg-soft transition-all duration-200 hover:border-cyan/30 hover:bg-white/7 disabled:opacity-40"
+                className="flex items-center gap-1.5 rounded-lg border border-veil/8 bg-veil/4 px-2.5 py-1.5 text-[11.5px] text-fg-soft transition-all duration-200 hover:border-cyan/30 hover:bg-veil/7 disabled:opacity-40"
               >
                 <q.icon size={11} />
                 {q.text}
@@ -273,7 +273,7 @@ export default function Chat() {
               rows={1}
               placeholder={kid ? '把你的疑问打出来，Enter 发送，Shift+Enter 换行' : '先在上面选一个知识点'}
               disabled={!kid}
-              className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-hairline bg-white/4 px-3.5 py-3 text-[13.5px] leading-relaxed text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45 focus:bg-white/6 disabled:opacity-50"
+              className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-hairline bg-veil/4 px-3.5 py-3 text-[13.5px] leading-relaxed text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45 focus:bg-veil/6 disabled:opacity-50"
             />
             {streaming ? (
               <Button variant="danger" onClick={stop} className="h-11">
@@ -310,7 +310,7 @@ function MessageBubble({ role, content, streaming }: { role: string; content: st
         className={cn(
           'grid h-8 w-8 shrink-0 place-items-center rounded-xl border text-[11px] font-semibold',
           isUser
-            ? 'border-white/10 bg-white/6 text-fg-soft'
+            ? 'border-veil/10 bg-veil/6 text-fg-soft'
             : 'border-cyan/25 bg-cyan/10 text-cyan',
         )}
       >
@@ -321,8 +321,8 @@ function MessageBubble({ role, content, streaming }: { role: string; content: st
         className={cn(
           'max-w-[82%] rounded-2xl px-4 py-3 text-[13.5px] leading-[1.85]',
           isUser
-            ? 'border border-white/8 bg-white/6 text-fg'
-            : 'border border-hairline bg-white/3 text-fg-soft',
+            ? 'border border-veil/8 bg-veil/6 text-fg'
+            : 'border border-hairline bg-veil/3 text-fg-soft',
         )}
       >
         {content ? (

@@ -3,28 +3,72 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="color-scheme" content="dark" />
+  <meta name="color-scheme" content="dark light" />
   <meta name="theme-color" content="#05060c" />
   <meta name="description" content="研数 · 考研数学 AI 自学系统：知识树、每日一练、SM-2 间隔重复、错题本、公式实验室、多智能体课堂。" />
   <title>研数 · 考研数学 AI 自学系统</title>
+  <script>
+    /* 首屏防闪白 + 防闪主题。
+     *
+     * 这段跑在 bundle 之前，所以引不到 web/src/stores/theme.ts ——
+     * 只能把「读缓存 → 挂 data-theme」这件事重做一遍。
+     * ⚠️ 改 theme.ts 里 applyTheme 的行为时，记得同步改这里。
+     *
+     * 为什么值得重复这点代码：
+     *   · 不设 data-theme：CSS 会先用默认（深空）渲染一帧，
+     *     选宣纸的人每次刷新都会看到一次黑白翻转；
+     *   · 不设 color-scheme：亮色主题下滚动条和日期选择器会是黑的。
+     *
+     * BOOT_BG 是各主题的 ink-950。放在这里而不是 CSS 里，是因为
+     * 这段内联样式必须先于外链 CSS 生效 —— 它就是用来补上"CSS 还没到"
+     * 那个窗口的。8 个值，抄一遍，可接受。
+     */
+    (function () {
+      var BOOT_BG = {
+        'deep-space': '#05060c', 'cyber-lime': '#06100a', 'nord-frost': '#2e3440',
+        'ember': '#120806', 'midnight-rose': '#0c0614',
+        'paper': '#faf8f4', 'mint': '#f2f8f6', 'solarized': '#fdf6e3'
+      };
+      var LIGHT = { 'paper': 1, 'mint': 1, 'solarized': 1 };
+      var id = 'deep-space';
+      try { id = localStorage.getItem('yanshu:theme') || id; } catch (e) { /* 隐私模式 */ }
+      if (!BOOT_BG[id]) id = 'deep-space';
+      var el = document.documentElement;
+      el.setAttribute('data-theme', id);
+      el.setAttribute('data-mode', LIGHT[id] ? 'light' : 'dark');
+      el.style.colorScheme = LIGHT[id] ? 'light' : 'dark';
+      var bg = BOOT_BG[id];
+      el.style.background = bg;
+      // 把底色交给样式表里的规则用（#boot 要跟 html 同色，否则会露出两层）
+      el.style.setProperty('--boot-bg', bg);
+    })();
+  </script>
   <style>
-    /* 首屏防闪白：在 CSS 加载前就把底色铺上，否则深空主题会先闪一下白。
+    /* 首屏底色：在 CSS 加载前就把底色铺上，否则深空主题会先闪一下白。
      *
      * ⚠️ 底色只能挂在 html 上，**不要**给 body 也设 background。
      * 按 CSS 绘制顺序，body 的背景画在负 z-index 子元素之后 ——
      * 而赛博网格(-z-20)和星尘(-z-10)正是负 z-index 层，
      * body 一有背景就把它们整层盖住（着色器照跑，就是看不见）。
-     * 这段内联样式在 bundle 之前生效，比 index.css 更早，所以坑就在这里。 */
-    html { background: #05060c; }
+     * 这段内联样式在 bundle 之前生效，比 index.css 更早，所以坑就在这里。
+     *
+     * 具体色值由上面那段脚本按主题写成行内样式，这里只兜底。 */
+    html { background: var(--boot-bg, #05060c); }
     body { margin: 0; }
-    #boot { position: fixed; inset: 0; display: grid; place-items: center; background: #05060c; z-index: 9999; transition: opacity .5s ease; }
+    #boot {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      background: var(--boot-bg, #05060c); z-index: 9999;
+      transition: opacity .5s ease;
+    }
     #boot.gone { opacity: 0; pointer-events: none; }
     #boot .ring {
       width: 46px; height: 46px; border-radius: 50%;
-      border: 2px solid rgba(255,255,255,.08);
+      border: 2px solid currentColor; opacity: .35;
       border-top-color: #22d3ee; border-right-color: #a855f7;
       animation: bootspin .9s linear infinite;
     }
+    html[data-mode="light"] #boot .ring { color: #1c1917; }
+    html[data-mode="dark"] #boot .ring { color: #e9ebf4; }
     @keyframes bootspin { to { transform: rotate(360deg); } }
   </style>
 </head>

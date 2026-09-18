@@ -67,6 +67,70 @@ macOS 上可以直接双击 `启动.command`，它会自动装依赖、构建、
 npm run dev
 ```
 
+### 管理员账号
+
+首次启动时，服务端会检查「库里有没有管理员」。一个都没有就按下面的配置建一个：
+
+| 环境变量 | 默认值 |
+|---|---|
+| `ADMIN_EMAIL` | `wukong@qq.com` |
+| `ADMIN_PASSWORD` | `wgh123456` |
+| `ADMIN_USERNAME` | `管理员` |
+
+```
+⚠️ 默认密码是明文写在源码里的，自托管请务必改掉：
+     ADMIN_PASSWORD='你的密码' npm run start
+   启动时如果还在用内置默认密码，日志里会打一条 warn。
+```
+
+如果那个邮箱**已经被注册过**（比如你先自己注册了），启动时会把该账号提为管理员，
+并**重置成上面配置的密码** —— 因为原密码无从得知，不提权就进不去，提权不改密则你自己也可能进不去。
+这条只在「首次提权」那一次发生；之后再启动是纯读，**不会覆盖你改过的密码**。
+
+登录后侧栏会多出一个「管理」分组，里面有用户管理：搜人、看学情概览、
+改角色 / 状态 / 备注、重置密码、强制下线、删号，以及一份管理操作审计。
+
+> 停用和删号都会当场生效：停用会立刻注销该账号的全部登录会话，
+> 删号靠外键级联清掉他全部学习数据（作答、卡片、错题、笔记、成就）。
+> 服务端另外挡了三条会把系统搞成「没有管理员」的操作 ——
+> 不能取消自己的管理员权限、不能停用自己、不能删除自己。
+
+---
+
+## 外观主题
+
+8 套主题，每个账号各选各的，跟着账号走（存在 `user_settings.theme`）。
+设置页第一块就是外观面板，点一下立即生效。
+
+| 暗色 | 亮色 |
+|---|---|
+| **深空**（默认，青紫光谱 + 赛博网格地平线） | **宣纸**（暖白纸面 + 靛蓝） |
+| **赛博绿**（磷光绿终端） | **薄荷**（冷白 + 青绿） |
+| **北境**（Nord 极地蓝灰） | **护眼米**（Solarized Light） |
+| **熔岩**（暖橙暗底） | |
+| **午夜玫瑰**（深紫 + 品红） | |
+
+实现方式：Tailwind v4 的 `@theme` 把每个 token 编译成 `:root` 上的 CSS 变量，
+工具类编译成 `color: var(--color-fg)` 这种**间接引用**。所以「换主题」就是在
+`html[data-theme="xxx"]`（优先级 0,1,1 > `:root` 的 0,1,0）里重定义同一批变量，
+工具类自动跟着变 —— 不需要 `!important`，也不需要把颜色搬到 JS 里运行时注入。
+
+三个不那么显然的地方：
+
+- **`--color-veil` 是唯一一个明暗主题取值方向相反的令牌。** 全站「在当前底色上叠一层」
+  的地方（`bg-veil/5`、`border-veil/8`…共 137 处）都走它：暗色主题下它是白（叠亮），
+  亮色主题下它是黑（叠暗）。原来这些位置写的是 `bg-white/5`，亮色主题下白叠白，
+  卡片边界会**凭空消失**而页面依然「正常渲染」。
+- **亮色主题的强调色整体加深一档。** 深空的 `#22d3ee` 放在白底上对比度只有 1.9:1，
+  根本读不出来。所以宣纸的 cyan 是 `#0e7490` 这个量级。
+- **亮色主题不挂 WebGL 背景。** 霓虹赛博网格 + 磷光星尘画在暖白底上会变成一片灰蒙蒙的脏点。
+  亮色下改用 CSS 层那套淡色光晕 + 细网格 —— 那本来就是为「WebGL 挂掉时顶上来」写的降级路径。
+
+> 加一套新主题要改三处，缺一处都会静默失效（选了保存不上 / 保存了但没样式 / 有样式但选不到）：
+> `web/src/styles/index.css` 加一个 `html[data-theme="新id"]` 块、
+> `web/src/lib/themes.ts` 加一条注册表项、`server/src/lib/themes.js` 把 id 加进 `THEME_IDS`。
+> 接口冒烟里有一条断言盯服务端清单，漏改会红。
+
 ---
 
 ## 目录结构
@@ -75,45 +139,56 @@ npm run dev
 kaoyan-math-tutor/
 ├── server/                     Fastify 5 + better-sqlite3
 │   ├── src/
-│   │   ├── index.js            入口：鉴权闸门 / 静态托管 / SPA fallback
+│   │   ├── index.js            入口：鉴权闸门 / requireAdmin / 静态托管 / SPA fallback
 │   │   ├── db/
-│   │   │   ├── schema.sql      25 张表
+│   │   │   ├── schema.sql      26 张表
 │   │   │   ├── index.js        连接、建表、rebuildStats()
+│   │   │   ├── migrate.js      ★ 老库补列（ALTER TABLE）+ 引导管理员
 │   │   │   └── seed.js         幂等种子导入
 │   │   ├── lib/
 │   │   │   ├── sm2.js          间隔重复算法
 │   │   │   ├── game.js         XP / 等级 / 掌握度 / 25 项成就 / 连续打卡
 │   │   │   ├── judge.js        判题器（归一化 + 数值容差）
 │   │   │   ├── password.js     scrypt 哈希
-│   │   │   └── session.js      会话（库里只存 token 的 sha256）
-│   │   ├── routes/             auth / catalog / study / cards / game / misc / ai
+│   │   │   ├── session.js      会话（库里只存 token 的 sha256）
+│   │   │   └── themes.js       ★ 主题 id 白名单
+│   │   ├── routes/             auth / admin / catalog / study / cards / game / misc / ai
 │   │   └── data/               从原项目提取的 3 科 19 章 68 考点 204 题
 │   └── scripts/
 │       ├── extract-seed.mjs    用 node:vm 沙箱从原 window.KDATA/QDATA 提取
-│       └── smoke.mjs           接口端到端测试（134 项）
+│       └── smoke.mjs           接口端到端测试（247 项）
 ├── web/                        Vite 8 + React 19 + TS + Tailwind 4
 │   └── src/
-│       ├── styles/index.css    设计系统（深空底 / 玻璃面 / 光谱强调色 / HUD）
+│       ├── styles/index.css    设计系统（8 套主题 / 玻璃面 / 光谱强调色 / HUD）
 │       ├── components/
 │       │   ├── fx/             视觉特效层，全部自研、零依赖：
 │       │   │   ├── webgl.ts            全屏片元着色器封装（约 120 行）
-│       │   │   ├── CyberGrid.tsx       WebGL2 赛博网格地平线背景
-│       │   │   ├── Starfield.tsx       Canvas2D 星尘
+│       │   │   ├── CyberGrid.tsx       WebGL2 赛博网格地平线背景（仅暗色主题挂载）
+│       │   │   ├── Starfield.tsx       Canvas2D 星尘（仅暗色主题挂载）
 │       │   │   ├── KnowledgeGalaxy.tsx 可旋转 3D 知识星系
 │       │   │   ├── Hud.tsx             仪器感装饰（角标/刻度/读数/扫描线）
 │       │   │   └── Motion.tsx          数字滚动 / 倾斜卡 / 进度环 / 进度条
-│       │   ├── ui/             Primitives、Math（渲染管线）、Modal、Toaster
+│       │   ├── ui/             Primitives、Math（渲染管线）、Modal、Toaster、ThemePicker
 │       │   └── layout/         AppShell、AuthLayout
-│       ├── lib/                api / utils / hooks / sfx / achievements / deckExport
-│       └── pages/              15 个页面
+│       ├── lib/                api / utils / hooks / sfx / achievements / deckExport / themes
+│       ├── stores/             app / auth / theme
+│       └── pages/              16 个页面
 └── tests/
-    ├── browser-smoke.mjs       真浏览器冒烟（121 项，CDP，零依赖）
+    ├── browser-smoke.mjs       真浏览器冒烟（161 项，CDP，零依赖）
     ├── screenshot.mjs          逐页截图（npm run shots），供人眼审查
     ├── latex-coverage.mjs      公式渲染全量检查
     ├── pipeline-leak.mjs       渲染管线漏屏检查（真 katex 跑完整 renderRich）
+    ├── banding.mjs             近黑渐变色带检测
     ├── lib/server.mjs          测试用的服务生命周期（空闲端口 + 一次性库）
     └── run-all.mjs             汇总入口
 ```
+
+> `db/migrate.js` 为什么必须存在：`schema.sql` 全是 `CREATE TABLE IF NOT EXISTS`，
+> 表已存在时**整条语句被跳过** —— 也就是说「往已有表里加一列」它做不到。
+> 所以 `users.role / status / note` 三列走 `ALTER TABLE`，而凡是依赖新增列的
+> **索引**也必须放在 `migrate()` 里：`schema.sql` 是整段 `exec` 的，
+> 在老库上执行 `CREATE INDEX ... ON users(role)` 会直接抛 `no such column`
+> 把 `initSchema` 打断，服务根本起不来（报错点在 `index.js`，看着像建表脚本坏了）。
 
 ---
 
@@ -239,6 +314,13 @@ answerXp = max(1, round(10 × 掌握度倍率 × 当日重复倍率))
 | API Key | **服务端存库，永不回传原文**。`GET /api/settings/llm` 只返回 `hasKey` 布尔 + `keyPreview`（前 6 后 4 位）。`/api/export` 默认剥掉 Key |
 | 限流 | 注册 / 登录 10–12 次每 10 分钟 |
 | 鉴权闸门 | 全局 `onRequest` 钩子，白名单之外所有 `/api/*` 都必须带有效会话 —— 挂在每个路由上迟早漏一个 |
+| 管理员鉴权 | `/api/admin/*` 每条路由**逐条**挂 `requireAdmin`，且每次都回库读 `role`。不信会话里的快照 —— 会话 30 天有效，缓存 role 会让「撤掉某人的管理员」要等他重新登录才生效 |
+| 权限护栏 | 不能取消自己的管理员权限 / 不能停用自己 / 不能删除自己 / 不能把最后一个管理员降级、停用或删除。都在服务端，前端置灰只是体验 |
+| 停用即时生效 | 停用会 `DELETE FROM sessions WHERE user_id = ?`。只在登录处拦的话，对方手里那个 30 天 cookie 还是有效的，「停用」是假的 |
+| 越权响应 | 一律 403 + `code=FORBIDDEN`，且响应体里不带任何用户数据（不返回 404 是为了避免被用来探测哪些 id 存在） |
+| 管理台隐私边界 | 管理员看得到**学情统计**，看不到密码哈希/盐、别人的 LLM API Key、聊天正文、笔记内容。能看的是「有多少条」不是「内容是什么」 |
+| SQL 注入 | 列表排序走**白名单映射**（`SORTS` 对象），绝不把前端传来的字符串拼进 `ORDER BY` —— 参数化占位符在 `ORDER BY` 上不生效，列名不是值 |
+| 管理审计 | 所有写操作进 `admin_log`（操作者 / 目标 / 改前改后值 / IP）。**不记密码原文，连脱敏都不记** —— 审计日志会被导出、会被截图 |
 
 > 原版把 API Key 存在 localStorage，任何 XSS 都能拿走。这是搬服务端最主要的动机之一。
 
@@ -247,7 +329,7 @@ answerXp = max(1, round(10 × 掌握度倍率 × 当日重复倍率))
 ## 测试
 
 ```bash
-npm test               # 跑全部：13 + 23 + 168 + 121 + 1 = 326 项
+npm test               # 跑全部：13 + 23 + 247 + 161 + 1 = 445 项
 npm run test:api       # 只跑接口
 npm run test:browser   # 只跑浏览器
 npm run test:latex     # 只跑公式渲染全量检查
@@ -277,9 +359,45 @@ BASE=http://127.0.0.1:5180 npm test
 
 > 这个设计是踩坑换来的。两个套件以前都假设「5180 上已经有人把服务起好了」，于是测试结果不取决于代码，而取决于**当时那个服务是谁起的、连的哪个库、有没有被改过**。实际代价：本机残留的旧服务占着端口，新服务绑不上，满屏「等待超时」，报出 44 项失败 —— 而代码一行没错。反过来更阴：残留服务恰好是好的，测试全绿，但你验证的其实是几分钟前编译的旧产物。
 
-- **接口套件**（`server/scripts/smoke.mjs`）：注册 → 会话 → 知识树 → 真实判题作答 → 学情 → 错题 → SM-2 复习 → 统计 → 成就 → 每日任务 → 课堂持久化 → 导出 → 登出重登 → **多账号数据隔离**。
-- **浏览器套件**（`tests/browser-smoke.mjs`）：用系统里已有的 Chromium 内核 + Node 22 自带的 `WebSocket` 说 CDP，**零 npm 依赖**。真开页面走完 14 个路由，断言 canvas 真的画了东西（数非透明像素）、切模块后画布真的重画、拖滑块读数真的变、公式真的渲染且没漏源码。找不到浏览器会优雅跳过。
+- **接口套件**（`server/scripts/smoke.mjs`）：注册 → 会话 → 知识树 → 真实判题作答 → 学情 → 错题 → SM-2 复习 → 统计 → 成就 → 每日任务 → 课堂持久化 → 导出 → 登出重登 → **多账号数据隔离** → **管理员与权限**。
+- **浏览器套件**（`tests/browser-smoke.mjs`）：用系统里已有的 Chromium 内核 + Node 22 自带的 `WebSocket` 说 CDP，**零 npm 依赖**。真开页面走完 14 个路由，断言 canvas 真的画了东西（数非透明像素）、切模块后画布真的重画、拖滑块读数真的变、公式真的渲染且没漏源码、**切主题后底色与文字对比度真的翻过来**、**管理台普通用户进不去而管理员进得去**。找不到浏览器会优雅跳过。
 - **渲染套件**（`latex-coverage.mjs` + `pipeline-leak.mjs`）：用真 katex 跑完整 `renderRich`，全量扫 204 题 + 68 知识点共 1304 段文本，检查两条不变量 —— KaTeX 解析失败 = 0、裸命令漏屏 = 0。管线代码是**从 `Math.tsx` 现场抽**的（调 tsc），不手抄副本。
+
+### 权限测试为什么必须打到服务端
+
+「把管理入口藏起来」不是权限。手敲 `/admin`、直接 `curl` 接口都绕得过去。
+所以那一节的断言全部对着 HTTP 状态码，而不是「按钮在不在」：
+
+```
+普通用户 → GET  /api/admin/users           期望 403 + code=FORBIDDEN
+普通用户 → PATCH /api/admin/users/1 {role} 期望 403
+普通用户 → DELETE /api/admin/users/1       期望 403
+管理员   → PATCH /api/admin/users/<自己> {role:'user'}  期望 400 SELF_DEMOTE
+管理员   → PATCH /api/admin/users/<自己> {status:'disabled'} 期望 400 SELF_DISABLE
+管理员   → DELETE /api/admin/users/<自己>  期望 400 SELF_DELETE
+```
+
+> ★ 浏览器套件里那条「删自己」的断言，**必须先问出自己的 id，不能写死 1**。
+> 写死的话，万一 id 1 不是管理员而是某个普通用户，那一发 `DELETE` 会真的把他
+> 连数据一起删掉 —— 测试自己把库改坏了，而且它还会「通过」（返回 200 也是真删了）。
+
+### 主题测试为什么量计算样式
+
+主题坏掉的典型表现是「页面不报错、控制台干净、截图看着有颜色，
+只是某些文字和底色撞在一起了」。那种坏法只有量对比度才看得见，
+所以那几条断言读的是 `getComputedStyle` 而不是截图：
+
+- 切到宣纸后 `--color-veil` 必须从白翻成深色（不翻的话 137 处卡片边界凭空消失）；
+- 正文标题的实际 `color` 三通道都要 < 140（否则就是浅色压浅底）；
+- 卡片描边的实际 `borderTopColor` 必须是深色、卡面必须是亮的；
+- 切回深空后 `html` 的 background 要回到 `rgb(5, 6, 12)`。
+
+> 一个真踩过的坑：首屏防闪的内联脚本会给 `<html>` 写一个**行内** `background`，
+> 而行内样式优先级高于样式表 —— 于是 `html { background: var(--color-ink-950) }`
+> 被永久压住，切主题时其它颜色都变了、唯独页面底色不变。
+> 修法是 `applyTheme()` 里显式 `removeProperty('background')`。
+> 这个 bug 的表现极具欺骗性：`data-theme` 对了、令牌对了、正文也变深了，
+> 只有背景没动 —— 只看截图或者只读 `dataset` 都会漏掉它。
 
 > 浏览器套件里有个关键细节：启动参数必须带 `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`。**不加这三个参数，headless 下 `getContext('webgl2')` 直接返回 null**，赛博网格背景会静默降级成 CSS 备胎 —— 于是「背景画出来了」这条断言测的其实是备胎，主胎装没装上根本不知道。SwiftShader 是纯 CPU 实现，慢，但确定性好（CI 上也一样）。
 
@@ -297,15 +415,19 @@ BASE=http://127.0.0.1:5180 npm test
 
 ## 视觉
 
-暗色深空 + 玻璃拟态 + 赛博网格地平线，三层色彩体系：
+默认主题「深空」：暗色 + 玻璃拟态 + 赛博网格地平线，三层色彩体系（另有 7 套可选，见上面「外观主题」）：
 
 ```
---ink-*       深空底    背景，永远比内容暗，带一点冷色偏移
+--ink-*       底        背景，永远比内容暗，带一点冷色偏移
 --glass-*     玻璃面    卡片与面板，半透明 + 模糊 + 一像素内发光边
 --spectrum-*  光谱强调  青 → 蓝 → 紫，只用于「需要被看见的东西」
 ```
 
 纪律写在 CSS 注释里：不用高饱和纯色大面积填充；强调色只出现在文字、描边、光晕和小面积填充上；**长时间盯着看的东西（正文、列表）一律用低饱和的 ink 系列**。
+
+> 加主题时最容易忽略的一条纪律：**透明度要跟着线宽走**。图表的细网格线（1px）
+> 用 0.15 才勉强可辨，而环形进度条的描边（5px）用 0.07 就够显形 ——
+> 两者不能套同一个值。这条注释原来就写在 `Stats.tsx` 里，改造时保留了下来。
 
 ### 背景是三层，顺序不能换
 

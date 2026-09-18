@@ -134,10 +134,10 @@ export function QuestionCard({
                   className={cn(
                     'group flex w-full items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-all duration-200',
                     'disabled:cursor-default',
-                    !result && 'border-hairline bg-white/3 hover:border-cyan/35 hover:bg-white/6',
+                    !result && 'border-hairline bg-veil/3 hover:border-cyan/35 hover:bg-veil/6',
                     isAnswer && 'border-emerald/45 bg-emerald/10',
                     isWrongPick && 'border-rose/45 bg-rose/10',
-                    result && !isAnswer && !isWrongPick && 'border-hairline bg-white/2 opacity-55',
+                    result && !isAnswer && !isWrongPick && 'border-hairline bg-veil/2 opacity-55',
                   )}
                 >
                   <span
@@ -145,7 +145,7 @@ export function QuestionCard({
                       'grid h-6 w-6 shrink-0 place-items-center rounded-lg border text-[11.5px] font-semibold transition-colors',
                       isAnswer ? 'border-emerald/50 bg-emerald/20 text-emerald-200'
                         : isWrongPick ? 'border-rose/50 bg-rose/20 text-rose-200'
-                          : 'border-white/10 bg-white/5 text-fg-mute group-hover:border-cyan/30 group-hover:text-fg-soft',
+                          : 'border-veil/10 bg-veil/5 text-fg-mute group-hover:border-cyan/30 group-hover:text-fg-soft',
                     )}
                   >
                     {isAnswer ? <Check size={12} /> : isWrongPick ? <X size={12} /> : o.k}
@@ -153,7 +153,7 @@ export function QuestionCard({
                   <span className="min-w-0 flex-1 text-[13.5px] leading-relaxed text-fg-soft">
                     <InlineMath text={o.t} />
                   </span>
-                  <kbd className="hidden shrink-0 rounded border border-white/8 px-1.5 py-0.5 text-[10px] text-fg-faint group-hover:block">
+                  <kbd className="hidden shrink-0 rounded border border-veil/8 px-1.5 py-0.5 text-[10px] text-fg-faint group-hover:block">
                     {i + 1}
                   </kbd>
                 </button>
@@ -169,7 +169,7 @@ export function QuestionCard({
               onChange={(e) => setText(e.target.value)}
               placeholder="输入你的答案，支持 1/2、0.5、pi 这类写法"
               className={cn(
-                'h-11 flex-1 rounded-xl border bg-white/4 px-3.5 font-mono text-[14px] text-fg outline-none transition-all',
+                'h-11 flex-1 rounded-xl border bg-veil/4 px-3.5 font-mono text-[14px] text-fg outline-none transition-all',
                 'placeholder:font-sans placeholder:text-fg-faint',
                 'focus:border-cyan/50 focus:shadow-[0_0_0_4px_rgba(34,211,238,0.09)]',
                 result?.correct === false ? 'border-rose/45' : result?.correct ? 'border-emerald/45' : 'border-hairline',
@@ -219,7 +219,7 @@ export function QuestionCard({
               </div>
 
               {result.analysis && (
-                <div className="mt-3 border-t border-white/8 pt-3">
+                <div className="mt-3 border-t border-veil/8 pt-3">
                   <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] font-medium text-fg-mute">
                     <Lightbulb size={12} /> 解析
                   </div>
@@ -253,7 +253,7 @@ export function QuestionCard({
 export function QuizEmpty({ title, desc, action }: { title: string; desc: string; action?: React.ReactNode }) {
   return (
     <Panel className="flex flex-col items-center px-6 py-14 text-center">
-      <div className="float mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-white/8 bg-white/4 text-emerald">
+      <div className="float mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-veil/8 bg-veil/4 text-emerald">
         <Check size={24} />
       </div>
       <h3 className="text-[15px] font-medium text-fg-soft">{title}</h3>

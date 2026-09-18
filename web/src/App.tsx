@@ -20,6 +20,7 @@ import Chat from '@/pages/Chat';
 import Classroom from '@/pages/Classroom';
 import Achievements from '@/pages/Achievements';
 import Settings from '@/pages/Settings';
+import Admin from '@/pages/Admin';
 
 export default function App() {
   const { user, ready, refresh } = useAuth();
@@ -57,6 +58,10 @@ export default function App() {
                 <Route path="/classroom" element={<Classroom />} />
                 <Route path="/achievements" element={<Achievements />} />
                 <Route path="/settings" element={<Settings />} />
+                {/* 管理台。这里不做角色判断 —— 页面自己会检查并跳回首页。
+                 * 真正的门在服务端：/api/admin/* 每条路由都挂 requireAdmin，
+                 * 非管理员即便把这一行删掉也拿不到数据。 */}
+                <Route path="/admin" element={<Admin />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Routes>
@@ -85,11 +90,11 @@ function BootScreen() {
       <div className="flex flex-col items-center gap-4">
         <div className="relative grid h-14 w-14 place-items-center">
           <span className="absolute inset-0 rounded-2xl bg-gradient-to-br from-cyan/25 to-violet/20 blur-lg" />
-          <span className="relative grid h-12 w-12 place-items-center rounded-2xl border border-white/12 bg-white/5 text-[20px] font-semibold">
+          <span className="relative grid h-12 w-12 place-items-center rounded-2xl border border-veil/12 bg-veil/5 text-[20px] font-semibold">
             <span className="text-aurora">∫</span>
           </span>
         </div>
-        <div className="h-1 w-32 overflow-hidden rounded-full bg-white/8">
+        <div className="h-1 w-32 overflow-hidden rounded-full bg-veil/8">
           <div className="h-full w-1/2 animate-[skeleton_1.2s_ease_infinite] rounded-full bg-gradient-to-r from-cyan to-violet" />
         </div>
       </div>

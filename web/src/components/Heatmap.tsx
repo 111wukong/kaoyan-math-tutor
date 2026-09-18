@@ -60,7 +60,7 @@ export function Heatmap({
   };
 
   const LEVEL_BG = [
-    'bg-white/5',
+    'bg-veil/5',
     'bg-cyan/22',
     'bg-cyan/40',
     'bg-cyan/62',

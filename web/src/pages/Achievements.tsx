@@ -130,8 +130,8 @@ export default function Achievements() {
                     className={cn(
                       'grid h-11 w-11 shrink-0 place-items-center rounded-xl border text-[17px] font-semibold',
                       got
-                        ? cn('border-white/12 bg-white/8', tier.text)
-                        : 'border-white/8 bg-white/3 text-fg-faint',
+                        ? cn('border-veil/12 bg-veil/8', tier.text)
+                        : 'border-veil/8 bg-veil/3 text-fg-faint',
                     )}
                   >
                     {got ? a.icon : <Lock size={15} />}

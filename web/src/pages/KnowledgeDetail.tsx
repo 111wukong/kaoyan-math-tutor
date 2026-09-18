@@ -13,7 +13,7 @@ import { RichText } from '@/components/ui/Math';
 import { ProgressRing } from '@/components/fx/Motion';
 import { QuestionCard } from '@/components/QuestionCard';
 import { announceAchievements } from '@/components/ui/Toaster';
-import { cn, DIFFICULTY, MASTERY_STYLE, relTime } from '@/lib/utils';
+import { cn, DIFFICULTY, MASTERY_STYLE, relTime, cssVar } from '@/lib/utils';
 
 export default function KnowledgeDetail() {
   const { kid = '' } = useParams();
@@ -132,10 +132,10 @@ export default function KnowledgeDetail() {
               size={92}
               stroke={7}
               gradient={
-                mastery.level === 'mastered' ? ['#34d399', '#22d3ee']
-                  : mastery.level === 'proficient' ? ['#22d3ee', '#3b82f6']
-                    : mastery.level === 'learning' ? ['#fbbf24', '#f59e0b']
-                      : ['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.1)']
+                mastery.level === 'mastered' ? [cssVar('--color-emerald', '#34d399'), cssVar('--color-cyan', '#22d3ee')]
+                  : mastery.level === 'proficient' ? [cssVar('--color-cyan', '#22d3ee'), cssVar('--color-blue', '#3b82f6')]
+                    : mastery.level === 'learning' ? [cssVar('--color-amber', '#fbbf24'), cssVar('--color-amber', '#f59e0b')]
+                      : [cssVar('--color-hairline-strong', 'rgba(255,255,255,0.2)'), cssVar('--color-hairline', 'rgba(255,255,255,0.1)')]
               }
               label={
                 <div className="text-center">
@@ -238,7 +238,7 @@ export default function KnowledgeDetail() {
             {notes?.length > 0 && (
               <div className="mt-4 space-y-2">
                 {notes.map((n: any) => (
-                  <div key={n.id} className="group flex items-start gap-3 rounded-xl border border-white/7 bg-white/3 px-3.5 py-2.5">
+                  <div key={n.id} className="group flex items-start gap-3 rounded-xl border border-veil/7 bg-veil/3 px-3.5 py-2.5">
                     <p className="min-w-0 flex-1 whitespace-pre-wrap text-[13px] leading-relaxed text-fg-soft">{n.text}</p>
                     <div className="flex shrink-0 items-center gap-2">
                       <span className="text-[11px] text-fg-faint">{n.date}</span>
@@ -270,7 +270,7 @@ export default function KnowledgeDetail() {
               <Row label="全部答对过" value={mastery.allRight ? <span className="text-emerald">是</span> : <span className="text-fg-mute">否</span>} />
             </div>
             {mastery.level !== 'mastered' && (
-              <p className="mt-3.5 rounded-lg border border-white/7 bg-white/3 px-3 py-2.5 text-[11.5px] leading-relaxed text-fg-mute">
+              <p className="mt-3.5 rounded-lg border border-veil/7 bg-veil/3 px-3 py-2.5 text-[11.5px] leading-relaxed text-fg-mute">
                 评上「精通」需要：作答 ≥ 3 次、正确率 ≥ 90%，且该考点下每道题都答对过。
               </p>
             )}
@@ -289,7 +289,7 @@ export default function KnowledgeDetail() {
                   <Link
                     key={r.id}
                     to={`/learn/${r.id}`}
-                    className="group flex items-center gap-2 rounded-lg border border-white/7 bg-white/3 px-3 py-2 text-[12.5px] text-fg-soft transition-all hover:border-violet/25 hover:bg-white/6"
+                    className="group flex items-center gap-2 rounded-lg border border-veil/7 bg-veil/3 px-3 py-2 text-[12.5px] text-fg-soft transition-all hover:border-violet/25 hover:bg-veil/6"
                   >
                     <Target size={12} className="shrink-0 text-fg-faint" />
                     <span className="min-w-0 flex-1 truncate">{r.title}</span>
@@ -306,7 +306,7 @@ export default function KnowledgeDetail() {
               <SectionTitle title="最近作答" className="mb-3" />
               <div className="space-y-1.5">
                 {data.history.slice(0, 8).map((h: any, i: number) => (
-                  <div key={i} className="flex items-center gap-2.5 rounded-lg border border-white/6 bg-white/2 px-3 py-2">
+                  <div key={i} className="flex items-center gap-2.5 rounded-lg border border-veil/6 bg-veil/2 px-3 py-2">
                     <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', h.correct ? 'bg-emerald' : 'bg-rose')} />
                     <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-fg-soft">{h.answer || '—'}</span>
                     <span className="shrink-0 text-[10.5px] text-fg-faint">{relTime(h.ts)}</span>

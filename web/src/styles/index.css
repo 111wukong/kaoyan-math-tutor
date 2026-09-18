@@ -1,18 +1,38 @@
 @import "tailwindcss";
 
 /* ============================================================
-   研数 · 设计系统 —— 暗色深空 + 玻璃拟态
+   研数 · 设计系统
    ============================================================
-   三个层次，别混：
-     1. 深空底（--ink-*）   ：背景。永远比内容暗，永远带一点冷色偏移。
-     2. 玻璃面（--glass-*）  ：卡片与面板。半透明 + 模糊 + 一像素内发光边。
-     3. 光谱（--spectrum-*） ：强调色。青 → 蓝 → 紫，只用于"需要被看见的东西"。
-   纪律：不使用高饱和纯色大面积填充；强调色只出现在文字、描边、光晕和小面积填充上。
-   长时间盯着看的东西（正文、列表）一律用低饱和的 ink 系列。
+   三层结构，别混：
+     1. 底（--color-ink-*）  ：背景。永远比内容暗（暗色主题）/ 亮（亮色主题）。
+     2. 面（--color-glass-* / --glass-*）：卡片与面板。
+     3. 光谱（--color-cyan 等）：强调色。只用于"需要被看见的东西"。
+
+   纪律：不用高饱和纯色大面积填充；强调色只出现在文字、描边、光晕和小面积填充上。
+   长时间盯着看的东西（正文、列表）一律用低饱和的 fg / ink 系列。
+
+   ── 多主题是怎么实现的 ────────────────────────────────────────────
+   Tailwind v4 的 @theme 会把每个 token 编译成 :root 上的 CSS 变量，
+   工具类则编译成 `color: var(--color-fg)` 这种**间接引用**。
+   所以「换主题」= 在更高优先级的选择器里重定义同一个变量，工具类自动跟着变。
+
+   优先级：:root 是 (0,1,0)，html[data-theme="x"] 是 (0,1,1) —— 后者赢。
+   不需要 !important，也不需要把颜色搬到 JS 里运行时注入。
+
+   代价是：**CSS 变量不能出现在 Tailwind 的类名里做条件判断**，
+   所以凡是「暗色一套、亮色另一套」的，只能靠变量值本身不同，
+   不能靠 `dark:` 之类的变体。这也是为什么下面几乎每个视觉参数都提成了变量。
+
+   ── 加一个新主题要改哪里 ──────────────────────────────────────────
+     1. 本文件：复制一份 html[data-theme="新id"] 块，改值；
+     2. web/src/lib/themes.ts：加一条注册表项（含缩略图色板）；
+     3. server/src/lib/themes.js：把 id 加进 THEME_IDS。
+   三处缺一处都会静默失效（选了保存不上 / 保存了但没样式 / 有样式但选不到）。
+   smoke.mjs 有一条断言比对 2 和 3，漏改会红。
    ============================================================ */
 
 @theme {
-  /* ---- 深空底 ---- */
+  /* ---- 底：表面阶梯 ---- */
   --color-ink-1000: #03040a;
   --color-ink-950: #05060c;
   --color-ink-900: #080b14;
@@ -20,6 +40,26 @@
   --color-ink-800: #10151f;
   --color-ink-700: #171d29;
   --color-ink-600: #222938;
+
+  /* ---- 叠层色 ----
+   * 语义是「在当前底色上叠一层，让它稍微偏离底色」。
+   * 暗色主题 = 白色叠上去（变亮）；亮色主题 = 黑色叠上去（变暗）。
+   * 所以它是**唯一一个明暗主题取值方向相反**的 token。
+   *
+   * 为什么必须单独有一个：全站原来写的是 bg-white/5 这类。
+   * 亮色主题下白叠白 = 完全看不见，卡片边界会凭空消失。 */
+  --color-veil: #ffffff;
+
+  /* ---- 遮罩 ----
+   * 弹窗/抽屉背后的压暗层。**所有主题都用深色** ——
+   * 亮色主题下用白色遮罩，弹窗会像"浮在一片雾上"，层级读不出来。 */
+  --color-scrim: #03040a;
+
+  /* ---- 强调色实心块上的文字 ----
+   * 主按钮是 from-cyan to-blue 的实心渐变。压在上面的字必须是深色，
+   * 否则浅色渐变 + 浅色字 = 看不见。这个角色和 ink-1000 不一样：
+   * ink-1000 在亮色主题里是白的，而这里永远得是深的。 */
+  --color-on-accent: #03040a;
 
   /* ---- 玻璃 ---- */
   --color-glass-1: rgba(255, 255, 255, 0.035);
@@ -53,11 +93,503 @@
 }
 
 /* ============================================================
+   非颜色令牌（默认 = 深空）
+   ============================================================
+   这些不参与 Tailwind 工具类生成，只在 CSS 里用，所以放 :root 不放 @theme。
+   分两类：
+     · 结构类（glass-sheet / glass-shadow / halo / mesh）—— 决定"面"和"底"的质感；
+     · 语义类（sel / katex / autofill / skeleton）—— 单独某处的颜色。
+   ============================================================ */
+:root {
+  /* 玻璃面板那层"不透明底"。
+   * ⚠️ 不是可选项：背景是会动的透视网格 + 星尘，纯白高光压不住它，
+   * 网格线会直接穿过卡片里的正文。 */
+  --glass-sheet: rgba(6, 8, 16, 0.58);
+  --glass-sheet-strong: rgba(8, 11, 20, 0.72);
+  /* 面板内部的斜向高光，两层 */
+  --glass-hi-1: rgba(255, 255, 255, 0.055);
+  --glass-hi-2: rgba(255, 255, 255, 0.022);
+  --glass-hi-3: rgba(255, 255, 255, 0.085);
+  --glass-hi-4: rgba(255, 255, 255, 0.035);
+  /* 顶边一像素内高光 */
+  --glass-edge: rgba(255, 255, 255, 0.05);
+  --glass-edge-strong: rgba(255, 255, 255, 0.07);
+  /* 外投影 */
+  --glass-shadow: rgba(0, 0, 0, 0.9);
+  --glass-shadow-strong: rgba(0, 0, 0, 0.95);
+  --glass-subtle-bg: rgba(255, 255, 255, 0.025);
+  --glass-subtle-bd: rgba(255, 255, 255, 0.055);
+  /* .hairline-top 那条顶部渐变 */
+  --hairline-top: rgba(255, 255, 255, 0.22);
+
+  /* 全屏底纹：三层径向光晕 */
+  --halo-a: rgba(34, 211, 238, 0.10);
+  --halo-b: rgba(168, 85, 247, 0.10);
+  --halo-c: rgba(59, 130, 246, 0.09);
+  /* 静态细网格（WebGL 挂掉时的降级备胎） */
+  --mesh-line: rgba(255, 255, 255, 0.028);
+
+  --scroll-thumb: rgba(255, 255, 255, 0.09);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.18);
+
+  --sel-bg: rgba(34, 211, 238, 0.3);
+  --sel-fg: #ffffff;
+
+  /* 光谱渐变（text-spectrum / text-aurora / 进度条） */
+  --spectrum-a: #67e8f9;
+  --spectrum-b: #60a5fa;
+  --spectrum-c: #c084fc;
+
+  --katex-bg: rgba(255, 255, 255, 0.022);
+  --katex-rule: rgba(233, 235, 244, 0.85);
+  --autofill-bg: #0b0f1a;
+
+  --skeleton-a: rgba(255, 255, 255, 0.04);
+  --skeleton-b: rgba(255, 255, 255, 0.09);
+  --shimmer: rgba(255, 255, 255, 0.28);
+  --spotlight: rgba(120, 200, 255, 0.13);
+  --glow: rgba(34, 211, 238, 0.30);
+}
+
+/* ============================================================
+   主题：暗色系
+   ============================================================
+   deep-space 就是 :root 的默认值，这里不重复声明 —— 少一处同步点。
+   ============================================================ */
+
+/* ---- 赛博绿：磷光绿终端 ---- */
+html[data-theme="cyber-lime"] {
+  --color-ink-1000: #040a06;
+  --color-ink-950: #06100a;
+  --color-ink-900: #08150d;
+  --color-ink-850: #0b1c12;
+  --color-ink-800: #102618;
+  --color-ink-700: #173322;
+  --color-ink-600: #22452f;
+
+  --color-cyan: #a3e635;
+  --color-blue: #10b981;
+  --color-violet: #2dd4bf;
+  --color-magenta: #84cc16;
+  --color-emerald: #4ade80;
+  --color-amber: #facc15;
+  --color-rose: #fb7185;
+
+  --color-fg: #e6f5ea;
+  --color-fg-soft: #a3c9b0;
+  --color-fg-mute: #6a9078;
+  --color-fg-faint: #41604d;
+
+  --glass-sheet: rgba(4, 12, 8, 0.58);
+  --glass-sheet-strong: rgba(6, 16, 10, 0.72);
+  --halo-a: rgba(163, 230, 53, 0.10);
+  --halo-b: rgba(45, 212, 191, 0.10);
+  --halo-c: rgba(16, 185, 129, 0.09);
+
+  --sel-bg: rgba(163, 230, 53, 0.28);
+  --spectrum-a: #bef264;
+  --spectrum-b: #34d399;
+  --spectrum-c: #2dd4bf;
+  --glow: rgba(163, 230, 53, 0.30);
+  --autofill-bg: #0b1c12;
+  --katex-rule: rgba(230, 245, 234, 0.85);
+}
+
+/* ---- 北境：Nord 极地蓝灰 ---- */
+html[data-theme="nord-frost"] {
+  --color-ink-1000: #22272f;
+  --color-ink-950: #2e3440;
+  --color-ink-900: #343b48;
+  --color-ink-850: #3b4252;
+  --color-ink-800: #434c5e;
+  --color-ink-700: #4c566a;
+  --color-ink-600: #5a6580;
+
+  --color-cyan: #88c0d0;
+  --color-blue: #81a1c1;
+  --color-violet: #b48ead;
+  --color-magenta: #bf616a;
+  --color-emerald: #a3be8c;
+  --color-amber: #ebcb8b;
+  --color-rose: #bf616a;
+
+  --color-fg: #eceff4;
+  --color-fg-soft: #c3cddd;
+  --color-fg-mute: #8a97ad;
+  --color-fg-faint: #5c6a83;
+
+  --glass-sheet: rgba(46, 52, 64, 0.60);
+  --glass-sheet-strong: rgba(59, 66, 82, 0.74);
+  --halo-a: rgba(136, 192, 208, 0.12);
+  --halo-b: rgba(180, 142, 173, 0.10);
+  --halo-c: rgba(94, 129, 172, 0.12);
+
+  --sel-bg: rgba(136, 192, 208, 0.32);
+  --spectrum-a: #88c0d0;
+  --spectrum-b: #81a1c1;
+  --spectrum-c: #b48ead;
+  --glow: rgba(136, 192, 208, 0.32);
+  --autofill-bg: #3b4252;
+  --katex-rule: rgba(236, 239, 244, 0.85);
+}
+
+/* ---- 熔岩：暖橙暗底 ---- */
+html[data-theme="ember"] {
+  --color-ink-1000: #0a0504;
+  --color-ink-950: #120806;
+  --color-ink-900: #1a0d09;
+  --color-ink-850: #24120d;
+  --color-ink-800: #2f1811;
+  --color-ink-700: #3d2018;
+  --color-ink-600: #4f2b20;
+
+  --color-cyan: #fb923c;
+  --color-blue: #f59e0b;
+  --color-violet: #f43f5e;
+  --color-magenta: #e11d48;
+  --color-emerald: #34d399;
+  --color-amber: #fbbf24;
+  --color-rose: #fb7185;
+
+  --color-fg: #f7ece6;
+  --color-fg-soft: #c9ab9e;
+  --color-fg-mute: #8f7065;
+  --color-fg-faint: #5e463d;
+
+  --glass-sheet: rgba(18, 9, 6, 0.58);
+  --glass-sheet-strong: rgba(26, 13, 9, 0.72);
+  --halo-a: rgba(251, 146, 60, 0.12);
+  --halo-b: rgba(244, 63, 94, 0.10);
+  --halo-c: rgba(245, 158, 11, 0.10);
+
+  --sel-bg: rgba(251, 146, 60, 0.30);
+  --spectrum-a: #fdba74;
+  --spectrum-b: #fbbf24;
+  --spectrum-c: #fb7185;
+  --glow: rgba(251, 146, 60, 0.30);
+  --autofill-bg: #24120d;
+  --katex-rule: rgba(247, 236, 230, 0.85);
+}
+
+/* ---- 午夜玫瑰：深紫底 ---- */
+html[data-theme="midnight-rose"] {
+  --color-ink-1000: #08040d;
+  --color-ink-950: #0c0614;
+  --color-ink-900: #120a1c;
+  --color-ink-850: #180e25;
+  --color-ink-800: #1f132e;
+  --color-ink-700: #2a1a3d;
+  --color-ink-600: #382450;
+
+  --color-cyan: #e879f9;
+  --color-blue: #a855f7;
+  --color-violet: #c084fc;
+  --color-magenta: #ec4899;
+  --color-emerald: #34d399;
+  --color-amber: #fbbf24;
+  --color-rose: #fb7185;
+
+  --color-fg: #f1e9f7;
+  --color-fg-soft: #b9a5cd;
+  --color-fg-mute: #7d6893;
+  --color-fg-faint: #514066;
+
+  --glass-sheet: rgba(12, 6, 20, 0.58);
+  --glass-sheet-strong: rgba(18, 10, 28, 0.72);
+  --halo-a: rgba(232, 121, 249, 0.12);
+  --halo-b: rgba(168, 85, 247, 0.12);
+  --halo-c: rgba(192, 132, 252, 0.10);
+
+  --sel-bg: rgba(232, 121, 249, 0.30);
+  --spectrum-a: #f0abfc;
+  --spectrum-b: #c084fc;
+  --spectrum-c: #a855f7;
+  --glow: rgba(232, 121, 249, 0.30);
+  --autofill-bg: #180e25;
+  --katex-rule: rgba(241, 233, 247, 0.85);
+}
+
+/* ============================================================
+   主题：亮色系
+   ============================================================
+   亮色主题要做的不只是"把底色改浅"。三件事必须同时做，少一件都会瞎：
+     1. ink 阶梯整体翻过来（底色变浅）；
+     2. veil 改成黑色（bg-white/5 → 黑 5%，才有"叠了一层"的效果）；
+     3. 强调色整体加深一档 —— 深空用的 #22d3ee 放在白底上对比度只有 1.9:1，
+        根本读不出来。所以亮色主题的 cyan 是 #0e7490 这个量级。
+   第 3 条最容易漏：看着"颜色没变、挺统一"，实际字全糊了。
+   ============================================================ */
+
+/* ---- 宣纸：暖白纸面 + 靛蓝 ---- */
+html[data-theme="paper"] {
+  --color-ink-1000: #ffffff;
+  --color-ink-950: #faf8f4;
+  --color-ink-900: #ffffff;
+  --color-ink-850: #f3f0ea;
+  --color-ink-800: #eae5dc;
+  --color-ink-700: #ddd6c9;
+  --color-ink-600: #c9c0af;
+
+  --color-veil: #2b2118;
+  --color-scrim: #1a1512;
+  --color-on-accent: #ffffff;
+
+  --color-cyan: #0e7490;
+  --color-blue: #4f46e5;
+  --color-violet: #7c3aed;
+  --color-magenta: #db2777;
+  --color-emerald: #059669;
+  --color-amber: #d97706;
+  --color-rose: #e11d48;
+
+  --color-fg: #1c1917;
+  --color-fg-soft: #44403c;
+  --color-fg-mute: #78716c;
+  --color-fg-faint: #a8a29e;
+
+  --color-glass-1: rgba(255, 255, 255, 0.55);
+  --color-glass-2: rgba(255, 255, 255, 0.75);
+  --color-glass-3: rgba(255, 255, 255, 0.9);
+  --color-hairline: rgba(28, 25, 23, 0.10);
+  --color-hairline-strong: rgba(28, 25, 23, 0.18);
+
+  --glass-sheet: rgba(255, 255, 255, 0.72);
+  --glass-sheet-strong: rgba(255, 255, 255, 0.86);
+  --glass-hi-1: rgba(255, 255, 255, 0.95);
+  --glass-hi-2: rgba(255, 255, 255, 0.55);
+  --glass-hi-3: rgba(255, 255, 255, 1);
+  --glass-hi-4: rgba(255, 255, 255, 0.7);
+  --glass-edge: rgba(255, 255, 255, 0.9);
+  --glass-edge-strong: rgba(255, 255, 255, 1);
+  --glass-shadow: rgba(60, 45, 30, 0.16);
+  --glass-shadow-strong: rgba(60, 45, 30, 0.22);
+  --glass-subtle-bg: rgba(255, 255, 255, 0.6);
+  --glass-subtle-bd: rgba(28, 25, 23, 0.08);
+  --hairline-top: rgba(255, 255, 255, 0.95);
+
+  --halo-a: rgba(79, 70, 229, 0.07);
+  --halo-b: rgba(14, 116, 144, 0.06);
+  --halo-c: rgba(217, 119, 6, 0.05);
+  --mesh-line: rgba(28, 25, 23, 0.035);
+
+  --scroll-thumb: rgba(28, 25, 23, 0.16);
+  --scroll-thumb-hover: rgba(28, 25, 23, 0.28);
+
+  --sel-bg: rgba(79, 70, 229, 0.22);
+  --sel-fg: #1c1917;
+
+  --spectrum-a: #0e7490;
+  --spectrum-b: #4f46e5;
+  --spectrum-c: #7c3aed;
+
+  --katex-bg: rgba(28, 25, 23, 0.035);
+  --katex-rule: rgba(28, 25, 23, 0.75);
+  --autofill-bg: #f3f0ea;
+
+  --skeleton-a: rgba(28, 25, 23, 0.05);
+  --skeleton-b: rgba(28, 25, 23, 0.10);
+  --shimmer: rgba(255, 255, 255, 0.7);
+  --spotlight: rgba(79, 70, 229, 0.08);
+  --glow: rgba(79, 70, 229, 0.22);
+}
+
+/* ---- 薄荷：冷白 + 青绿 ---- */
+html[data-theme="mint"] {
+  --color-ink-1000: #ffffff;
+  --color-ink-950: #f2f8f6;
+  --color-ink-900: #ffffff;
+  --color-ink-850: #eaf3f0;
+  --color-ink-800: #dfecea;
+  --color-ink-700: #cfe0dd;
+  --color-ink-600: #b8cdc9;
+
+  --color-veil: #0f2a26;
+  --color-scrim: #0b1f1c;
+  --color-on-accent: #ffffff;
+
+  --color-cyan: #0d9488;
+  --color-blue: #0891b2;
+  --color-violet: #6d28d9;
+  --color-magenta: #db2777;
+  --color-emerald: #059669;
+  --color-amber: #d97706;
+  --color-rose: #e11d48;
+
+  --color-fg: #10201d;
+  --color-fg-soft: #33544e;
+  --color-fg-mute: #5e827b;
+  --color-fg-faint: #90aba5;
+
+  --color-glass-1: rgba(255, 255, 255, 0.55);
+  --color-glass-2: rgba(255, 255, 255, 0.75);
+  --color-glass-3: rgba(255, 255, 255, 0.9);
+  --color-hairline: rgba(16, 32, 29, 0.10);
+  --color-hairline-strong: rgba(16, 32, 29, 0.18);
+
+  --glass-sheet: rgba(255, 255, 255, 0.72);
+  --glass-sheet-strong: rgba(255, 255, 255, 0.86);
+  --glass-hi-1: rgba(255, 255, 255, 0.95);
+  --glass-hi-2: rgba(255, 255, 255, 0.55);
+  --glass-hi-3: rgba(255, 255, 255, 1);
+  --glass-hi-4: rgba(255, 255, 255, 0.7);
+  --glass-edge: rgba(255, 255, 255, 0.9);
+  --glass-edge-strong: rgba(255, 255, 255, 1);
+  --glass-shadow: rgba(16, 60, 55, 0.14);
+  --glass-shadow-strong: rgba(16, 60, 55, 0.2);
+  --glass-subtle-bg: rgba(255, 255, 255, 0.6);
+  --glass-subtle-bd: rgba(16, 32, 29, 0.08);
+  --hairline-top: rgba(255, 255, 255, 0.95);
+
+  --halo-a: rgba(13, 148, 136, 0.08);
+  --halo-b: rgba(8, 145, 178, 0.06);
+  --halo-c: rgba(109, 40, 217, 0.05);
+  --mesh-line: rgba(16, 32, 29, 0.035);
+
+  --scroll-thumb: rgba(16, 32, 29, 0.16);
+  --scroll-thumb-hover: rgba(16, 32, 29, 0.28);
+
+  --sel-bg: rgba(13, 148, 136, 0.22);
+  --sel-fg: #10201d;
+
+  --spectrum-a: #0d9488;
+  --spectrum-b: #0891b2;
+  --spectrum-c: #6d28d9;
+
+  --katex-bg: rgba(16, 32, 29, 0.035);
+  --katex-rule: rgba(16, 32, 29, 0.75);
+  --autofill-bg: #eaf3f0;
+
+  --skeleton-a: rgba(16, 32, 29, 0.05);
+  --skeleton-b: rgba(16, 32, 29, 0.10);
+  --shimmer: rgba(255, 255, 255, 0.7);
+  --spotlight: rgba(13, 148, 136, 0.08);
+  --glow: rgba(13, 148, 136, 0.22);
+}
+
+/* ---- 护眼米：Solarized Light ---- */
+html[data-theme="solarized"] {
+  --color-ink-1000: #fffdf5;
+  --color-ink-950: #fdf6e3;
+  --color-ink-900: #fffdf5;
+  --color-ink-850: #f5eeda;
+  --color-ink-800: #eee8d5;
+  --color-ink-700: #e3dcc6;
+  --color-ink-600: #d3ccb6;
+
+  --color-veil: #002b36;
+  --color-scrim: #00252e;
+  --color-on-accent: #fdf6e3;
+
+  --color-cyan: #2aa198;
+  --color-blue: #268bd2;
+  --color-violet: #6c71c4;
+  --color-magenta: #d33682;
+  --color-emerald: #859900;
+  --color-amber: #b58900;
+  --color-rose: #dc322f;
+
+  --color-fg: #073642;
+  --color-fg-soft: #586e75;
+  --color-fg-mute: #839496;
+  --color-fg-faint: #a8b3b0;
+
+  --color-glass-1: rgba(255, 253, 245, 0.55);
+  --color-glass-2: rgba(255, 253, 245, 0.75);
+  --color-glass-3: rgba(255, 253, 245, 0.9);
+  --color-hairline: rgba(7, 54, 66, 0.12);
+  --color-hairline-strong: rgba(7, 54, 66, 0.2);
+
+  --glass-sheet: rgba(253, 246, 227, 0.74);
+  --glass-sheet-strong: rgba(255, 253, 245, 0.88);
+  --glass-hi-1: rgba(255, 255, 255, 0.9);
+  --glass-hi-2: rgba(255, 255, 255, 0.5);
+  --glass-hi-3: rgba(255, 255, 255, 1);
+  --glass-hi-4: rgba(255, 255, 255, 0.65);
+  --glass-edge: rgba(255, 255, 255, 0.85);
+  --glass-edge-strong: rgba(255, 255, 255, 1);
+  --glass-shadow: rgba(7, 54, 66, 0.16);
+  --glass-shadow-strong: rgba(7, 54, 66, 0.22);
+  --glass-subtle-bg: rgba(255, 255, 255, 0.5);
+  --glass-subtle-bd: rgba(7, 54, 66, 0.1);
+  --hairline-top: rgba(255, 255, 255, 0.9);
+
+  --halo-a: rgba(38, 139, 210, 0.07);
+  --halo-b: rgba(42, 161, 152, 0.06);
+  --halo-c: rgba(181, 137, 0, 0.05);
+  --mesh-line: rgba(7, 54, 66, 0.04);
+
+  --scroll-thumb: rgba(7, 54, 66, 0.18);
+  --scroll-thumb-hover: rgba(7, 54, 66, 0.3);
+
+  --sel-bg: rgba(38, 139, 210, 0.22);
+  --sel-fg: #073642;
+
+  --spectrum-a: #268bd2;
+  --spectrum-b: #2aa198;
+  --spectrum-c: #6c71c4;
+
+  --katex-bg: rgba(7, 54, 66, 0.04);
+  --katex-rule: rgba(7, 54, 66, 0.75);
+  --autofill-bg: #f5eeda;
+
+  --skeleton-a: rgba(7, 54, 66, 0.05);
+  --skeleton-b: rgba(7, 54, 66, 0.11);
+  --shimmer: rgba(255, 255, 255, 0.7);
+  --spotlight: rgba(38, 139, 210, 0.08);
+  --glow: rgba(38, 139, 210, 0.22);
+}
+
+/* ============================================================
+   亮色模式共用补丁：把"为暗底设计的内置调色板"翻过来
+   ============================================================
+   Tailwind 内置色板的 100/200/300 档是**浅色**，设计给深底用的
+   （text-cyan-200 放在近黑上是亮青色，很清楚）。但项目里大量用了
+   `text-cyan-200` / `text-rose-100` 这类来写"彩色提示文字"，
+   在亮色主题下它们变成浅色字压在浅底上 —— 实测对比度掉到 1.3:1，
+   基本等于隐形。
+
+   这些用法有 100 来处，逐个改成自定义 token 既慢又容易漏。
+   所以在这里统一把 100/200/300 三档重映射成同色系的深色。
+   400 档不动：它多用于 bg-*-400/10、border-*-400/25 这种"淡色面板"，
+   在浅底上本来就是对的。
+
+   ★ 这个块只写一遍，被所有亮色主题共用 —— 放在各主题块之后，
+     靠"同优先级、后者胜"生效（选择器都是 html[data-x]，权重相同）。
+   ============================================================ */
+html[data-mode="light"] {
+  /* 文字档：浅色 → 同色系深色 */
+  --color-cyan-100: #155e75;
+  --color-cyan-200: #0e7490;
+  --color-cyan-300: #155e75;
+  --color-emerald-100: #065f46;
+  --color-emerald-200: #047857;
+  --color-emerald-300: #065f46;
+  --color-amber-100: #92400e;
+  --color-amber-200: #b45309;
+  --color-amber-300: #92400e;
+  --color-rose-100: #9f1239;
+  --color-rose-200: #be123c;
+  --color-rose-300: #9f1239;
+  --color-violet-200: #6d28d9;
+  --color-blue-200: #1d4ed8;
+  --color-slate-100: #334155;
+
+  /* 成就奖牌的金属色：金银铜在亮底上要压深一档，
+     否则「金色」在白底上会变成浅黄，看着像高亮而非金属。 */
+  --color-yellow-100: #854d0e;
+  --color-yellow-400: #eab308;
+  --color-slate-300: #94a3b8;
+  --color-amber-700: #b45309;
+}
+
+/* ============================================================
    基础层
    ============================================================ */
 * { border-color: var(--color-hairline); }
 
 html {
+  /* color-scheme 由 JS 按主题写在行内样式上（见 stores/theme.ts）。
+   * 这里给个兜底值，防止 JS 没跑到时浏览器按浅色渲染原生控件。 */
   color-scheme: dark;
   -webkit-text-size-adjust: 100%;
   /* ★ 底色必须挂在 html 上，不能挂在 body 上。
@@ -88,8 +620,8 @@ body {
   overflow-x: hidden;
 }
 
-/* 全局深空底纹：三层径向光晕，固定不动。
-   用 fixed 而不是滚动，是为了让"星空"感觉是背景而不是贴在页面上的图。 */
+/* 全局底纹：三层径向光晕，固定不动。
+   用 fixed 而不是滚动，是为了让"光"感觉是背景而不是贴在页面上的图。 */
 body::before {
   content: "";
   position: fixed;
@@ -97,18 +629,19 @@ body::before {
   z-index: -2;
   pointer-events: none;
   background:
-    radial-gradient(900px 620px at 12% -8%, rgba(34, 211, 238, 0.10), transparent 62%),
-    radial-gradient(760px 560px at 88% 4%, rgba(168, 85, 247, 0.10), transparent 60%),
-    radial-gradient(1100px 700px at 50% 108%, rgba(59, 130, 246, 0.09), transparent 66%);
+    radial-gradient(900px 620px at 12% -8%, var(--halo-a), transparent 62%),
+    radial-gradient(760px 560px at 88% 4%, var(--halo-b), transparent 60%),
+    radial-gradient(1100px 700px at 50% 108%, var(--halo-c), transparent 66%);
 }
 
-/* 极细网格：给"深空"一个尺度参照，纯渐变会显得空。
+/* 极细网格：给底一个尺度参照，纯渐变会显得空。
  *
  * ⚠️ 这层是**降级备胎**，不是主视觉。WebGL 赛博网格（CyberGrid）能跑的时候，
  * html 上会挂 fx-webgl 类，这里就把正交网格压到几乎看不见 ——
  * 一层平铺的正交网格叠在透视网格上，两套网格互相打架，谁都看不清。
  * 只有 WebGL 挂了（老显卡 / 禁用了硬件加速 / 上下文丢失），
- * 它才顶上来当背景的"尺度参照"。 */
+ * 它才顶上来当背景的"尺度参照"。
+ * 亮色主题不挂 WebGL，所以这一层就是主视觉，权重相应提高。 */
 body::after {
   content: "";
   position: fixed;
@@ -117,34 +650,34 @@ body::after {
   pointer-events: none;
   opacity: 0.32;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+    linear-gradient(var(--mesh-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mesh-line) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, #000 20%, transparent 78%);
   transition: opacity 0.6s ease;
 }
 html.fx-webgl body::after { opacity: 0.07; }
 
-/* WebGL 活着的另一个连带影响：径向光晕是"深空"的补光，
+/* WebGL 活着的另一个连带影响：径向光晕是"底"的补光，
  * 但赛博网格自带地平线光带，两者叠加会把屏幕中部推得过亮 ——
  * 而屏幕中部正是正文所在。压一档，留给文字。 */
 html.fx-webgl body::before { opacity: 0.55; }
 
 ::selection {
-  background: rgba(34, 211, 238, 0.3);
-  color: #fff;
+  background: var(--sel-bg);
+  color: var(--sel-fg);
 }
 
 /* 滚动条：默认的太亮，深色主题下像一道疤 */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--scroll-thumb);
   border-radius: 99px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
-::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: content-box; }
 
 /* 焦点环：键盘导航必须看得见，鼠标点击不出环 */
 :focus-visible {
@@ -156,39 +689,39 @@ html.fx-webgl body::before { opacity: 0.55; }
 /* ============================================================
    玻璃拟态
    ============================================================
-   ⚠️ 卡片底下那层暗底（rgba(6,8,16,.58)）不是可选项，是必需品。
+   ⚠️ 卡片底下那层不透明底（--glass-sheet）不是可选项，是必需品。
    背景只有静态渐变时，玻璃可以很透（纯白高光就够）；
    但现在背后是**会动的透视网格 + 星尘**，纯白高光压不住它 ——
-   网格线会直接穿过卡片里的正文。加上这层暗底，卡片才有"面"，
+   网格线会直接穿过卡片里的正文。加上这层底，卡片才有"面"，
    背景退到后面去。改动前请先在仪表盘上看一眼正文对比度。
    ============================================================ */
 .glass {
   background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.022)),
-    rgba(6, 8, 16, 0.58);
+    linear-gradient(160deg, var(--glass-hi-1), var(--glass-hi-2)),
+    var(--glass-sheet);
   backdrop-filter: blur(18px) saturate(150%);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
   border: 1px solid var(--color-hairline);
   box-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
-    0 18px 40px -22px rgba(0, 0, 0, 0.9);
+    0 1px 0 0 var(--glass-edge) inset,
+    0 18px 40px -22px var(--glass-shadow);
 }
 
 .glass-strong {
   background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.035)),
-    rgba(8, 11, 20, 0.72);
+    linear-gradient(160deg, var(--glass-hi-3), var(--glass-hi-4)),
+    var(--glass-sheet-strong);
   backdrop-filter: blur(26px) saturate(160%);
   -webkit-backdrop-filter: blur(26px) saturate(160%);
   border: 1px solid var(--color-hairline-strong);
   box-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.07) inset,
-    0 26px 60px -28px rgba(0, 0, 0, 0.95);
+    0 1px 0 0 var(--glass-edge-strong) inset,
+    0 26px 60px -28px var(--glass-shadow-strong);
 }
 
 .glass-subtle {
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.055);
+  background: var(--glass-subtle-bg);
+  border: 1px solid var(--glass-subtle-bd);
 }
 
 /* 顶部一像素高光：玻璃的"边缘感"靠它，没有就像一块灰板 */
@@ -200,7 +733,7 @@ html.fx-webgl body::before { opacity: 0.55; }
   position: absolute;
   inset: 0 0 auto 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22) 22%, rgba(255, 255, 255, 0.22) 78%, transparent);
+  background: linear-gradient(90deg, transparent, var(--hairline-top) 22%, var(--hairline-top) 78%, transparent);
   opacity: 0.7;
   pointer-events: none;
 }
@@ -209,14 +742,14 @@ html.fx-webgl body::before { opacity: 0.55; }
    文字与光谱
    ============================================================ */
 .text-spectrum {
-  background: linear-gradient(100deg, #67e8f9 0%, #60a5fa 42%, #c084fc 100%);
+  background: linear-gradient(100deg, var(--spectrum-a) 0%, var(--spectrum-b) 42%, var(--spectrum-c) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
 .text-aurora {
-  background: linear-gradient(100deg, #67e8f9, #60a5fa, #c084fc, #67e8f9);
+  background: linear-gradient(100deg, var(--spectrum-a), var(--spectrum-b), var(--spectrum-c), var(--spectrum-a));
   background-size: 300% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -241,7 +774,7 @@ html.fx-webgl body::before { opacity: 0.55; }
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.28) 50%, transparent 65%);
+  background: linear-gradient(105deg, transparent 35%, var(--shimmer) 50%, transparent 65%);
   transform: translateX(-120%);
   pointer-events: none;
 }
@@ -254,8 +787,8 @@ html.fx-webgl body::before { opacity: 0.55; }
 /* 脉冲光晕：给"当前进行中"的元素 */
 .pulse-glow { animation: pulse-glow 2.6s ease-in-out infinite; }
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.30); }
-  50%      { box-shadow: 0 0 0 10px rgba(34, 211, 238, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 var(--glow); }
+  50%      { box-shadow: 0 0 0 10px transparent; }
 }
 
 /* 浮动：给空状态插画、装饰元素 */
@@ -282,7 +815,7 @@ html.fx-webgl body::before { opacity: 0.55; }
   inset: -1px;
   border-radius: inherit;
   padding: 1px;
-  background: conic-gradient(from var(--angle, 0deg), transparent 0%, #22d3ee 12%, #a855f7 26%, transparent 40%);
+  background: conic-gradient(from var(--angle, 0deg), transparent 0%, var(--spectrum-a) 12%, var(--spectrum-c) 26%, transparent 40%);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -348,7 +881,7 @@ html.fx-webgl body::before { opacity: 0.55; }
   padding: 1px;
   background: radial-gradient(
     240px circle at var(--mx, 50%) var(--my, 50%),
-    var(--hud-glow, rgba(34, 211, 238, 0.55)),
+    var(--hud-glow, var(--glow)),
     transparent 62%
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -368,7 +901,7 @@ html.fx-webgl body::before { opacity: 0.55; }
   border-radius: inherit;
   pointer-events: none;
   overflow: hidden;
-  background-image: linear-gradient(180deg, transparent, var(--hud-glow, rgba(34, 211, 238, 0.55)), transparent);
+  background-image: linear-gradient(180deg, transparent, var(--hud-glow, var(--glow)), transparent);
   background-repeat: no-repeat;
   background-size: 100% 26px;
   background-position: 0 -40px;
@@ -397,14 +930,14 @@ html.fx-webgl body::before { opacity: 0.55; }
   border-radius: inherit;
   opacity: 0;
   transition: opacity 0.35s ease;
-  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), rgba(120, 200, 255, 0.13), transparent 68%);
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), var(--spotlight), transparent 68%);
   pointer-events: none;
 }
 .spotlight:hover::before { opacity: 1; }
 
 /* 骨架屏 */
 .skeleton {
-  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 37%, rgba(255,255,255,0.04) 63%);
+  background: linear-gradient(90deg, var(--skeleton-a) 25%, var(--skeleton-b) 37%, var(--skeleton-a) 63%);
   background-size: 400% 100%;
   animation: skeleton 1.5s ease infinite;
 }
@@ -414,20 +947,23 @@ html.fx-webgl body::before { opacity: 0.55; }
 }
 
 /* ============================================================
-   KaTeX 暗色适配
-   ============================================================ */
-.katex { color: #e9ebf4; font-size: 1.04em; }
+   KaTeX 适配
+   ============================================================
+   以前这里写的是 `color: #e9ebf4` —— 深空专用的浅色。
+   亮色主题下会变成"浅灰字压在浅底上"，公式整段隐形。
+   改成引用 --color-fg，跟着主题走。 */
+.katex { color: var(--color-fg); font-size: 1.04em; }
 .katex-display {
   margin: 1.05em 0;
   padding: 0.85em 0.4em;
   overflow-x: auto;
   overflow-y: hidden;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.022);
+  background: var(--katex-bg);
 }
-.katex-display > .katex { color: #eef1f8; }
+.katex-display > .katex { color: var(--color-fg); }
 /* 公式里的分数线、根号线在深色下偏细 */
-.katex .frac-line { border-bottom-color: rgba(233, 235, 244, 0.85); }
+.katex .frac-line { border-bottom-color: var(--katex-rule); }
 
 /* ============================================================
    表单与控件
@@ -440,12 +976,13 @@ input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
 
-/* 自动填充的黄色背景在深色主题里非常刺眼，强制覆盖 */
+/* 自动填充的黄色背景在深色主题里非常刺眼，强制覆盖。
+   亮色主题下同样要覆盖 —— 浏览器给的浅黄和宣纸的暖白对不上。 */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
   -webkit-text-fill-color: var(--color-fg);
-  -webkit-box-shadow: 0 0 0 1000px #0b0f1a inset;
+  -webkit-box-shadow: 0 0 0 1000px var(--autofill-bg) inset;
   transition: background-color 9999s ease-in-out 0s;
   caret-color: var(--color-fg);
 }
@@ -454,8 +991,8 @@ input:-webkit-autofill:focus {
    打印（卡片库导出 A4）
    ============================================================
    策略：把要打印的内容渲染进 #print-portal（挂在 body 下），
-   打印时把 body 的其它子元素全部藏掉。这样屏幕上的深色主题样式
-   完全不会干扰纸张输出 —— 纸张上必须是白底黑字。
+   打印时把 body 的其它子元素全部藏掉。这样屏幕上的主题样式
+   完全不会干扰纸张输出 —— 纸张上必须是白底黑字，跟当前主题无关。
    ============================================================ */
 #print-portal { display: none; }
 

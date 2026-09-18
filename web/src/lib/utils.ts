@@ -68,7 +68,7 @@ export const DIFFICULTY = [
 
 /** 掌握度 → 文案与颜色 */
 export const MASTERY_STYLE = {
-  new: { label: '未学', cls: 'text-fg-mute border-white/10 bg-white/4', dot: 'bg-white/25' },
+  new: { label: '未学', cls: 'text-fg-mute border-veil/10 bg-veil/4', dot: 'bg-veil/25' },
   learning: { label: '学习中', cls: 'text-amber-200/90 border-amber-400/25 bg-amber-400/8', dot: 'bg-amber-400' },
   proficient: { label: '熟练', cls: 'text-cyan-200/90 border-cyan-400/28 bg-cyan-400/10', dot: 'bg-cyan-400' },
   mastered: { label: '精通', cls: 'text-emerald-200/90 border-emerald-400/28 bg-emerald-400/10', dot: 'bg-emerald-400' },
@@ -95,6 +95,29 @@ export function debounce<T extends (...a: any[]) => void>(fn: T, ms: number) {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
   };
+}
+
+/**
+ * 读一个 CSS 自定义属性的当前值。
+ *
+ * ── 为什么需要它 ────────────────────────────────────────────────
+ * 绝大部分样式走 Tailwind 工具类就够了（工具类编译成 `var(--color-x)`，
+ * 换主题自动跟着变）。但有三类地方**只吃具体颜色字符串**，塞不进类名：
+ *   · Recharts 的 stroke / fill / contentStyle；
+ *   · canvas 2D 的 strokeStyle / fillStyle；
+ *   · SVG 的 <stop stopColor>。
+ * 这些地方以前写死了 rgba(255,255,255,…) —— 在深色主题下是对的，
+ * 换成亮色主题就整片隐形（白线压白底）。
+ *
+ * ⚠️ 必须在**渲染时**调用，不能在模块顶层算成常量。
+ * 模块顶层的值在 import 那一刻就固化了，之后切主题不会更新 ——
+ * 表现是「切了主题，图表网格还是老颜色」。
+ * 需要跟着主题重算的组件，把 useTheme(s => s.id) 放进 deps 里。
+ */
+export function cssVar(name: string, fallback = ''): string {
+  if (typeof window === 'undefined') return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
 }
 
 /** 复制到剪贴板（带降级） */

@@ -32,7 +32,8 @@ export function createSession(userId, { userAgent = '', ip = '' } = {}) {
 export function readSession(token) {
   if (!token) return null;
   const row = db.prepare(`
-    SELECT s.user_id, s.expires_at, u.email, u.username, u.avatar_hue, u.created_at
+    SELECT s.user_id, s.expires_at, u.email, u.username, u.avatar_hue, u.created_at,
+           u.role, u.status
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ?
   `).get(sha256(token));
@@ -42,6 +43,19 @@ export function readSession(token) {
     db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha256(token));
     return null;
   }
+
+  /* 被停用的账号：立刻注销它的全部会话，并当作「没登录」处理。
+   *
+   * 为什么在这里删会话，而不是只在登录处拦一道：
+   * 停用是一个**正在生效**的动作。管理员点了停用之后，那个人手里
+   * 那个 30 天有效的 cookie 还在 —— 如果只在登录处拦，他要等 cookie
+   * 自然过期才真的被挡住，这中间「停用」是假的。
+   * 顺手把 sessions 行删掉，也让管理台的「活跃设备数」当场归零。 */
+  if (row.status && row.status !== 'active') {
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.user_id);
+    return null;
+  }
+
   return row;
 }
 

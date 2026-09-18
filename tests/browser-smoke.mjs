@@ -835,6 +835,263 @@ try {
     ok('★ 页面上没有明文 API Key', !/sk-[a-zA-Z0-9]{20,}/.test(t), (t.match(/sk-[a-zA-Z0-9]{10,}/) || [''])[0]);
   }
 
+  /* ============================================================
+     7b. 主题切换
+     ============================================================
+     这一节的判据全部落在**计算样式**上，不看截图 ——
+     因为"主题坏了"的典型表现是「页面不报错、控制台干净、截图看着有颜色，
+     只是某些文字和底色撞在一起了」。那种坏法只有量对比度才看得见。
+
+     特别要盯的是 --color-veil：它是唯一一个明暗主题**取值方向相反**的令牌
+     （暗色下是白、亮色下是黑）。它要是没翻过来，全站 137 处
+     bg-veil/N 的卡片边界会整片消失 —— 而页面依然"正常渲染"。 */
+  section('7b. 主题切换：真的换色、真的持久化、亮色不瞎');
+  {
+    await nav('/settings');
+    await waitFor('!!document.querySelector("#main-scroll")', '设置页就位（主题节）');
+    await sleep(900);
+
+    const before = JSON.parse(await probe(`return JSON.stringify({
+      theme: document.documentElement.dataset.theme,
+      mode: document.documentElement.dataset.mode,
+      ink: getComputedStyle(document.documentElement).getPropertyValue('--color-ink-950').trim(),
+      htmlBg: getComputedStyle(document.documentElement).backgroundColor,
+      veil: getComputedStyle(document.documentElement).getPropertyValue('--color-veil').trim(),
+    })`));
+    ok('默认主题是 deep-space', before.theme === 'deep-space', before.theme);
+    ok('默认是暗色模式', before.mode === 'dark', before.mode);
+    ok('默认叠层色是白', /#fff|#ffffff|rgb\(255, 255, 255\)/i.test(before.veil), before.veil);
+
+    const cards = await probe(`return document.querySelectorAll('[data-theme-id]').length`);
+    ok('外观面板列出了多套主题（≥8）', Number(cards) >= 8, `${cards} 套`);
+
+    /* 点「宣纸」。注意用的是**真 click**，不是直接改 store ——
+     * 要验的是"用户点得动"，不是"store 改得动"。 */
+    const picked = await probe(`
+      var bs = document.querySelectorAll('[data-theme-id]');
+      for (var i = 0; i < bs.length; i++) {
+        if (bs[i].getAttribute('data-theme-id') === 'paper') { bs[i].click(); return 'ok'; }
+      }
+      return 'NO_CARD';`);
+    ok('能点到「宣纸」主题卡', picked === 'ok', String(picked));
+    await sleep(700);
+
+    const after = JSON.parse(await probe(`return JSON.stringify({
+      theme: document.documentElement.dataset.theme,
+      mode: document.documentElement.dataset.mode,
+      ink: getComputedStyle(document.documentElement).getPropertyValue('--color-ink-950').trim(),
+      htmlBg: getComputedStyle(document.documentElement).backgroundColor,
+      veil: getComputedStyle(document.documentElement).getPropertyValue('--color-veil').trim(),
+      cs: document.documentElement.style.colorScheme,
+      canvas: document.querySelectorAll('canvas').length,
+      navItems: document.querySelectorAll('nav[aria-label="主导航"] a').length,
+    })`));
+    ok('★ 点了主题后 data-theme 真的变了', after.theme === 'paper', after.theme);
+    ok('★ data-mode 跟着变成 light', after.mode === 'light', after.mode);
+    ok('★ 底色令牌真的换了（--color-ink-950）', after.ink !== before.ink, `${before.ink} → ${after.ink}`);
+    ok('★ 页面底色真的变亮（html background）', after.htmlBg !== before.htmlBg, `${before.htmlBg} → ${after.htmlBg}`);
+    ok('★ 叠层色翻成深色（--color-veil，暗→亮方向相反的那个令牌）',
+      after.veil !== before.veil && !/#fff/i.test(after.veil), `${before.veil} → ${after.veil}`);
+    ok('★ color-scheme 跟着切成 light（否则滚动条/日期控件还是黑的）', after.cs === 'light', after.cs);
+    ok('★ 亮色主题下不挂 WebGL 背景画布', Number(after.canvas) === 0, `${after.canvas} 个画布`);
+    ok('切主题不影响导航项数量', Number(after.navItems) === 13, `${after.navItems} 项`);
+
+    /* ★ 对比度：亮色主题最容易出的错是「浅色字压在浅底上」。
+     * 取一个正文标题的实际 color，要求三通道都足够深。
+     * 深空主题下这里会是 rgb(233,235,244)，所以这条断言本身是能区分主题的。 */
+    const titleColor = await probe(`
+      var el = document.querySelector('#main-scroll h2') || document.querySelector('#main-scroll h1');
+      if (!el) return 'NO_EL';
+      return getComputedStyle(el).color;`);
+    const cm = String(titleColor).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    ok('★ 亮色主题下正文标题是深色（不是浅色压浅底）',
+      !!cm && Number(cm[1]) < 140 && Number(cm[2]) < 140 && Number(cm[3]) < 140, String(titleColor));
+
+    /* ★ 卡片边界：亮色主题下描边必须是深色。
+     * 这条对应「白叠白 → 卡片凭空消失」那个坑 —— 全站 137 处
+     * bg-veil/N、border-veil/N 都指望这个令牌翻过来。
+     *
+     * ⚠️ 读的是**真实元素的 borderTopColor**，不是令牌原文。
+     * 两个原因：令牌原文会被压缩器改写成 #rrggbbaa 十六进制
+     * （写 rgba(...) 的正则会被它绕过去，第一版就栽在这）；
+     * 而且读元素还顺带验证了"令牌确实流到了元素上"。
+     * 计算值一律是 rgb()/rgba() 形式，不用管源码怎么写。 */
+    const border = await probe(`
+      var el = document.querySelector('#main-scroll .glass') || document.querySelector('#main-scroll [class*="glass"]');
+      if (!el) return 'NO_EL';
+      return getComputedStyle(el).borderTopColor;`);
+    const bm = String(border).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    ok('★ 亮色主题下卡片描边是深色（白叠白会让卡片边界凭空消失）',
+      !!bm && Number(bm[1]) < 150 && Number(bm[2]) < 150 && Number(bm[3]) < 150, String(border));
+
+    /* 同一件事的另一面：亮色主题下卡片面必须比底色更亮（不是更暗） */
+    const surface = await probe(`
+      var el = document.querySelector('#main-scroll .glass');
+      if (!el) return 'NO_EL';
+      var m = getComputedStyle(el).backgroundColor.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)/);
+      return m ? (Number(m[1]) + Number(m[2]) + Number(m[3])) / 3 : 'PARSE_FAIL';`);
+    ok('★ 亮色主题下卡片面是亮的', Number(surface) > 200, String(surface));
+
+    /* 刷新后还在 —— 这条验的是 localStorage 那条路（首屏防闪靠它） */
+    await nav('/settings');
+    await waitFor('!!document.querySelector("#main-scroll")', '刷新后设置页就位');
+    await sleep(900);
+    const persisted = await probe(`return document.documentElement.dataset.theme`);
+    ok('★ 刷新后主题仍在（localStorage 生效）', persisted === 'paper', String(persisted));
+    /* 首屏防闪的关键：data-theme 必须在**首帧**就对了。
+     * 这里查的是它有没有在 JS 应用之前就被内联脚本挂上 ——
+     * 直接读 dataset 只能证明"最终对了"，所以额外确认 <html> 上
+     * 没有被 store 之外的路径改过（theme 与 mode 自洽）。 */
+    const selfConsistent = await probe(`return JSON.stringify({
+      t: document.documentElement.dataset.theme,
+      m: document.documentElement.dataset.mode,
+    })`);
+    ok('★ 主题与明暗标记自洽', JSON.parse(selfConsistent).m === 'light', selfConsistent);
+
+    const serverTheme = await ev(`fetch('/api/settings').then(function(r){return r.json()}).then(function(d){return d.settings.theme})`);
+    ok('★ 主题已回写服务端（换设备能跟着走）', serverTheme.value === 'paper', String(serverTheme.value));
+
+    /* 切回深空 —— 后面的断言（以及"无 console 报错"那节）都按默认主题写 */
+    const back = await probe(`
+      var bs = document.querySelectorAll('[data-theme-id]');
+      for (var i = 0; i < bs.length; i++) {
+        if (bs[i].getAttribute('data-theme-id') === 'deep-space') { bs[i].click(); return 'ok'; }
+      }
+      return 'NO_CARD';`);
+    ok('能切回深空', back === 'ok', String(back));
+    await sleep(900);
+    const backState = JSON.parse(await probe(`return JSON.stringify({
+      t: document.documentElement.dataset.theme,
+      c: document.querySelectorAll('canvas').length,
+      htmlBg: getComputedStyle(document.documentElement).backgroundColor,
+    })`));
+    ok('★ 切回深空后 WebGL 背景画布回来了', backState.t === 'deep-space' && backState.c >= 2, JSON.stringify(backState));
+    ok('★ 切回深空后底色回到近黑', /rgb\(5, 6, 12\)/.test(backState.htmlBg), backState.htmlBg);
+  }
+
+  /* ============================================================
+     7c. 管理台
+     ============================================================
+     这里验两件事，缺一不可：
+       · 普通用户**进不去**（前端跳走 + 服务端 403，两层都要）；
+       · 管理员**进得去且看得到数据**。
+     只验第一条的话，一个"把所有人都挡在外面"的实现也能过；
+     只验第二条的话，一个"谁都能进"的实现也能过。 */
+  section('7c. 管理台：普通用户进不去 / 管理员进得去');
+  {
+    /* ---- 普通用户 ---- */
+    await nav('/admin');
+    await waitFor('!!document.querySelector("#main-scroll")', '普通用户访问 /admin');
+    await sleep(1000);
+    const asUser = JSON.parse(await probe(`return JSON.stringify({
+      path: location.pathname,
+      table: !!document.querySelector('#main-scroll table'),
+      navItems: document.querySelectorAll('nav[aria-label="主导航"] a').length,
+    })`));
+    ok('★ 普通用户访问 /admin 会被弹回首页', asUser.path === '/', asUser.path);
+    ok('★ 普通用户看不到用户表格', asUser.table === false, String(asUser.table));
+    ok('★ 普通用户侧栏没有「管理」入口', Number(asUser.navItems) === 13, `${asUser.navItems} 项`);
+
+    /* ---- 换成管理员 ----
+     * 用页面上下文的 fetch 登录（cookie 会写进同一个浏览器上下文），
+     * 然后整页导航 —— 这样走的是真实的「会话探测 → 渲染」链路，
+     * 而不是绕过前端去改 React state。 */
+    const login = await ev(`fetch('/api/auth/login', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'wukong@qq.com', password: 'wgh123456' })
+    }).then(function (r) { return r.status })`);
+    ok('能在页面上下文里登录引导管理员', login.value === 200, String(login.value));
+
+    await nav('/admin');
+    const gotTable = await waitFor('!!document.querySelector("#main-scroll table")', '管理台用户表格出现', 15000);
+    await sleep(900);
+
+    if (gotTable) {
+      const ad = JSON.parse(await probe(`return JSON.stringify({
+        path: location.pathname,
+        rows: document.querySelectorAll('#main-scroll table tbody tr').length,
+        h1: document.querySelector('#main-scroll h1') ? document.querySelector('#main-scroll h1').textContent.trim() : '',
+        len: document.getElementById('main-scroll').innerText.replace(/\\s/g, '').length,
+        navItems: document.querySelectorAll('nav[aria-label="主导航"] a').length,
+        groups: document.querySelectorAll('nav[aria-label="主导航"] > div').length,
+        search: !!document.querySelector('input[aria-label="搜索用户"]'),
+      })`));
+      ok('★ 管理员能进入 /admin', ad.path === '/admin', ad.path);
+      ok('★ 管理台列出了用户行', ad.rows >= 2, `${ad.rows} 行`);
+      ok('管理台标题正确', ad.h1.indexOf('用户管理') >= 0, ad.h1);
+      ok('管理台渲染出内容', ad.len > 300, `${ad.len} 字`);
+      ok('★ 管理员侧栏多了「管理」分组与入口', ad.navItems === 14 && ad.groups === 5,
+        `${ad.navItems} 项 / ${ad.groups} 组`);
+      ok('管理台有搜索框', ad.search === true);
+
+      /* 搜索：输入后行数必须真的变少（不是只把输入框画出来） */
+      await probe(`
+        var el = document.querySelector('input[aria-label="搜索用户"]');
+        if (!el) return 'NO_INPUT';
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'wukong');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return 'ok';`);
+      await sleep(1200);
+      const filtered = await probe(`return document.querySelectorAll('#main-scroll table tbody tr').length`);
+      ok('★ 搜索后只剩匹配的行', Number(filtered) === 1, `${filtered} 行`);
+
+      /* 详情弹窗。判据除了"有内容"，还有一条**隐私断言**：
+       * 页面上不许出现密码哈希/盐、不许出现别人的 API Key。 */
+      const opened = await probe(`
+        var b = document.querySelector('#main-scroll table tbody tr button');
+        if (!b) return 'NO_BTN';
+        b.click();
+        return 'ok';`);
+      ok('能点开用户详情', opened === 'ok', String(opened));
+      await sleep(1300);
+      const dlgLen = await probe(`
+        var d = document.querySelector('[role=dialog]');
+        return d ? d.innerText.replace(/\\s/g, '').length : 0;`);
+      ok('★ 详情弹窗渲染出内容', Number(dlgLen) > 150, `${dlgLen} 字`);
+
+      const dlgText = await probe(`
+        var d = document.querySelector('[role=dialog]');
+        return d ? d.innerText : '';`);
+      ok('★ 管理台上不出现密码哈希/盐', !/password_(hash|salt)/.test(String(dlgText)));
+      ok('★ 管理台上不出现任何 API Key 明文', !/sk-[a-zA-Z0-9]{16,}/.test(String(dlgText)));
+
+      /* 关掉弹窗。用 aria-label 在 JS 里找，不写 CSS 属性选择器 ——
+       * 「关闭」不是 ASCII 标识符，写进选择器要处理转义，不值当。 */
+      await probe(`
+        var bs = document.querySelectorAll('[role=dialog] button');
+        for (var i = 0; i < bs.length; i++) {
+          if (bs[i].getAttribute('aria-label') === '关闭') { bs[i].click(); return 'ok'; }
+        }
+        return 'NO_CLOSE';`);
+      await sleep(500);
+
+      /* 管理接口真的返回了数据（不是前端造假表格） */
+      const apiRows = await ev(`fetch('/api/admin/users?limit=200', { credentials: 'include' })
+        .then(function (r) { return r.json() })
+        .then(function (d) { return d.users.length })`);
+      ok('★ 管理接口返回真实用户数据', Number(apiRows.value) >= 2, String(apiRows.value));
+
+      /* 护栏：服务端不许管理员删掉自己。
+       *
+       * ★ 必须先问出自己的 id，**不能写死 1**。
+       * 写死的话，万一 id 1 不是管理员而是某个普通用户，
+       * 这一发 DELETE 会真的把他连数据一起删掉 —— 测试自己把库改坏了，
+       * 而且它还会"通过"（返回 200 也是真删了）。 */
+      const meId = await ev(`fetch('/api/auth/me', { credentials: 'include' })
+        .then(function (r) { return r.json() })
+        .then(function (d) { return d.user.id })`);
+      const selfDel = await ev(`fetch('/api/admin/users/' + ${JSON.stringify(meId.value)}, {
+        method: 'DELETE', credentials: 'include'
+      }).then(function (r) { return r.status })`);
+      ok('★ 服务端挡住"删自己"（前端置灰只是体验，门在服务端）',
+        Number(selfDel.value) === 400, `实得 ${selfDel.value}`);
+      /* 顺带证明"挡住"不是"删成功了但返回 400" */
+      const stillMe = await ev(`fetch('/api/auth/me', { credentials: 'include' }).then(function (r) { return r.status })`);
+      ok('★ 删自己被拒后账号仍然存在', Number(stillMe.value) === 200, `实得 ${stillMe.value}`);
+    }
+  }
+
   section('8. 全局：无未捕获异常 / 无 console 报错');
   {
     const uniqEx = [...new Set(exceptions)];

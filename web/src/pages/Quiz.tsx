@@ -158,7 +158,7 @@ export default function Quiz() {
                     isCur ? 'border-cyan/50 bg-cyan/15 text-cyan'
                       : st === true ? 'border-emerald/35 bg-emerald/12 text-emerald-200'
                         : st === false ? 'border-rose/35 bg-rose/12 text-rose-200'
-                          : 'border-white/8 bg-white/3 text-fg-mute hover:border-white/16'
+                          : 'border-veil/8 bg-veil/3 text-fg-mute hover:border-veil/16'
                   }`}
                   aria-label={`第 ${i + 1} 题`}
                 >

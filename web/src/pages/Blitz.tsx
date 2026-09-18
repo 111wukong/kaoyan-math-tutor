@@ -190,7 +190,7 @@ export default function Blitz() {
                   size={16}
                   className={cn(
                     'transition-all duration-300',
-                    i < lives ? 'fill-rose text-rose' : 'text-white/15',
+                    i < lives ? 'fill-rose text-rose' : 'text-veil/15',
                   )}
                 />
               ))}
@@ -205,7 +205,7 @@ export default function Blitz() {
         </div>
 
         {phase === 'playing' && (
-          <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-white/8">
+          <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-veil/8">
             <div
               className={cn('h-full rounded-full transition-all duration-1000 ease-linear', timeLeft <= 10 ? 'bg-rose' : 'bg-gradient-to-r from-cyan to-violet')}
               style={{ width: `${(timeLeft / DURATION) * 100}%` }}
@@ -287,15 +287,15 @@ export default function Blitz() {
                     key={o.k}
                     disabled={locked}
                     onClick={() => answer(o.k)}
-                    className="group flex w-full items-center gap-3 rounded-xl border border-hairline bg-white/3 px-3.5 py-2.5 text-left transition-all duration-150 hover:border-cyan/40 hover:bg-white/7 active:scale-[0.99] disabled:opacity-60"
+                    className="group flex w-full items-center gap-3 rounded-xl border border-hairline bg-veil/3 px-3.5 py-2.5 text-left transition-all duration-150 hover:border-cyan/40 hover:bg-veil/7 active:scale-[0.99] disabled:opacity-60"
                   >
-                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/5 text-[11.5px] font-semibold text-fg-mute transition-colors group-hover:border-cyan/35 group-hover:text-cyan">
+                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg border border-veil/10 bg-veil/5 text-[11.5px] font-semibold text-fg-mute transition-colors group-hover:border-cyan/35 group-hover:text-cyan">
                       {o.k}
                     </span>
                     <span className="min-w-0 flex-1 text-[13.5px] text-fg-soft">
                       <InlineMath text={o.t} />
                     </span>
-                    <kbd className="hidden shrink-0 rounded border border-white/8 px-1.5 py-0.5 text-[10px] text-fg-faint group-hover:block">
+                    <kbd className="hidden shrink-0 rounded border border-veil/8 px-1.5 py-0.5 text-[10px] text-fg-faint group-hover:block">
                       {i + 1}
                     </kbd>
                   </button>

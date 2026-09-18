@@ -13,11 +13,13 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 
-import { initSchema, health, DB_PATH } from './db/index.js';
+import { initSchema, health, DB_PATH, db } from './db/index.js';
+import { migrate, ensureAdmin, usingDefaultAdminCredentials, ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD } from './db/migrate.js';
 import { seed } from './db/seed.js';
 import { COOKIE_NAME, readSession, touchSession, cleanupSessions } from './lib/session.js';
 
 import authRoutes from './routes/auth.js';
+import adminRoutes from './routes/admin.js';
 import catalogRoutes from './routes/catalog.js';
 import studyRoutes from './routes/study.js';
 import cardRoutes from './routes/cards.js';
@@ -39,7 +41,24 @@ const app = Fastify({
 
 /* ---------- 初始化数据 ---------- */
 initSchema();
+/* 补列必须紧跟建表：schema.sql 对已存在的表整条跳过，加列只能靠 ALTER TABLE。 */
+const migrated = migrate();
+if (migrated.length) app.log.info(`结构迁移：补了 ${migrated.join('、')}`);
 seed({ quiet: true });
+
+/* ---------- 引导管理员 ---------- */
+const bootAdmin = await ensureAdmin();
+if (bootAdmin.action === 'created') {
+  app.log.info(`已创建管理员账号 ${bootAdmin.email}（id ${bootAdmin.id}）`);
+} else if (bootAdmin.action === 'promoted') {
+  app.log.warn(`已把既有账号 ${bootAdmin.email} 提为管理员，并重置为引导密码 —— 请尽快改密`);
+}
+if (usingDefaultAdminCredentials()) {
+  app.log.warn(
+    `管理员 ${ADMIN_EMAIL} 正在使用内置默认密码「${DEFAULT_ADMIN_PASSWORD}」。` +
+    '自托管请立刻改密，或用 ADMIN_EMAIL / ADMIN_PASSWORD 环境变量覆盖。',
+  );
+}
 
 /* ---------- 插件 ---------- */
 await app.register(cookie);
@@ -56,6 +75,26 @@ app.decorate('requireAuth', async (req, reply) => {
   if (!s) return reply.code(401).send({ error: '未登录' });
   req.userId = s.user_id;
   req.user = s;
+});
+
+/* ---------- 管理员装饰器 ----------
+ * 每次都回库里读 role，不信会话里带的快照。
+ * 会话是 30 天有效的，如果把 role 当成会话的一部分缓存起来，
+ * 那「撤掉某人的管理员」要等他重新登录才生效 —— 撤销必须是即时的。
+ * 代价是一次主键查询，可以忽略。
+ */
+app.decorate('requireAdmin', async (req, reply) => {
+  const token = req.cookies?.[COOKIE_NAME];
+  const s = readSession(token);
+  if (!s) return reply.code(401).send({ error: '未登录' });
+  req.userId = s.user_id;
+  req.user = s;
+
+  const row = db.prepare('SELECT id, email, role, status FROM users WHERE id = ?').get(s.user_id);
+  if (!row || row.role !== 'admin') {
+    return reply.code(403).send({ error: '需要管理员权限', code: 'FORBIDDEN' });
+  }
+  req.admin = row;
 });
 
 /* ---------- 全局鉴权闸门 ----------
@@ -87,6 +126,7 @@ app.get('/api/health', async () => ({
 
 /* ---------- 业务路由 ---------- */
 await app.register(authRoutes);
+await app.register(adminRoutes);
 await app.register(catalogRoutes);
 await app.register(studyRoutes);
 await app.register(cardRoutes);

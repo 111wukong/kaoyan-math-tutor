@@ -1,6 +1,7 @@
 /* 设置 / 卡片库 / 课堂 / 聊天 / 导出导入 */
 import { db } from '../db/index.js';
 import { checkAchievements, buildSnapshot, invalidateTree } from '../lib/game.js';
+import { THEME_IDS, DEFAULT_THEME, normalizeTheme } from '../lib/themes.js';
 
 export default async function miscRoutes(fastify) {
   /* ============ 设置 ============ */
@@ -17,7 +18,11 @@ export default async function miscRoutes(fastify) {
         examDate: s.exam_date,
         persona: s.persona,
         sfx: s.sfx === 1,
-        theme: s.theme,
+        theme: normalizeTheme(s.theme),
+        // 前端的外观选择器要按这个清单渲染，清单由服务端给出，
+        // 免得两端各维护一份「哪些主题合法」
+        themes: THEME_IDS,
+        defaultTheme: DEFAULT_THEME,
         updatedAt: s.updated_at,
       },
     };
@@ -41,7 +46,7 @@ export default async function miscRoutes(fastify) {
     const b = req.body || {};
     const map = {
       examTrack: 'exam_track', dailyNew: 'daily_new', examDate: 'exam_date',
-      persona: 'persona', theme: 'theme',
+      persona: 'persona',
     };
     const sets = [];
     const params = [];
@@ -50,13 +55,23 @@ export default async function miscRoutes(fastify) {
       sets.push(`${map[k]} = ?`);
       params.push(b[k]);
     });
+    /* 主题走白名单收敛，不直接落库。
+     * 非法值不报错、落回默认 —— 前端选了个已下线的主题时，
+     * 报 400 会让整个设置页保存失败，代价远大于静默回落。 */
+    if (b.theme !== undefined) { sets.push('theme = ?'); params.push(normalizeTheme(b.theme)); }
     if (b.sfx !== undefined) { sets.push('sfx = ?'); params.push(b.sfx ? 1 : 0); }
     if (sets.length) {
       sets.push("updated_at = datetime('now')");
       db.prepare(`UPDATE user_settings SET ${sets.join(', ')} WHERE user_id = ?`).run(...params, req.userId);
     }
     const s = db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(req.userId);
-    return { settings: { examTrack: s.exam_track, dailyNew: s.daily_new, examDate: s.exam_date, persona: s.persona, sfx: s.sfx === 1, theme: s.theme } };
+    return {
+      settings: {
+        examTrack: s.exam_track, dailyNew: s.daily_new, examDate: s.exam_date,
+        persona: s.persona, sfx: s.sfx === 1, theme: normalizeTheme(s.theme),
+        themes: THEME_IDS, defaultTheme: DEFAULT_THEME,
+      },
+    };
   });
 
   /* ============ LLM 配置 ============ */

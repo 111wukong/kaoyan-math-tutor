@@ -19,7 +19,7 @@ interface Strength {
 }
 
 function strengthOf(pwd: string): Strength {
-  if (!pwd) return { score: 0, label: '', cls: '', bar: 'bg-white/12', w: 0 };
+  if (!pwd) return { score: 0, label: '', cls: '', bar: 'bg-veil/12', w: 0 };
   let score = 0;
   if (pwd.length >= 8) score += 1;
   if (pwd.length >= 12) score += 1;
@@ -130,7 +130,7 @@ export default function Register() {
             />
             {password && (
               <div className="mt-2 flex items-center gap-2">
-                <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/8">
+                <div className="h-1 flex-1 overflow-hidden rounded-full bg-veil/8">
                   <div
                     className={cn('h-full rounded-full transition-all duration-400', strength.bar)}
                     style={{ width: `${strength.w}%` }}

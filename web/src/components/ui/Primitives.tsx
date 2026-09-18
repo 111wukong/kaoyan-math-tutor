@@ -42,11 +42,11 @@ const BTN_VARIANT: Record<ButtonVariant, string> = {
   danger:
     'text-white font-medium bg-gradient-to-r from-rose/90 to-magenta/80 hover:from-rose hover:to-magenta shadow-[0_10px_30px_-14px_rgba(251,113,133,0.6)]',
   outline:
-    'text-fg border border-hairline-strong bg-white/4 hover:bg-white/8 hover:border-cyan/40',
+    'text-fg border border-hairline-strong bg-veil/4 hover:bg-veil/8 hover:border-cyan/40',
   ghost:
-    'text-fg-soft hover:text-fg hover:bg-white/6',
+    'text-fg-soft hover:text-fg hover:bg-veil/6',
   subtle:
-    'text-fg-soft bg-white/5 hover:bg-white/9 border border-white/8',
+    'text-fg-soft bg-veil/5 hover:bg-veil/9 border border-veil/8',
 };
 
 const BTN_SIZE: Record<ButtonSize, string> = {
@@ -116,9 +116,9 @@ export const Input = forwardRef<HTMLInputElement, {
           ref={ref}
           id={inputId}
           className={cn(
-            'h-11 w-full rounded-xl border bg-white/4 px-3.5 text-sm text-fg outline-none transition-all duration-200',
+            'h-11 w-full rounded-xl border bg-veil/4 px-3.5 text-sm text-fg outline-none transition-all duration-200',
             'placeholder:text-fg-faint',
-            'focus:border-cyan/50 focus:bg-white/6 focus:shadow-[0_0_0_4px_rgba(34,211,238,0.09)]',
+            'focus:border-cyan/50 focus:bg-veil/6 focus:shadow-[0_0_0_4px_rgba(34,211,238,0.09)]',
             error ? 'border-rose/55' : 'border-hairline',
             icon ? 'pl-10' : null,
             className,
@@ -154,8 +154,8 @@ export const TextArea = forwardRef<HTMLTextAreaElement, {
         ref={ref}
         id={areaId}
         className={cn(
-          'w-full resize-y rounded-xl border border-hairline bg-white/4 px-3.5 py-2.5 text-sm text-fg outline-none transition-all duration-200',
-          'placeholder:text-fg-faint focus:border-cyan/50 focus:bg-white/6 focus:shadow-[0_0_0_4px_rgba(34,211,238,0.09)]',
+          'w-full resize-y rounded-xl border border-hairline bg-veil/4 px-3.5 py-2.5 text-sm text-fg outline-none transition-all duration-200',
+          'placeholder:text-fg-faint focus:border-cyan/50 focus:bg-veil/6 focus:shadow-[0_0_0_4px_rgba(34,211,238,0.09)]',
           className,
         )}
         {...rest}
@@ -176,7 +176,7 @@ export function Badge({
   tone?: 'neutral' | 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose';
 }) {
   const tones = {
-    neutral: 'text-fg-soft border-white/10 bg-white/5',
+    neutral: 'text-fg-soft border-veil/10 bg-veil/5',
     cyan: 'text-cyan-200/95 border-cyan-400/25 bg-cyan-400/10',
     violet: 'text-violet-200/95 border-violet-400/25 bg-violet-400/10',
     emerald: 'text-emerald-200/95 border-emerald-400/25 bg-emerald-400/10',
@@ -211,7 +211,7 @@ export function Segmented<T extends string>({
   size?: 'sm' | 'md';
 }) {
   return (
-    <div className={cn('inline-flex rounded-xl border border-hairline bg-white/4 p-0.5', className)} role="tablist">
+    <div className={cn('inline-flex rounded-xl border border-hairline bg-veil/4 p-0.5', className)} role="tablist">
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -258,7 +258,7 @@ export function EmptyState({
   return (
     <div className={cn('flex flex-col items-center justify-center px-6 py-14 text-center', className)}>
       {icon && (
-        <div className="float mb-4 grid h-16 w-16 place-items-center rounded-2xl border border-hairline bg-white/4 text-fg-mute">
+        <div className="float mb-4 grid h-16 w-16 place-items-center rounded-2xl border border-hairline bg-veil/4 text-fg-mute">
           {icon}
         </div>
       )}
@@ -297,7 +297,7 @@ export function StatCard({
   };
   return (
     <Panel
-      className={cn('rise-in group overflow-hidden p-4 transition-colors duration-300 hover:border-white/16', className)}
+      className={cn('rise-in group overflow-hidden p-4 transition-colors duration-300 hover:border-veil/16', className)}
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className={cn('pointer-events-none absolute inset-x-0 -top-16 h-32 bg-gradient-to-b to-transparent opacity-60 blur-2xl', accents[accent].split(' ')[0])} />
@@ -308,7 +308,7 @@ export function StatCard({
           {sub && <div className="mt-2 text-[12px] leading-snug text-fg-mute">{sub}</div>}
         </div>
         {icon && (
-          <div className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/8 bg-white/5', accents[accent].split(' ')[1])}>
+          <div className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-veil/8 bg-veil/5', accents[accent].split(' ')[1])}>
             {icon}
           </div>
         )}

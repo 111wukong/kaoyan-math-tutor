@@ -12,6 +12,10 @@
 PRAGMA foreign_keys = ON;
 
 -- ============ 用户与会话 ============
+-- role / status / note 三列是后加的（见 migrate.js 里的 ALTER TABLE）。
+-- schema.sql 用的是 CREATE TABLE IF NOT EXISTS —— 老库再跑一遍不会补列，
+-- 所以「新库建表」和「老库补列」两件事必须都做，缺一个就会出现
+-- 「本机好好的、换台机器就报 no such column」。
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   email         TEXT    NOT NULL UNIQUE COLLATE NOCASE,
@@ -19,10 +23,24 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT    NOT NULL,          -- scrypt 派生，hex
   password_salt TEXT    NOT NULL,          -- 随机 16 字节，hex
   avatar_hue    INTEGER NOT NULL DEFAULT 0,-- 头像渐变色相，注册时随机分配
+  role          TEXT    NOT NULL DEFAULT 'user',    -- 'user' | 'admin'
+  status        TEXT    NOT NULL DEFAULT 'active',  -- 'active' | 'disabled'
+  note          TEXT    NOT NULL DEFAULT '',        -- 管理员备注（只有管理员看得到）
   created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT    NOT NULL DEFAULT (datetime('now')),
   last_login_at TEXT
 );
+
+-- ⚠️ users(role) 的索引**故意不写在这里**，它建在 migrate.js 里。
+--
+-- 原因：本文件是整段 exec 的，且全部是 IF NOT EXISTS。在老库上，
+-- users 表已存在 → 上面那条 CREATE TABLE 被跳过 → 此刻 role 列还不存在
+-- （它是靠 migrate() 里的 ALTER TABLE 补的，而 migrate() 在本文件之后才跑）。
+-- 这时候执行 CREATE INDEX ... ON users(role) 会直接抛
+-- 「no such column: role」，把整个 initSchema 打断，服务根本起不来。
+-- 实测踩过一次，报错点在 index.js 的 initSchema，看着像建表脚本坏了。
+--
+-- 所以凡是「依赖新增列」的索引/约束，一律放到 migrate() 里，别放这儿。
 
 -- 会话表：存 token 的 sha256，不存原文 —— 库被拖走也换不出可用的 cookie
 CREATE TABLE IF NOT EXISTS sessions (
@@ -284,3 +302,23 @@ CREATE TABLE IF NOT EXISTS auth_log (
   at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_authlog_at ON auth_log(at DESC);
+
+-- 管理员操作审计。
+--
+-- 为什么不复用 auth_log：两者的主体不同。auth_log 记的是「这个人对自己做了什么」
+-- （登录、改密），admin_log 记的是「这个人对别人做了什么」（改角色、删号、重置密码）。
+-- 混在一张表里，「谁被谁改了什么」需要靠 event 名前缀去猜，审计时最容易看漏。
+-- 分成两张，查询各自直白。
+CREATE TABLE IF NOT EXISTS admin_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_id    INTEGER NOT NULL,   -- 操作者（管理员）的 user_id
+  actor_email TEXT    NOT NULL,
+  target_id   INTEGER,            -- 被操作者，删号后置 NULL 保留痕迹
+  target_email TEXT,
+  action      TEXT    NOT NULL,   -- user_create | user_update | user_delete | password_reset | force_logout
+  detail      TEXT    NOT NULL DEFAULT '{}',  -- JSON：改了哪些字段、前后值
+  ip          TEXT,
+  at          TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_adminlog_at ON admin_log(at DESC);
+CREATE INDEX IF NOT EXISTS idx_adminlog_target ON admin_log(target_id);

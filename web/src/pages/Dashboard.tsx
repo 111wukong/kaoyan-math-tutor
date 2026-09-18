@@ -13,7 +13,7 @@ import { NumberTicker, ProgressRing, Meter, TiltCard } from '@/components/fx/Mot
 import { HudPanel, HudStatCard, HudSectionTitle, TickRule, Readout } from '@/components/fx/Hud';
 import { Heatmap } from '@/components/Heatmap';
 import { announceAchievements } from '@/components/ui/Toaster';
-import { cn, pct } from '@/lib/utils';
+import { cn, pct, cssVar } from '@/lib/utils';
 import { levelTitle } from '@/lib/achievements';
 
 const KIND_META: Record<string, { icon: any; tone: string; ring: string }> = {
@@ -197,7 +197,7 @@ export default function Dashboard() {
                 >
                   <div className={cn('pointer-events-none absolute -left-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br to-transparent opacity-70 blur-2xl', meta.ring)} />
                   <div className="relative flex items-start gap-3">
-                    <div className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-white/8 bg-white/5', meta.tone)}>
+                    <div className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-veil/8 bg-veil/5', meta.tone)}>
                       <Icon size={16} />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -291,10 +291,10 @@ export default function Dashboard() {
           {stats.data ? (
             <div className="space-y-3">
               {([
-                ['mastered', '精通', '#34d399'],
-                ['proficient', '熟练', '#22d3ee'],
-                ['learning', '学习中', '#fbbf24'],
-                ['new', '未学', 'rgba(255,255,255,0.22)'],
+                ['mastered', '精通', cssVar('--color-emerald', '#34d399')],
+                ['proficient', '熟练', cssVar('--color-cyan', '#22d3ee')],
+                ['learning', '学习中', cssVar('--color-amber', '#fbbf24')],
+                ['new', '未学', cssVar('--color-fg-faint', 'rgba(255,255,255,0.22)')],
               ] as const).map(([key, label, color]) => {
                 const n = stats.data.masteryDist?.[key] ?? 0;
                 const total = stats.data.snapshot?.total || 68;
@@ -339,9 +339,9 @@ export default function Dashboard() {
                 <Link
                   key={w.nodeId}
                   to={`/learn/${w.nodeId}`}
-                  className="group flex items-center gap-3 rounded-xl border border-white/6 bg-white/3 px-3 py-2.5 transition-all duration-250 hover:border-cyan/25 hover:bg-white/6"
+                  className="group flex items-center gap-3 rounded-xl border border-veil/6 bg-veil/3 px-3 py-2.5 transition-all duration-250 hover:border-cyan/25 hover:bg-veil/6"
                 >
-                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-white/6 font-mono text-[11px] font-semibold text-fg-mute tabular">
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-veil/6 font-mono text-[11px] font-semibold text-fg-mute tabular">
                     {String(i + 1).padStart(2, '0')}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-[13px] text-fg-soft group-hover:text-fg">
@@ -430,14 +430,15 @@ function FocusTimer({ onDone, pushToast }: { onDone: () => void; pushToast: any 
                   y1={64 + Math.sin(a) * r1}
                   x2={64 + Math.cos(a) * r2}
                   y2={64 + Math.sin(a) * r2}
-                  stroke={major ? 'rgba(168,85,247,0.55)' : 'rgba(168,85,247,0.22)'}
+                  stroke={cssVar('--color-violet', '#a855f7')}
+                  strokeOpacity={major ? 0.55 : 0.22}
                   strokeWidth={major ? 1.4 : 1}
                 />
               );
             })}
           </svg>
           <svg className="absolute inset-0 -rotate-90" viewBox="0 0 128 128" aria-hidden>
-            <circle cx="64" cy="64" r="58" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="5" />
+            <circle cx="64" cy="64" r="58" fill="none" stroke={cssVar('--color-hairline', 'rgba(255,255,255,0.07)')} strokeWidth="5" />
             <circle
               cx="64" cy="64" r="58" fill="none"
               stroke="url(#focus-grad)" strokeWidth="5" strokeLinecap="round"
@@ -447,8 +448,8 @@ function FocusTimer({ onDone, pushToast }: { onDone: () => void; pushToast: any 
             />
             <defs>
               <linearGradient id="focus-grad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#22d3ee" />
-                <stop offset="100%" stopColor="#a855f7" />
+                <stop offset="0%" stopColor={cssVar('--color-cyan', '#22d3ee')} />
+                <stop offset="100%" stopColor={cssVar('--color-violet', '#a855f7')} />
               </linearGradient>
             </defs>
           </svg>

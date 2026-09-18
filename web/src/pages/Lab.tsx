@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { FlaskConical, Info, Move3d } from 'lucide-react';
 import { Panel, SectionTitle, Segmented, Badge } from '@/components/ui/Primitives';
 import { InlineMath, RichText } from '@/components/ui/Math';
-import { cn } from '@/lib/utils';
+import { cn, cssVar } from '@/lib/utils';
 
 /* 公式实验室
  * 四个"可以拖"的数学模块。设计原则：
@@ -148,7 +148,7 @@ export default function Lab() {
               <span className="text-fg-mute">场景 · </span>{meta.hook}
             </div>
 
-            <div className="rounded-xl border border-white/8 bg-white/3 px-3.5 py-3 text-center">
+            <div className="rounded-xl border border-veil/8 bg-veil/3 px-3.5 py-3 text-center">
               <InlineMath text={`$$${meta.formula}$$`} />
             </div>
 
@@ -231,7 +231,7 @@ function Slider({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         aria-label={label}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/10 outline-none
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-veil/10 outline-none
           [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none
           [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan
           [&::-webkit-slider-thumb]:shadow-[0_0_12px_-1px_rgba(34,211,238,0.9)]
@@ -258,7 +258,9 @@ function makeMapper(W: number, H: number, xr: [number, number], yr: [number, num
 function grid(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>) {
   const { X, Y, xr, yr, W, H, pad } = m;
   ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.055)';
+  /* 画布只吃具体颜色字符串，塞不进 Tailwind 类名 —— 所以在这里读令牌。
+   * 写死白色的话，亮色主题下网格线是白压白，整片消失（曲线还悬在空中）。 */
+  ctx.strokeStyle = cssVar('--mesh-line', 'rgba(255,255,255,0.055)');
   ctx.lineWidth = 1;
   for (let x = Math.ceil(xr[0]); x <= xr[1]; x++) {
     ctx.beginPath(); ctx.moveTo(X(x), pad); ctx.lineTo(X(x), H - pad); ctx.stroke();
@@ -267,7 +269,7 @@ function grid(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>) {
     ctx.beginPath(); ctx.moveTo(pad, Y(y)); ctx.lineTo(W - pad, Y(y)); ctx.stroke();
   }
   // 坐标轴
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.strokeStyle = cssVar('--color-hairline-strong', 'rgba(255,255,255,0.2)');
   ctx.lineWidth = 1.2;
   if (yr[0] <= 0 && yr[1] >= 0) {
     ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(W - pad, Y(0)); ctx.stroke();

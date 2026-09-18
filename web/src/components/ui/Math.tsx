@@ -115,7 +115,7 @@ function renderTex(tex: string, display: boolean): string {
     if (import.meta.env?.DEV) {
       console.warn('[Math] KaTeX 解析失败，已降级为纯文本：', trimmed, (e as Error)?.message);
     }
-    html = `<code class="rounded bg-white/8 px-1 py-0.5 font-mono text-[0.85em] text-amber-300/95">${escapeHtml(trimmed)}</code>`;
+    html = `<code class="rounded bg-veil/8 px-1 py-0.5 font-mono text-[0.85em] text-amber-300/95">${escapeHtml(trimmed)}</code>`;
   }
 
   if (FORMULA_CACHE.size >= FORMULA_CACHE_MAX) FORMULA_CACHE.clear();
@@ -368,7 +368,7 @@ function inlinePipeline(text: string): string {
   /* 1) 行内代码先摘走。必须在 autoLatex 之前 —— 否则 `x^2` 里的 ^ 会被
         连反引号一起包成公式，屏幕上就是 KaTeX 渲染出来的一对反引号。 */
   rest = rest.replace(/`([^`\n]+?)`/g, (_, inner) =>
-    stash(`<code class="rounded bg-white/8 px-1.5 py-0.5 font-mono text-[0.9em] text-cyan-200/95">${escapeHtml(inner)}</code>`));
+    stash(`<code class="rounded bg-veil/8 px-1.5 py-0.5 font-mono text-[0.9em] text-cyan-200/95">${escapeHtml(inner)}</code>`));
 
   /* 2) Markdown 链接也要在 autoLatex 之前 —— URL 里常带 _ 和 &，
         被当成公式或实体就毁了。 */
@@ -457,7 +457,7 @@ function blockMd(src: string, blocks: string[]): string {
       html.push(
         '<div class="my-3 overflow-x-auto"><table class="w-full border-collapse text-[13px]">'
         + '<thead><tr>'
-        + head.map((c) => `<th class="border border-hairline bg-white/5 px-3 py-2 text-left font-medium text-fg">${inlinePipeline(c)}</th>`).join('')
+        + head.map((c) => `<th class="border border-hairline bg-veil/5 px-3 py-2 text-left font-medium text-fg">${inlinePipeline(c)}</th>`).join('')
         + '</tr></thead><tbody>'
         + rows.map((r) => '<tr>'
             + head.map((_, ci) => `<td class="border border-hairline px-3 py-2 text-fg-soft">${inlinePipeline(r[ci] ?? '')}</td>`).join('')
@@ -491,7 +491,7 @@ function blockMd(src: string, blocks: string[]): string {
     // 引用
     if (/^\s*>\s?/.test(line)) {
       closeList();
-      html.push(`<blockquote class="my-2.5 border-l-2 border-cyan/45 bg-white/3 py-1.5 pl-3.5 text-fg-soft">${inlinePipeline(line.replace(/^\s*>\s?/, ''))}</blockquote>`);
+      html.push(`<blockquote class="my-2.5 border-l-2 border-cyan/45 bg-veil/3 py-1.5 pl-3.5 text-fg-soft">${inlinePipeline(line.replace(/^\s*>\s?/, ''))}</blockquote>`);
       continue;
     }
 

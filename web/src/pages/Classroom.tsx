@@ -444,7 +444,7 @@ export default function Classroom() {
                     : '点右上角「开始上课」，或者先说说你卡在哪'
               }
               disabled={!kid || busy}
-              className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-hairline bg-white/4 px-3.5 py-3 text-[13.5px] leading-relaxed text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45 focus:bg-white/6 disabled:opacity-50"
+              className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-hairline bg-veil/4 px-3.5 py-3 text-[13.5px] leading-relaxed text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45 focus:bg-veil/6 disabled:opacity-50"
             />
             <Button
               onClick={() => runRound(input)}
@@ -501,7 +501,7 @@ function Blackboard({ steps, seq }: { steps: string[]; seq: number }) {
         <div className="relative mb-3 flex items-center gap-2">
           <PenLine size={13} className="text-cyan/70" />
           <span className="text-[11px] font-medium tracking-[0.18em] text-cyan/70">板书</span>
-          <span className="h-px flex-1 bg-white/6" />
+          <span className="h-px flex-1 bg-veil/6" />
           <span className="text-[10.5px] text-fg-faint">每轮重写</span>
         </div>
 
@@ -525,7 +525,7 @@ function Blackboard({ steps, seq }: { steps: string[]; seq: number }) {
                   show: { opacity: 1, x: 0, filter: 'blur(0px)' },
                 }}
                 transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                className="flex items-start gap-2.5 rounded-xl border border-white/6 bg-white/3 px-3.5 py-2.5"
+                className="flex items-start gap-2.5 rounded-xl border border-veil/6 bg-veil/3 px-3.5 py-2.5"
               >
                 <span className="mt-[1px] shrink-0 font-mono text-[11px] font-semibold text-cyan/60">
                   {String(i + 1).padStart(2, '0')}
@@ -553,8 +553,8 @@ function TurnBubble({ turn, index }: { turn: ClassroomTurn; index: number }) {
         name: '我',
         avatar: '我',
         tag: '学生本人',
-        avatarCls: 'border-white/12 bg-white/7 text-fg-soft',
-        bubbleCls: 'border-white/10 bg-white/6',
+        avatarCls: 'border-veil/12 bg-veil/7 text-fg-soft',
+        bubbleCls: 'border-veil/10 bg-veil/6',
         accentCls: 'text-fg-soft',
       }
     : ROLES[turn.role] || ROLES.teacher;
@@ -578,7 +578,7 @@ function TurnBubble({ turn, index }: { turn: ClassroomTurn; index: number }) {
       <div className={cn('min-w-0 max-w-[86%]', me && 'text-right')}>
         <div className={cn('mb-1.5 flex items-center gap-2', me && 'flex-row-reverse')}>
           <span className={cn('text-[12px] font-medium', cfg.accentCls)}>{cfg.name}</span>
-          <span className="rounded border border-white/8 bg-white/4 px-1.5 py-[1px] text-[10px] text-fg-faint">
+          <span className="rounded border border-veil/8 bg-veil/4 px-1.5 py-[1px] text-[10px] text-fg-faint">
             {cfg.tag}
           </span>
         </div>

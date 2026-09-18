@@ -9,7 +9,8 @@ import { useAsync } from '@/lib/hooks';
 import { Panel, Skeleton, SectionTitle, StatCard, Badge, EmptyState } from '@/components/ui/Primitives';
 import { Heatmap } from '@/components/Heatmap';
 import { NumberTicker } from '@/components/fx/Motion';
-import { pct } from '@/lib/utils';
+import { pct, cssVar } from '@/lib/utils';
+import { useTheme } from '@/stores/theme';
 
 /* 图表用色。
  *
@@ -25,27 +26,58 @@ import { pct } from '@/lib/utils';
  *
  * 注意别拿环形进度条的 0.07 当参照：那是 5px 宽的描边，7% 就够显形；
  * 1px 的细线在同样透明度下会直接消失。**透明度要跟着线宽走。**
+ *
+ * ★ 多主题改造：下面这些从「写死的白」改成「读当前主题的令牌」。
+ *   白 16% 在深空底上是浅灰线，在宣纸底上就是白线压白底 —— 隐形。
+ *   现在统一读 --color-hairline / --color-fg-mute 等，跟着主题走。
+ *
+ *   ⚠️ 必须在**组件内**求值（下面的 chartTheme()），不能提到模块顶层。
+ *   模块顶层只在 import 那一刻算一次，切主题不会更新 ——
+ *   表现是「主题换了，图表网格还是老颜色」。
  */
-const AXIS = { stroke: 'rgba(255,255,255,0.16)', tick: { fill: '#6b7590', fontSize: 11 } };
-
-/** 细网格线统一用这个透明度 —— 别在调用处各写各的。 */
-const GRID_STROKE = 'rgba(255,255,255,0.15)';
-/** 雷达图的网格既是刻度又是骨架，比直角网格再亮一档。 */
-const POLAR_GRID_STROKE = 'rgba(255,255,255,0.22)';
-
-const TOOLTIP_STYLE = {
-  background: 'rgba(11,15,26,0.96)',
-  border: '1px solid rgba(255,255,255,0.12)',
-  borderRadius: 12,
-  padding: '8px 12px',
-  fontSize: 12,
-  color: '#e9ebf4',
-  boxShadow: '0 18px 44px -20px rgba(0,0,0,0.95)',
-  backdropFilter: 'blur(12px)',
-};
+function chartTheme() {
+  return {
+    axis: {
+      stroke: cssVar('--color-hairline-strong', 'rgba(255,255,255,0.16)'),
+      tick: { fill: cssVar('--color-fg-mute', '#6b7590'), fontSize: 11 },
+    },
+    /** 细网格线统一用这个 —— 别在调用处各写各的。 */
+    gridStroke: cssVar('--color-hairline', 'rgba(255,255,255,0.15)'),
+    /** 雷达图的网格既是刻度又是骨架，比直角网格再亮一档。 */
+    polarGridStroke: cssVar('--color-hairline-strong', 'rgba(255,255,255,0.22)'),
+    tooltip: {
+      background: cssVar('--glass-sheet-strong', 'rgba(11,15,26,0.96)'),
+      border: `1px solid ${cssVar('--color-hairline-strong', 'rgba(255,255,255,0.12)')}`,
+      borderRadius: 12,
+      padding: '8px 12px',
+      fontSize: 12,
+      color: cssVar('--color-fg', '#e9ebf4'),
+      boxShadow: `0 18px 44px -20px ${cssVar('--glass-shadow-strong', 'rgba(0,0,0,0.95)')}`,
+      backdropFilter: 'blur(12px)',
+    },
+    /** 悬停时那条指示带的填充 */
+    cursorFill: cssVar('--color-glass-1', 'rgba(255,255,255,0.035)'),
+    accent: {
+      cyan: cssVar('--color-cyan', '#22d3ee'),
+      violet: cssVar('--color-violet', '#a855f7'),
+      emerald: cssVar('--color-emerald', '#34d399'),
+      amber: cssVar('--color-amber', '#fbbf24'),
+      rose: cssVar('--color-rose', '#fb7185'),
+      blue: cssVar('--color-blue', '#3b82f6'),
+    },
+    /** 数据点描边用底色，制造"分离"感 */
+    surface: cssVar('--color-ink-850', '#0b0f1a'),
+  };
+}
 
 export default function Stats() {
   const { data, loading } = useAsync(() => api.study.stats(), []);
+
+  /* 订阅主题 id —— 它一变这个组件就重渲染，chartTheme() 重新读一遍令牌。
+   * 少了这一行，切主题后图表的网格/提示框颜色会停在旧主题上。 */
+  const themeId = useTheme((s) => s.id);
+  const T = useMemo(() => chartTheme(), [themeId]);
+  const AXIS = T.axis;
 
   const snap = data?.snapshot;
 
@@ -152,26 +184,26 @@ export default function Stats() {
                 <AreaChart data={trend} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
                   <defs>
                     <linearGradient id="grad-acc" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.42} />
-                      <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.02} />
+                      <stop offset="0%" stopColor={T.accent.cyan} stopOpacity={0.42} />
+                      <stop offset="100%" stopColor={T.accent.cyan} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.gridStroke} vertical={false} />
                   <XAxis dataKey="label" {...AXIS} axisLine={false} tickLine={false} />
                   <YAxis domain={[0, 100]} {...AXIS} axisLine={false} tickLine={false} width={44} />
                   <Tooltip
-                    contentStyle={TOOLTIP_STYLE}
-                    labelStyle={{ color: '#a8b0c6', marginBottom: 4 }}
+                    contentStyle={T.tooltip}
+                    labelStyle={{ color: cssVar('--color-fg-soft', '#a8b0c6'), marginBottom: 4 }}
                     formatter={(v: any, _n: any, p: any) => [`${v}%（${p.payload.correct}/${p.payload.total} 题）`, '正确率']}
                   />
                   <Area
                     type="monotone"
                     dataKey="pct"
-                    stroke="#22d3ee"
+                    stroke={T.accent.cyan}
                     strokeWidth={2.2}
                     fill="url(#grad-acc)"
-                    dot={{ r: 3, fill: '#0b0f1a', stroke: '#22d3ee', strokeWidth: 2 }}
-                    activeDot={{ r: 5, fill: '#22d3ee', stroke: '#0b0f1a', strokeWidth: 2 }}
+                    dot={{ r: 3, fill: T.surface, stroke: T.accent.cyan, strokeWidth: 2 }}
+                    activeDot={{ r: 5, fill: T.accent.cyan, stroke: T.surface, strokeWidth: 2 }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -185,12 +217,12 @@ export default function Stats() {
               <div className="h-[280px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <RadarChart data={radar} outerRadius="72%">
-                    <PolarGrid stroke={POLAR_GRID_STROKE} />
-                    <PolarAngleAxis dataKey="subject" tick={{ fill: '#a8b0c6', fontSize: 12 }} />
-                    <PolarRadiusAxis domain={[0, 100]} tick={{ fill: '#5d6580', fontSize: 10 }} axisLine={false} />
-                    <Radar name="覆盖率" dataKey="coverage" stroke="#a855f7" fill="#a855f7" fillOpacity={0.16} strokeWidth={1.6} />
-                    <Radar name="正确率" dataKey="accuracy" stroke="#22d3ee" fill="#22d3ee" fillOpacity={0.22} strokeWidth={2} />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: any) => `${v}%`} />
+                    <PolarGrid stroke={T.polarGridStroke} />
+                    <PolarAngleAxis dataKey="subject" tick={{ fill: cssVar('--color-fg-soft', '#a8b0c6'), fontSize: 12 }} />
+                    <PolarRadiusAxis domain={[0, 100]} tick={{ fill: cssVar('--color-fg-faint', '#5d6580'), fontSize: 10 }} axisLine={false} />
+                    <Radar name="覆盖率" dataKey="coverage" stroke={T.accent.violet} fill={T.accent.violet} fillOpacity={0.16} strokeWidth={1.6} />
+                    <Radar name="正确率" dataKey="accuracy" stroke={T.accent.cyan} fill={T.accent.cyan} fillOpacity={0.22} strokeWidth={2} />
+                    <Tooltip contentStyle={T.tooltip} formatter={(v: any) => `${v}%`} />
                   </RadarChart>
                 </ResponsiveContainer>
               </div>
@@ -210,12 +242,12 @@ export default function Stats() {
                 <div className="h-[300px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chapters} layout="vertical" margin={{ top: 4, right: 18, bottom: 0, left: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} horizontal={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={T.gridStroke} horizontal={false} />
                       <XAxis type="number" domain={[0, 100]} {...AXIS} axisLine={false} tickLine={false} />
                       <YAxis type="category" dataKey="name" width={92} {...AXIS} axisLine={false} tickLine={false} />
                       <Tooltip
-                        contentStyle={TOOLTIP_STYLE}
-                        cursor={{ fill: 'rgba(255,255,255,0.035)' }}
+                        contentStyle={T.tooltip}
+                        cursor={{ fill: T.cursorFill }}
                         formatter={(v: any, _n: any, p: any) => [`${v}%（${p.payload.attempts} 题）`, '正确率']}
                       />
                       <Bar dataKey="accuracy" radius={[0, 5, 5, 0]} barSize={13}>
@@ -223,10 +255,10 @@ export default function Stats() {
                           <Cell
                             key={i}
                             fill={
-                              c.accuracy >= 85 ? '#34d399'
-                                : c.accuracy >= 65 ? '#22d3ee'
-                                  : c.accuracy >= 40 ? '#fbbf24'
-                                    : '#fb7185'
+                              c.accuracy >= 85 ? T.accent.emerald
+                                : c.accuracy >= 65 ? T.accent.cyan
+                                  : c.accuracy >= 40 ? T.accent.amber
+                                    : T.accent.rose
                             }
                           />
                         ))}

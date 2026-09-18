@@ -58,7 +58,7 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
         isBig && 'shadow-[0_18px_50px_-20px_rgba(0,0,0,0.95)]',
       )}
     >
-      <div className={cn('mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border bg-white/6', TONES[toast.kind])}>
+      <div className={cn('mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border bg-veil/6', TONES[toast.kind])}>
         <Icon size={14} />
       </div>
       <div className="min-w-0 flex-1">
@@ -68,7 +68,7 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
       <button
         onClick={onClose}
         aria-label="关闭提示"
-        className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md text-fg-faint transition-colors hover:bg-white/8 hover:text-fg-soft"
+        className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md text-fg-faint transition-colors hover:bg-veil/8 hover:text-fg-soft"
       >
         <X size={13} />
       </button>

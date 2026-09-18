@@ -58,6 +58,52 @@ const del = <T>(p: string) => request<T>(p, { method: 'DELETE' });
 /* ============ 类型 ============ */
 export interface User {
   id: number; email: string; username: string; avatarHue: number; createdAt: string;
+  /** 'user' | 'admin'。只用于渲染（侧栏入口、路由放行），鉴权在服务端。 */
+  role: 'user' | 'admin';
+}
+
+/* ---- 管理台 ---- */
+export interface AdminUserStats {
+  attempts: number; correct: number; wrong: number; accuracy: number;
+  xp: number; level: number; levelTitle: string; bestCombo: number;
+  cards: number; deckCards: number; minutes: number; activeDays: number; achievements: number;
+}
+
+export interface AdminUser {
+  id: number; email: string; username: string;
+  role: 'user' | 'admin';
+  status: 'active' | 'disabled';
+  note: string;
+  avatarHue: number;
+  createdAt: string; updatedAt: string; lastLoginAt: string | null;
+  stats: AdminUserStats;
+  sessions?: number;
+  lastSeenAt?: string | null;
+}
+
+export interface AdminOverview {
+  totals: { users: number; admins: number; disabled: number; activeToday: number; neverLoggedIn: number };
+  activity: {
+    attempts: number; correct: number; accuracy: number; sessions: number;
+    cards: number; deckCards: number; adminActions: number; dbMb: number;
+  };
+  recentUsers: AdminUser[];
+}
+
+export interface AdminLogEntry {
+  id: number; actorId: number; actorEmail: string;
+  targetId: number | null; targetEmail: string | null;
+  action: string; detail: Record<string, unknown>; ip: string; at: string;
+}
+
+export interface AdminUserDetail {
+  user: AdminUser;
+  recentAttempts: { qid: string; kid: string; correct: number; date: string; ts: number; stem: string | null }[];
+  sessions: { created_at: string; last_seen_at: string; expires_at: string; user_agent: string | null; ip: string | null }[];
+  settings: { examTrack: string; dailyNew: number; examDate: string; persona: string; sfx: boolean; theme: string } | null;
+  llm: { enabled: boolean; kind: string; hasKey: boolean; model: string } | null;
+  daily: { date: string; n: number; c: number }[];
+  logs: { id: number; actor_email: string; action: string; detail: Record<string, unknown>; at: string }[];
 }
 
 export interface Mastery {
@@ -260,6 +306,31 @@ export const api = {
     personas: () => get<{ personas: { id: string; name: string; desc: string }[] }>('/api/ai/personas'),
     extract: (text: string, kid?: string) => post<{ cards: any[]; raw?: string }>('/api/ai/extract', { text, kid }),
     classroom: (body: ClassroomRoundBody) => post<ClassroomRound>('/api/ai/classroom', body),
+  },
+
+  /* 管理台。全部接口服务端都有 requireAdmin，非管理员一律 403。 */
+  admin: {
+    overview: () => get<AdminOverview>('/api/admin/overview'),
+    users: (params: Record<string, string | number> = {}) => {
+      const qs = new URLSearchParams(
+        Object.entries(params)
+          .filter(([, v]) => v !== '' && v !== undefined && v !== null)
+          .map(([k, v]) => [k, String(v)]),
+      ).toString();
+      return get<{ users: AdminUser[]; total: number; limit: number; offset: number }>(`/api/admin/users?${qs}`);
+    },
+    user: (id: number) => get<AdminUserDetail>(`/api/admin/users/${id}`),
+    create: (body: { email: string; username: string; password: string; role?: string; note?: string }) =>
+      post<{ ok: boolean; user: AdminUser }>('/api/admin/users', body),
+    update: (id: number, body: Partial<{ email: string; username: string; role: string; status: string; note: string }>) =>
+      request<{ ok: boolean; changed: Record<string, [string, string]>; user: AdminUser }>(
+        `/api/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) },
+      ),
+    resetPassword: (id: number, password: string) =>
+      post<{ ok: boolean; sessionsKilled: number }>(`/api/admin/users/${id}/password`, { password }),
+    forceLogout: (id: number) => post<{ ok: boolean; sessionsKilled: number }>(`/api/admin/users/${id}/logout`),
+    remove: (id: number) => del<{ ok: boolean; wiped: Record<string, number> }>(`/api/admin/users/${id}`),
+    logs: (limit = 60) => get<{ logs: AdminLogEntry[] }>(`/api/admin/logs?limit=${limit}`),
   },
 };
 

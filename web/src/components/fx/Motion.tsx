@@ -1,5 +1,29 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { cn } from '@/lib/utils';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { cn, cssVar } from '@/lib/utils';
+import { useTheme } from '@/stores/theme';
+
+/* 环形/条形进度条的主题适配说明
+ *
+ * 这两个组件的强调色以前写成**参数默认值**（`gradient = ['#22d3ee','#a855f7']`、
+ * `from = '#22d3ee'`）。参数默认值在函数定义那一刻就求值了 ——
+ * 也就是说它是模块级的常量，切主题不会重算。
+ *
+ * 现在改成默认 undefined，在**组件体内**用 cssVar() 解析，
+ * 并把主题 id 放进 deps。这样切主题时进度条的颜色会跟着走。
+ */
+function useAccentColors(from?: string, to?: string) {
+  const themeId = useTheme((s) => s.id);
+  return useMemo(() => [
+    from ?? cssVar('--color-cyan', '#22d3ee'),
+    to ?? cssVar('--color-violet', '#a855f7'),
+  ] as const, [from, to, themeId]);
+}
+
+/** 环形进度条那圈"没走到"的轨道色。以前写死白 7.5%，亮色主题下等于隐形。 */
+function useThemeStroke() {
+  const themeId = useTheme((s) => s.id);
+  return useMemo(() => cssVar('--color-hairline', 'rgba(255,255,255,0.075)'), [themeId]);
+}
 
 /* 数字滚动
  * 直接跳到目标值会让人怀疑「是不是没更新」；滚动过去才有"涨了"的实感。
@@ -131,7 +155,7 @@ export function ProgressRing({
   stroke = 7,
   label,
   sublabel,
-  gradient = ['#22d3ee', '#a855f7'],
+  gradient,
   className,
 }: {
   value: number;              // 0-100
@@ -148,6 +172,9 @@ export function ProgressRing({
   const v = Math.max(0, Math.min(100, value));
   const [dash, setDash] = useState(0);
 
+  const grad = useAccentColors(gradient?.[0], gradient?.[1]);
+  const trackStroke = useThemeStroke();
+
   useEffect(() => {
     const t = setTimeout(() => setDash((v / 100) * c), 90);
     return () => clearTimeout(t);
@@ -158,11 +185,11 @@ export function ProgressRing({
       <svg width={size} height={size} className="-rotate-90" aria-hidden>
         <defs>
           <linearGradient id={id} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor={gradient[0]} />
-            <stop offset="100%" stopColor={gradient[1]} />
+            <stop offset="0%" stopColor={grad[0]} />
+            <stop offset="100%" stopColor={grad[1]} />
           </linearGradient>
         </defs>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.075)" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={trackStroke} strokeWidth={stroke} />
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -189,8 +216,8 @@ export function Meter({
   value,
   className,
   barClassName,
-  from = '#22d3ee',
-  to = '#a855f7',
+  from,
+  to,
   height = 6,
 }: {
   value: number;
@@ -202,13 +229,14 @@ export function Meter({
 }) {
   const v = Math.max(0, Math.min(100, value));
   const [w, setW] = useState(0);
+  const [c1, c2] = useAccentColors(from, to);
   useEffect(() => {
     const t = setTimeout(() => setW(v), 80);
     return () => clearTimeout(t);
   }, [v]);
   return (
     <div
-      className={cn('w-full overflow-hidden rounded-full bg-white/6', className)}
+      className={cn('w-full overflow-hidden rounded-full bg-veil/6', className)}
       style={{ height }}
       role="progressbar"
       aria-valuenow={Math.round(v)}
@@ -219,9 +247,9 @@ export function Meter({
         className={cn('h-full rounded-full', barClassName)}
         style={{
           width: `${w}%`,
-          background: `linear-gradient(90deg, ${from}, ${to})`,
+          background: `linear-gradient(90deg, ${c1}, ${c2})`,
           transition: 'width 1s cubic-bezier(0.16,1,0.3,1)',
-          boxShadow: `0 0 12px -2px ${from}88`,
+          boxShadow: `0 0 12px -2px ${c1}88`,
         }}
       />
     </div>

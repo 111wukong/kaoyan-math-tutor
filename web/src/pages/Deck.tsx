@@ -172,7 +172,7 @@ export default function Deck() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜卡片内容"
-              className="h-9 w-full rounded-xl border border-hairline bg-white/4 pl-9 pr-3 text-[12.5px] text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45"
+              className="h-9 w-full rounded-xl border border-hairline bg-veil/4 pl-9 pr-3 text-[12.5px] text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45"
             />
           </div>
         </div>

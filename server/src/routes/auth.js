@@ -8,11 +8,19 @@ import {
   cleanupSessions, cookieOptions, COOKIE_NAME, logAuth,
 } from '../lib/session.js';
 
+/* 对外的用户对象。
+ *
+ * 白名单式：只列该给的字段。password_hash / password_salt 绝不出现在这里 ——
+ * 用「排除法」（delete 掉敏感字段）迟早会漏一个，用「列举法」不会。
+ * role 是必须给前端的：侧栏要不要显示「管理」入口、路由要不要放行，
+ * 都靠它。但前端拿到 role 只是用来渲染，真正的鉴权在服务端 requireAdmin，
+ * 前端藏起来的东西不代表服务端不设防。 */
 const publicUser = (u) => ({
   id: u.id,
   email: u.email,
   username: u.username,
   avatarHue: u.avatar_hue,
+  role: u.role || 'user',
   createdAt: u.created_at,
 });
 
@@ -95,6 +103,16 @@ export default async function authRoutes(fastify) {
       return fail();
     }
     if (!(await verifyPassword(password, user.password_hash, user.password_salt))) return fail();
+
+    /* 被停用的账号：密码对也不给进。
+     *
+     * 注意顺序 —— 停用检查放在密码校验**之后**。放前面的话，
+     * 「这个邮箱被停用了」会成为一个不需要密码就能拿到的信息，
+     * 等于给外人一个枚举账号状态的接口。现在只有密码正确的人才会看到这句。 */
+    if (user.status && user.status !== 'active') {
+      logAuth('login_blocked', { email, userId: user.id, ip, userAgent: ua });
+      return reply.code(403).send({ error: '这个账号已被停用，请联系管理员', code: 'ACCOUNT_DISABLED' });
+    }
 
     db.prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?").run(user.id);
     const { token, expiresAt } = createSession(user.id, { userAgent: ua, ip });

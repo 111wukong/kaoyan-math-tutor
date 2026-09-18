@@ -25,7 +25,13 @@ db.pragma('foreign_keys = ON');
 db.pragma('busy_timeout = 5000');
 db.pragma('synchronous = NORMAL');
 
-/** 建表（幂等）。启动时跑一次。 */
+/** 建表（幂等）。启动时跑一次。
+ *
+ * ⚠️ 这一步**只建缺失的表**。schema.sql 全是 `CREATE TABLE IF NOT EXISTS`，
+ * 表已存在时整条语句被跳过 —— 也就是说「往已有表里加一列」它做不到。
+ * 补列是 migrate()（见 migrate.js）的职责，启动时紧跟在本函数之后调用。
+ * 只调本函数不调 migrate()，老库上任何读新列的查询都会 no such column。
+ */
 export function initSchema() {
   const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   db.exec(sql);

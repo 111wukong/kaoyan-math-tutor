@@ -250,7 +250,7 @@ export function HudStatCard({
           {unit && <span className="text-[11px] text-fg-faint">{unit}</span>}
         </div>
         {v !== null && (
-          <div className="mt-2.5 h-[3px] w-full overflow-hidden rounded-full bg-white/6">
+          <div className="mt-2.5 h-[3px] w-full overflow-hidden rounded-full bg-veil/6">
             <div
               className="h-full rounded-full"
               style={{

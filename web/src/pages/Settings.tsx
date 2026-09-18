@@ -2,13 +2,15 @@ import { useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   AlertTriangle, Check, Database, Download, HardDrive, KeyRound, Loader2,
-  Monitor, Plug, RotateCcw, Save, Shield, Trash2, Upload, User, X,
+  Monitor, Palette, Plug, RotateCcw, Save, Shield, Trash2, Upload, User, X,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
 import { useAuth } from '@/stores/auth';
+import { useTheme } from '@/stores/theme';
 import { Panel, Button, Input, SectionTitle, Badge, Segmented, Skeleton, Divider } from '@/components/ui/Primitives';
+import { ThemePicker } from '@/components/ui/ThemePicker';
 import { Modal } from '@/components/ui/Modal';
 import { cn, copyText } from '@/lib/utils';
 
@@ -22,6 +24,7 @@ export default function Settings() {
   const pushToast = useApp((s) => s.pushToast);
   const refreshSnapshot = useApp((s) => s.refreshSnapshot);
   const user = useAuth((s) => s.user);
+  const { theme, setTheme } = useTheme();
 
   const settings = useAsync(() => api.settings.get(), []);
   const llm = useAsync(() => api.settings.llm(), []);
@@ -231,6 +234,26 @@ export default function Settings() {
 
   return (
     <div className="space-y-5">
+      {/* 外观。放在第一块 —— 这是唯一"改完立刻看得见"的设置，
+          也是新用户最可能想动的一项。 */}
+      <Panel className="p-5">
+        <SectionTitle
+          title="外观"
+          desc="选完立即生效，并且跟着账号走 —— 换台设备登录还是这套配色。"
+          right={
+            <Badge tone={theme.mode === 'light' ? 'amber' : 'cyan'}>
+              <Palette size={10} /> 当前：{theme.name}
+            </Badge>
+          }
+          className="mb-4"
+        />
+        <ThemePicker />
+        <p className="mt-3.5 text-[11.5px] leading-relaxed text-fg-mute">
+          暗色主题带动态背景（赛博网格 + 星尘），亮色主题走静态纸面 ——
+          霓虹网格画在白纸上既不像纸也不像夜，所以亮色下那两层不挂载。
+        </p>
+      </Panel>
+
       {/* 备考设置 */}
       <Panel className="p-5">
         <SectionTitle title="备考设置" desc="影响调度器的权重与每日任务量" className="mb-4" />
@@ -281,7 +304,7 @@ export default function Settings() {
               />
             </div>
 
-            <div className="flex items-center justify-between rounded-xl border border-white/7 bg-white/3 px-4 py-3">
+            <div className="flex items-center justify-between rounded-xl border border-veil/7 bg-veil/3 px-4 py-3">
               <div>
                 <div className="text-[13px] text-fg-soft">音效</div>
                 <div className="mt-0.5 text-[11.5px] text-fg-mute">答对随连击升调，答错短促下行</div>
@@ -290,7 +313,7 @@ export default function Settings() {
                 onClick={() => setForm({ ...s, sfx: !s.sfx })}
                 className={cn(
                   'relative h-6 w-11 rounded-full transition-colors duration-250',
-                  s.sfx ? 'bg-cyan/70' : 'bg-white/12',
+                  s.sfx ? 'bg-cyan/70' : 'bg-veil/12',
                 )}
                 role="switch"
                 aria-checked={s.sfx}
@@ -419,7 +442,7 @@ export default function Settings() {
       <Panel className="p-5">
         <SectionTitle title="账号" desc={`${user?.email} · 注册于 ${user?.createdAt?.slice(0, 10)}`} className="mb-4" />
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/7 bg-white/3 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-veil/7 bg-veil/3 px-4 py-3">
             <div className="flex items-center gap-3">
               <User size={16} className="text-fg-mute" />
               <div>
@@ -430,7 +453,7 @@ export default function Settings() {
             <Button variant="outline" size="sm" onClick={() => setPwdOpen(true)}>修改密码</Button>
           </div>
 
-          <div className="rounded-xl border border-white/7 bg-white/3 px-4 py-3">
+          <div className="rounded-xl border border-veil/7 bg-veil/3 px-4 py-3">
             <div className="mb-2.5 flex items-center gap-3">
               <Monitor size={16} className="text-fg-mute" />
               <div>
@@ -442,7 +465,7 @@ export default function Settings() {
             </div>
             <div className="space-y-1.5">
               {(sessions.data?.sessions || []).slice(0, 5).map((x: any, i: number) => (
-                <div key={i} className="flex items-center gap-2.5 rounded-lg border border-white/6 bg-white/2 px-3 py-2 text-[11.5px]">
+                <div key={i} className="flex items-center gap-2.5 rounded-lg border border-veil/6 bg-veil/2 px-3 py-2 text-[11.5px]">
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald" />
                   <span className="min-w-0 flex-1 truncate text-fg-soft">{x.user_agent || '未知设备'}</span>
                   <span className="shrink-0 text-fg-faint">{x.ip}</span>
@@ -670,7 +693,7 @@ export default function Settings() {
 
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-white/6 bg-white/2 px-3 py-2">
+    <div className="flex items-center gap-2.5 rounded-lg border border-veil/6 bg-veil/2 px-3 py-2">
       <span className="text-fg-faint">{icon}</span>
       <span className="text-fg-mute">{label}</span>
       <span className="ml-auto text-fg-soft">{value}</span>

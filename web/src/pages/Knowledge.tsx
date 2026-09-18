@@ -135,7 +135,7 @@ export default function Knowledge() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜考点名，比如「罗尔定理」「重要极限」"
-            className="h-10 w-full rounded-xl border border-hairline bg-white/4 pl-10 pr-3.5 text-[13.5px] text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45 focus:bg-white/6"
+            className="h-10 w-full rounded-xl border border-hairline bg-veil/4 pl-10 pr-3.5 text-[13.5px] text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45 focus:bg-veil/6"
           />
         </div>
       </HudPanel>
@@ -189,7 +189,7 @@ function CategoryBlock({
       {/* 科目头 */}
       <button
         onClick={() => setCollapsed((v) => !v)}
-        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-white/3"
+        className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-veil/3"
       >
         <span
           className="h-9 w-1.5 shrink-0 rounded-full"
@@ -224,7 +224,7 @@ function CategoryBlock({
             transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
             className="overflow-hidden border-t border-hairline"
           >
-            <div className="divide-y divide-white/5">
+            <div className="divide-y divide-veil/5">
               {cat.chapters.map((ch: any) => {
                 const key = ch.id;
                 const open = forceOpen || openChapters[key];
@@ -232,7 +232,7 @@ function CategoryBlock({
                   <div key={key}>
                     <button
                       onClick={() => setOpenChapters((m) => ({ ...m, [key]: !m[key] }))}
-                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-white/3"
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-veil/3"
                     >
                       <ChevronRight size={14} className={cn('shrink-0 text-fg-faint transition-transform duration-250', open && 'rotate-90')} />
                       <span className="min-w-0 flex-1 truncate text-[13px] text-fg-soft">{ch.name}</span>
@@ -278,7 +278,7 @@ function NodeRow({ node }: { node: any }) {
   return (
     <Link
       to={`/learn/${node.id}`}
-      className="group flex items-center gap-3 rounded-xl px-3 py-2 transition-all duration-200 hover:bg-white/5"
+      className="group flex items-center gap-3 rounded-xl px-3 py-2 transition-all duration-200 hover:bg-veil/5"
     >
       <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', ms.dot)} />
       <span className="min-w-0 flex-1 truncate text-[13px] text-fg-soft transition-colors group-hover:text-fg">

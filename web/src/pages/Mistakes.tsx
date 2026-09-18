@@ -193,7 +193,7 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
         'rounded-lg border px-2.5 py-1 text-[11.5px] transition-all duration-200',
         active
           ? 'border-cyan/35 bg-cyan/12 text-cyan'
-          : 'border-white/8 bg-white/3 text-fg-mute hover:border-white/16 hover:text-fg-soft',
+          : 'border-veil/8 bg-veil/3 text-fg-mute hover:border-veil/16 hover:text-fg-soft',
       )}
     >
       {children}
@@ -265,7 +265,7 @@ function MistakeRow({ m, index, open, onToggle }: { m: Mistake; index: number; o
                           'flex items-start gap-2.5 rounded-lg border px-3 py-2 text-[13px]',
                           String(m.answer).toUpperCase() === o.k.toUpperCase()
                             ? 'border-emerald/35 bg-emerald/8 text-emerald-100'
-                            : 'border-white/7 bg-white/2 text-fg-soft',
+                            : 'border-veil/7 bg-veil/2 text-fg-soft',
                         )}
                       >
                         <span className="font-semibold">{o.k}</span>
