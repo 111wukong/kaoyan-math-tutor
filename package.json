@@ -19,6 +19,7 @@
     "test:pipeline": "node tests/pipeline-leak.mjs",
     "test:api": "node server/scripts/smoke.mjs",
     "test:browser": "node tests/browser-smoke.mjs",
+    "test:day": "node tests/day-boundary.mjs",
     "banding": "node tests/banding.mjs",
     "shots": "node tests/screenshot.mjs",
     "start": "npm -w server run start",

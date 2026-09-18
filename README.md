@@ -329,11 +329,12 @@ answerXp = max(1, round(10 × 掌握度倍率 × 当日重复倍率))
 ## 测试
 
 ```bash
-npm test               # 跑全部：13 + 23 + 247 + 161 + 1 = 445 项
+npm test               # 跑全部：13 + 23 + 14 + 247 + 161 + 1 = 459 项
 npm run test:api       # 只跑接口
 npm run test:browser   # 只跑浏览器
 npm run test:latex     # 只跑公式渲染全量检查
 npm run test:pipeline  # 只跑渲染管线漏屏检查
+npm run test:day       # 只跑日期口径检查
 npm run banding        # 近黑渐变色带检测（画布原生 1:1，零 npm 依赖）
 npm run shots          # 逐页截图，供人眼审查（不是断言）
 ```
@@ -398,6 +399,30 @@ BASE=http://127.0.0.1:5180 npm test
 > 修法是 `applyTheme()` 里显式 `removeProperty('background')`。
 > 这个 bug 的表现极具欺骗性：`data-theme` 对了、令牌对了、正文也变深了，
 > 只有背景没动 —— 只看截图或者只读 `dataset` 都会漏掉它。
+
+### 日期口径检查（`tests/day-boundary.mjs`）
+
+这一套盯的是一个**只在凌晨发作**的 bug。
+
+`game.js` 里有两处兜底写的是 `new Date().toISOString().slice(0, 10)` —— 那是 **UTC** 日期；
+而全站其它地方的 `todayStr()` 用的是本地 `getFullYear/getMonth/getDate`。
+在 UTC+8 上，北京时间 00:00–08:00 期间两套口径差一天，后果是：
+深夜打完卡连续天数不涨、每日任务的「今天」还停在昨天、防刷分档位错一档。
+
+> 这个 bug 是 CI 抓出来的，而且**只在特定时段失败** —— runner 跑在 UTC，
+> 但 workflow 把 `TZ` 钉成了 `Asia/Shanghai`，跑的时候正好落在窗口内。
+> 也就是说它平时是绿的，偶尔红一次，看起来像 flaky。
+
+测试的做法不是「在 Asia/Shanghai 下跑一遍」——那样三分之二的时间会假绿。
+它先算出此刻 UTC 的小时数，再挑一个**必定跨过日期线**的时区
+（UTC ≥ 10 点用 UTC+14，否则用 UTC-11，两者拼满 24 小时），
+把 TZ 钉给一个自己起的服务，然后验快照的 `today`、打卡后的连续天数、
+每日任务日期、今日作答计数全部落在那个时区的「今天」上。
+
+> 这套件**故意无视 harness 传来的 `BASE`**，永远自己起服务。
+> 共享服务跑在 harness 的时区下，而那个时区和 UTC 是不是同一天取决于几点跑 ——
+> 实测踩过：单独跑 14 项全过，塞进 `npm test` 就报 5 项失败，
+> 因为断言用的是构造出来的时区，服务却跑在另一个时区上。
 
 > 浏览器套件里有个关键细节：启动参数必须带 `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`。**不加这三个参数，headless 下 `getContext('webgl2')` 直接返回 null**，赛博网格背景会静默降级成 CSS 备胎 —— 于是「背景画出来了」这条断言测的其实是备胎，主胎装没装上根本不知道。SwiftShader 是纯 CPU 实现，慢，但确定性好（CI 上也一样）。
 

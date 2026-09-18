@@ -190,7 +190,22 @@ function safeJson(s, fallback) {
 /* ---------- 用户学情快照 ---------- */
 export function buildSnapshot(userId, { track = 'math1', todayStr } = {}) {
   const tree = getTree();
-  const t = todayStr || new Date().toISOString().slice(0, 10);
+  /* ★ 兜底必须走**本地**日期，不能用 new Date().toISOString().slice(0, 10)。
+   *
+   * toISOString() 返回 UTC。而「今天」在这个应用里到处是本地口径
+   * （study.js / cards.js / game.js 路由里的 todayStr() 全部用
+   *  getFullYear / getMonth / getDate）。两套口径在 UTC+8 的凌晨会差一天：
+   * 北京时间 00:00–08:00 期间，UTC 还停在前一天。
+   *
+   * 后果很具体，而且专挑深夜发作：深夜打完卡，连续天数不涨；
+   * 每日任务里的「今天」还停在昨天。这个项目的主人恰好是夜猫子
+   * （生产力高峰 23:00–02:00），也就是说这个 bug 一年里绝大多数时候
+   * 都落在他最活跃的那几个小时里。
+   *
+   * CI 上是被这条抓出来的：runner 跑在 UTC，但 workflow 把 TZ 钉成了
+   * Asia/Shanghai，跑的时候正好落在窗口内 → 「连续天数 >= 1」实得 0。
+   * 回归测试见 tests/day-boundary.mjs（故意把 TZ 设成和 UTC 差一天再验）。 */
+  const t = todayStr || dayStr(new Date());
 
   const game = db.prepare('SELECT * FROM game_state WHERE user_id = ?').get(userId) || {};
   const flags = safeJson(game.flags || '{}', {});
@@ -335,7 +350,10 @@ export function masteryBoard(userId, { track = 'math1' } = {}) {
 
 /* ---------- 单次作答该给多少 XP（防刷分）---------- */
 export function answerXp(userId, qid, kid, { todayStr, recorded = false } = {}) {
-  const t = todayStr || new Date().toISOString().slice(0, 10);
+  /* 同上：本地日期，不是 UTC。
+   * 这里算的是「这道题今天第几次作答」，用来决定防刷分的衰减档位。
+   * 用 UTC 的话，凌晨作答会去数昨天的行，档位错一档。 */
+  const t = todayStr || dayStr(new Date());
   const todayN = db.prepare('SELECT COUNT(*) n FROM attempts WHERE user_id = ? AND qid = ? AND date = ?')
     .get(userId, qid, t).n;
   const nth = recorded ? Math.max(1, todayN) : todayN + 1;

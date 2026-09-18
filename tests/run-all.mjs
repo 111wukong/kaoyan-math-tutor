@@ -43,6 +43,9 @@ const SUITES = [
    * 所以真正的门禁在这两个确定性套件上，浏览器那条只当补充。 */
   { name: 'LaTeX 全量检查', file: 'tests/latex-coverage.mjs' },
   { name: '渲染管线漏屏检查', file: 'tests/pipeline-leak.mjs' },
+  /* 日期口径放在接口套件之前：它自己起一个 TZ 特殊的服务，
+   * 挂了的话能一眼看出是「时区」问题而不是业务逻辑问题。 */
+  { name: '日期口径检查', file: 'tests/day-boundary.mjs' },
   { name: '接口冒烟', file: 'server/scripts/smoke.mjs' },
   { name: '浏览器冒烟', file: 'tests/browser-smoke.mjs' },
   { name: '近黑渐变色带检测', file: 'tests/banding.mjs' },
