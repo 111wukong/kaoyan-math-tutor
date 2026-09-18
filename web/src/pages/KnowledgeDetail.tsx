@@ -25,6 +25,10 @@ export default function KnowledgeDetail() {
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const [practice, setPractice] = useState<any>(null);
+  /* 举一反三生成的题排成队列，答完一道自动出下一道 ——
+   * 一次只生成一道的话，用户得反复点按钮，生成出来的题也没法连着做。 */
+  const [queue, setQueue] = useState<any[]>([]);
+  const [genLoading, setGenLoading] = useState(false);
 
   if (loading && !data) {
     return (
@@ -59,7 +63,44 @@ export default function KnowledgeDetail() {
       return;
     }
     const q = questions[Math.floor(Math.random() * questions.length)];
+    setQueue([]);
     setPractice(q);
+  };
+
+  /* 举一反三：让模型按这个考点出几道可自动判分的变式题。
+   *
+   * 生成的题会落库成「我的题」，同时进入掌握度计算 ——
+   * 练了不涨分的话，用户没理由继续用这个功能。 */
+  const genVariants = async () => {
+    setGenLoading(true);
+    try {
+      const r = await api.ai.generate(kid, { count: 3 });
+      if (!r.created.length) {
+        pushToast({
+          kind: 'warn',
+          title: '模型这次没给出可用的题',
+          desc: r.skippedUnjudgeable
+            ? `有 ${r.skippedUnjudgeable} 道因为判不了分被丢掉了，再点一次试试`
+            : '再点一次试试，或者换个考点',
+        });
+        return;
+      }
+      setQueue(r.created.slice(1));
+      setPractice(r.created[0]);
+      const extra = [
+        r.skippedUnjudgeable ? `${r.skippedUnjudgeable} 道判不了分已丢弃` : '',
+        r.skippedDuplicate ? `${r.skippedDuplicate} 道重复已跳过` : '',
+      ].filter(Boolean).join(' · ');
+      pushToast({
+        kind: 'success',
+        title: `生成了 ${r.created.length} 道变式题`,
+        desc: extra || undefined,
+      });
+    } catch (e: any) {
+      pushToast({ kind: 'error', title: e?.message || '生成失败' });
+    } finally {
+      setGenLoading(false);
+    }
   };
 
   const addNote = async () => {
@@ -154,6 +195,9 @@ export default function KnowledgeDetail() {
           <Button onClick={startPractice} shimmer>
             <Zap size={14} /> 练一道
           </Button>
+          <Button variant="outline" onClick={genVariants} loading={genLoading}>
+            <Sparkles size={14} /> 举一反三
+          </Button>
           <Button variant="outline" onClick={() => nav(`/chat?kid=${kid}`)}>
             <MessagesSquare size={14} /> 让 AI 讲这个考点
           </Button>
@@ -163,6 +207,12 @@ export default function KnowledgeDetail() {
             </Badge>
           )}
         </div>
+        {mastery.ownQuestions > 0 && (
+          <p className="relative mt-3 text-[11.5px] text-fg-mute">
+            已有 {mastery.ownQuestions} 道自建题（含 AI 变式题）参与掌握度计算
+            {mastery.allRight ? '' : '，但「精通」只按内置题算'}
+          </p>
+        )}
       </Panel>
 
       {/* 练习 */}
@@ -178,14 +228,25 @@ export default function KnowledgeDetail() {
               key={practice.id}
               question={practice}
               index={0}
-              total={1}
+              total={queue.length + 1}
               context="quiz"
               onAnswer={async (ans) => {
                 const r = await api.study.answer(practice.id, ans, 'quiz');
                 if (r.achievements?.length) announceAchievements(r.achievements, pushToast);
                 return r;
               }}
-              onNext={() => { setPractice(null); reload(); refreshSnapshot(); }}
+              onNext={() => {
+                /* 队列里还有就接着出下一道，否则收工。
+                 * 收工时才 reload —— 中途 reload 会让下面的题目列表闪一下。 */
+                if (queue.length) {
+                  setPractice(queue[0]);
+                  setQueue(queue.slice(1));
+                } else {
+                  setPractice(null);
+                  reload();
+                  refreshSnapshot();
+                }
+              }}
             />
           </motion.div>
         )}

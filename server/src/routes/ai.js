@@ -628,6 +628,126 @@ export default async function aiRoutes(fastify) {
     };
   });
 
+  /* ---------- 变式题生成（举一反三）----------
+   *
+   * 为什么需要：内置题库只有 204 道，刷完就断了；而且错题重做三遍，
+   * 记住的是「这道题的答案」而不是「这类题的方法」。变式题给的是后者 ——
+   * 同考点、同方法，换数字换问法。
+   *
+   * 两种入口：
+   *   · 只给 kid            → 按考点出一组练习（题库刷完时用）
+   *   · 给 kid + fromQid    → 按那道错题（含错因）出针对性变式
+   *
+   * ── 落库与判题 ────────────────────────────────────────────────
+   * 生成的题写进 questions 表，owner_id = 当前用户，id 前缀 `g_`。
+   * 内置题的 id 是 `q01` 这种，前缀不同，所以 seed 重跑不会覆盖它们。
+   * 题型必须是 choice / blank —— 判题器只认这两种（见 sanitizeGenerated）。
+   */
+  fastify.post('/api/ai/generate', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['kid'],
+        properties: {
+          kid: { type: 'string' },
+          count: { type: 'integer' },
+          fromQid: { type: 'string' },
+          save: { type: 'boolean' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
+    const cfg = l ? resolveLlm(l) : null;
+    if (!cfg || !cfg.base || !cfg.model) {
+      return reply.code(400).send({ error: '还没配置模型', code: 'NO_LLM' });
+    }
+
+    const { kid, fromQid, save = true } = req.body;
+    const count = Math.min(5, Math.max(1, Number(req.body?.count) || 3));
+
+    const tree = getTree();
+    const node = tree.nodeById.get(kid);
+    if (!node) return reply.code(404).send({ error: '知识点不存在' });
+
+    /* 参考例题取两道**内置题**，用真实题目的风格约束模型 ——
+     * 比在提示词里空写一句「出考研难度的题」有效得多。
+     * 只取内置题：用户自建题可能是上一次生成的，拿它当范例会越滚越偏。 */
+    const examples = db.prepare('SELECT stem, answer FROM questions WHERE kid = ? AND owner_id IS NULL LIMIT 2').all(kid);
+
+    let fromQ = null;
+    let userAnswer = '';
+    let errorType = '';
+    if (fromQid) {
+      fromQ = db.prepare('SELECT * FROM questions WHERE id = ?').get(fromQid);
+      const att = db.prepare('SELECT answer, error_type FROM attempts WHERE user_id = ? AND qid = ? ORDER BY ts DESC LIMIT 1')
+        .get(req.userId, fromQid);
+      userAnswer = att?.answer ?? '';
+      errorType = att?.error_type ?? '';
+    }
+
+    const prompt = buildGeneratePrompt({ node, examples, fromQ, userAnswer, errorType, count });
+
+    let content = '';
+    try {
+      content = await callLlm(cfg, prompt, { temperature: 0.8 });
+    } catch (e) {
+      return reply.code(502).send({ error: e.message });
+    }
+
+    const arr = parseJsonArray(content);
+    const dupInDb = db.prepare('SELECT 1 FROM questions WHERE kid = ? AND stem = ? LIMIT 1');
+    const ins = db.prepare(`INSERT INTO questions (id,kid,type,difficulty,stem,options,answer,analysis,source_type,source_year,source,owner_id)
+      VALUES (@id,@kid,@type,@difficulty,@stem,@options,@answer,@analysis,@sourceType,NULL,@source,@ownerId)`);
+
+    const created = [];
+    const seenStem = new Set();
+    let skippedDuplicate = 0;
+    let skippedUnjudgeable = 0;
+
+    const run = db.transaction(() => {
+      /* 多解析两道（count + 2）当缓冲：模型总会出一两道不可判的，
+       * 少要两道的话用户点了「生成 3 道」结果只拿到 1 道。 */
+      for (const raw of arr.slice(0, count + 2)) {
+        const q = sanitizeGenerated(raw, kid);
+        if (!q) { skippedUnjudgeable += 1; continue; }
+        /* 同一批里也要查重 —— 模型很容易把同一道题换个数字出两遍 */
+        if (seenStem.has(q.stem) || dupInDb.get(kid, q.stem)) { skippedDuplicate += 1; continue; }
+        seenStem.add(q.stem);
+
+        const id = 'g_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e6).toString(36);
+        const row = {
+          id,
+          kid,
+          type: q.type,
+          difficulty: q.difficulty,
+          stem: q.stem,
+          options: q.options ? JSON.stringify(q.options) : null,
+          answer: q.answer,
+          analysis: q.analysis,
+          sourceType: 'AI 变式',
+          source: 'AI 生成',
+          ownerId: req.userId,
+        };
+        if (save) ins.run(row);
+        created.push({ id, kid, type: q.type, difficulty: q.difficulty, stem: q.stem, options: q.options, answer: q.answer, analysis: q.analysis, sourceType: 'AI 变式', saved: save });
+        if (created.length >= count) break;
+      }
+    });
+    run();
+
+    return {
+      created,
+      count: created.length,
+      skippedDuplicate,
+      skippedUnjudgeable,
+      /* 一道都没出来才算失败。出了一部分也返回，前端能显示已有的 ——
+       * 全丢的话用户点了按钮什么都没有，不知道是坏了还是模型不行。 */
+      parseFailed: created.length === 0,
+      raw: created.length ? undefined : content.slice(0, 400),
+    };
+  });
+
   /* ---------- 人格列表 ---------- */
   fastify.get('/api/ai/personas', async () => ({
     personas: Object.entries(PERSONAS).map(([id, p]) => ({ id, name: p.name, desc: p.desc })),
@@ -821,4 +941,102 @@ function buildErrorAdvice(rows, judged) {
     blank: '先解决「会不会」的问题，再谈快不快。',
   }[top.type] || '';
   return `${ERROR_TYPES[top.type] || top.type}占 ${pct}%。${advice}`;
+}
+
+/* ---------- 变式题生成用到的两个辅助 ---------- */
+
+/**
+ * 把模型吐出来的题清洗成「判题器判得了」的形状。
+ *
+ * 返回 null 表示这道题作废 —— 宁可少出一道，也不要出一道
+ * 用户答对了系统说错的题。判题器（judge.js）只能比对确定的值：
+ * 选择题比字母，填空题归一化后比数值/表达式。
+ */
+export function sanitizeGenerated(raw, kid) {
+  const stem = String(raw?.stem ?? '').trim().slice(0, 800);
+  if (stem.length < 5) return null;
+
+  const difficulty = Math.min(4, Math.max(1, Number(raw?.difficulty) || 2));
+  const analysis = String(raw?.analysis ?? '').trim().slice(0, 1500);
+  const type = raw?.type === 'blank' ? 'blank' : 'choice';
+
+  if (type === 'choice') {
+    const opts = Array.isArray(raw?.options) ? raw.options : [];
+    const clean = opts
+      .map((o, i) => ({
+        k: String(o?.k ?? 'ABCD'[i] ?? '').trim().toUpperCase().slice(0, 1),
+        t: String(o?.t ?? '').trim().slice(0, 300),
+      }))
+      .filter((o) => o.k && o.t);
+    /* 必须正好四个选项且键是 ABCD —— 三个选项或 E 选项都会让前端渲染错位 */
+    if (clean.length !== 4 || clean.map((o) => o.k).join('') !== 'ABCD') return null;
+    const answer = String(raw?.answer ?? '').trim().toUpperCase().slice(0, 1);
+    if (!'ABCD'.includes(answer)) return null;
+    return { kid, type, difficulty, stem, options: clean, answer, analysis };
+  }
+
+  let answer = String(raw?.answer ?? '').trim().slice(0, 200);
+  if (!answer) return null;
+
+  answer = answer
+    .replace(/\$+/g, '')
+    /* LaTeX 分数 → 判题器认识的 a/b。判题器的 fracVal 只认 `a/b` 字面量，不认 \frac。 */
+    .replace(/\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, '$1/$2')
+    .trim();
+
+  /* `x=2` / `y=1/2` 取等号右边的值 —— 判题器比的是值，不是方程。
+   * 不转换的话，用户输入 2 会判错（`x=2` 和 `2` 归一化后不相等）。 */
+  const eq = answer.match(/^[a-zA-Z][_a-zA-Z0-9]*\s*=\s*(.+)$/);
+  if (eq) answer = eq[1].trim();
+
+  /* 最终判据：**只能是纯数值或分数**。
+   *
+   * 为什么卡这么死：判题器只对数值做容差比对，对 LaTeX 命令的归一化是不完整的 ——
+   * 标准答案 `\sqrt{2}` 归一化后是 `sqrt{2}`，而用户输入 `√2` 归一化后是 `sqrt2`，
+   * 两者并不相等。一旦答案里出现根号、π、字母或方程，就有相当概率把对的判成错的，
+   * 那比不出题还糟。这类内容交给选择题出（提示词里写明了）。 */
+  if (!/^-?\d+(\.\d+)?(\/\d+(\.\d+)?)?$/.test(answer)) return null;
+
+  return { kid, type, difficulty, stem, options: null, answer, analysis };
+}
+
+function buildGeneratePrompt({ node, examples, fromQ, userAnswer, errorType, count }) {
+  return [
+    '你在为一名备战考研数学的学生出**变式练习题**。',
+    '',
+    `【考点】${node.title}`,
+    node.content ? `【考点内容】\n${String(node.content).slice(0, 1200)}` : '',
+    examples.length
+      ? `【参考例题 —— 模仿它的风格和难度，但必须换数字或换问法，不能照抄】\n${
+        examples.map((e) => `题干：${e.stem}\n答案：${e.answer}`).join('\n\n')}`
+      : '',
+    fromQ
+      ? [
+        '【学生刚做错的题】',
+        `题干：${String(fromQ.stem).slice(0, 500)}`,
+        `正确答案：${String(fromQ.answer).slice(0, 200)}`,
+        `学生答案：${String(userAnswer ?? '（未作答）').slice(0, 200)}`,
+        errorType ? `错因：${ERROR_TYPES[errorType] || errorType}` : '',
+        '',
+        '请针对这个错误点出变式题 —— 换一组数字或换一种问法，但考同一个方法。',
+        '如果错因是「概念混淆」，就出能暴露这个概念边界的题。',
+      ].filter(Boolean).join('\n')
+      : '',
+    '',
+    `【数量】${count} 道，难度递进。`,
+    '',
+    '【硬性要求 —— 违反则整题作废】',
+    '1. 必须能被程序自动判分。只出两种题型：',
+    '   - choice：四选一，选项键固定为 A / B / C / D，answer 写选项字母',
+    '   - blank：填空题，answer 必须是**一个确定的数值或简单表达式**',
+    '2. 禁止证明题、讨论题、答案不唯一的题、需要画图的题。',
+    '3. 填空题的 answer 只写值本身：写 1/2，不要写 \\frac{1}{2}；写 2，不要写 x=2。',
+    '4. 填空题的 answer 只能是**整数、分数或小数**（如 2、-1/2、0.5）。',
+    '   答案里含根号、π 或字母时，请改用选择题出 —— 填空题判不了这些，会误判。',
+    '5. 数学公式用 LaTeX，行内 $...$。',
+    '',
+    '只输出 JSON 数组，不要任何解释文字、不要 markdown 代码块：',
+    '[{"type":"choice","difficulty":3,"stem":"题干","options":[{"k":"A","t":"选项"},{"k":"B","t":"选项"},{"k":"C","t":"选项"},{"k":"D","t":"选项"}],"answer":"A","analysis":"解析"},'
+      + '{"type":"blank","difficulty":3,"stem":"题干","answer":"1/2","analysis":"解析"}]',
+  ].filter(Boolean).join('\n');
 }

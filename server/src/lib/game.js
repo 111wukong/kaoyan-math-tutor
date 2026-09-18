@@ -290,8 +290,17 @@ export function buildSnapshot(userId, { track = 'math1', todayStr } = {}) {
   };
 }
 
-/* ---------- 单节点掌握度 ---------- */
-export function nodeMastery(userId, nodeId, { nodeStats, qStats, tree } = {}) {
+/* ---------- 单节点掌握度 ----------
+ *
+ * ── 自建题为什么要单独查一次 ──────────────────────────────────────
+ * getTree() 是**进程级共享缓存**，所有用户共用一份，所以它只装内置题
+ * （owner_id IS NULL）—— 把某个用户的自建题塞进去，别的用户就会看到别人的题。
+ *
+ * 但自建题（尤其是 AI 生成的变式题）如果不参与掌握度，就会出现
+ * 「我明明练了 10 道，学情一点没动」—— 那用户凭什么还练？
+ * 所以这里按用户单独查一次，批量调用时通过 ownByKid 传入避免 N+1。
+ */
+export function nodeMastery(userId, nodeId, { nodeStats, qStats, tree, ownByKid } = {}) {
   const t = tree || getTree();
   const ns = nodeStats
     ? (nodeStats.get(nodeId) || { n: 0, c: 0 })
@@ -304,9 +313,21 @@ export function nodeMastery(userId, nodeId, { nodeStats, qStats, tree } = {}) {
     ? qStats
     : new Map(db.prepare('SELECT qid, kid, n, c, ok, ts FROM stats_question WHERE user_id = ?').all(userId).map((r) => [r.qid, r]));
 
-  const qIds = t.questionsByKid[nodeId] || [];
+  const builtinQ = t.questionsByKid[nodeId] || [];
+  const ownQ = ownByKid
+    ? (ownByKid[nodeId] || [])
+    : db.prepare('SELECT id FROM questions WHERE owner_id = ? AND kid = ?').all(userId, nodeId).map((r) => r.id);
+
+  const qIds = builtinQ.concat(ownQ);
   const seenQ = qIds.filter((id) => qMap.has(id)).length;
-  const allRight = qIds.length > 0 && qIds.every((id) => qMap.get(id)?.ok);
+
+  /* allRight 只算**内置题**。
+   *
+   * 它衡量的是「官方题库覆盖完了没」，是个客观刻度。
+   * 把自建题也算进去的话，用户生成 20 道变式题就永远评不上精通 ——
+   * 那不是严格，那是拿自己生成的题把自己堵死。
+   * 而且 AI 出题数量不限，让它参与就等于给「精通」加了一个可无限膨胀的门槛。 */
+  const allRight = builtinQ.length > 0 && builtinQ.every((id) => qMap.get(id)?.ok);
 
   let level;
   if (!n) level = 'new';
@@ -318,7 +339,17 @@ export function nodeMastery(userId, nodeId, { nodeStats, qStats, tree } = {}) {
     nodeId, level, label: MASTERY_LABEL[level],
     attempts: n, correct, accuracy,
     questions: qIds.length, questionsSeen: seenQ, allRight,
+    builtinQuestions: builtinQ.length, ownQuestions: ownQ.length,
   };
+}
+
+/** 批量取某个用户的全部自建题，按考点分组。给 masteryBoard 用。 */
+function ownQuestionsByKid(userId) {
+  const rows = db.prepare('SELECT id, kid FROM questions WHERE owner_id = ?').all(userId);
+  return rows.reduce((acc, q) => {
+    (acc[q.kid] = acc[q.kid] || []).push(q.id);
+    return acc;
+  }, {});
 }
 
 /** 全树掌握度分布 + 每节点状态（知识树页一次要，必须批量算） */
@@ -327,9 +358,14 @@ export function masteryBoard(userId, { track = 'math1' } = {}) {
   const nodeStats = new Map(db.prepare('SELECT kid, n, c, ts FROM stats_node WHERE user_id = ?').all(userId).map((r) => [r.kid, r]));
   const qStats = new Map(db.prepare('SELECT qid, kid, n, c, ok, ts FROM stats_question WHERE user_id = ?').all(userId).map((r) => [r.qid, r]));
   const cardKids = new Set(db.prepare('SELECT DISTINCT knowledge_id FROM cards WHERE user_id = ? AND knowledge_id IS NOT NULL').all(userId).map((r) => r.knowledge_id));
+  /* 一次查完该用户的全部自建题，避免在下面的 map 里逐节点查库。 */
+  const ownByKid = ownQuestionsByKid(userId);
 
   const nodes = tree.nodes.filter((n) => inTrack(n, track));
-  const rows = nodes.map((n) => ({ ...nodeMastery(userId, n.id, { nodeStats, qStats, tree }), hasCard: cardKids.has(n.id) }));
+  const rows = nodes.map((n) => ({
+    ...nodeMastery(userId, n.id, { nodeStats, qStats, tree, ownByKid }),
+    hasCard: cardKids.has(n.id),
+  }));
 
   const dist = { new: 0, learning: 0, proficient: 0, mastered: 0 };
   rows.forEach((r) => { dist[r.level] += 1; });

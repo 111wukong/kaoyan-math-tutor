@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, CircleAlert, Filter, RotateCcw, Trophy } from 'lucide-react';
+import { ChevronDown, CircleAlert, Filter, RotateCcw, Sparkles, Trophy } from 'lucide-react';
 import { api, type Mistake } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
@@ -203,6 +203,42 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
 
 function MistakeRow({ m, index, open, onToggle }: { m: Mistake; index: number; open: boolean; onToggle: () => void }) {
   const diff = DIFFICULTY[m.difficulty] || DIFFICULTY[2];
+  const pushToast = useApp((s) => s.pushToast);
+  const refreshSnapshot = useApp((s) => s.refreshSnapshot);
+
+  /* 举一反三的题存在行内，不进父组件的重练流程 ——
+   * 用户可能同时展开好几道错题，各练各的才合理。 */
+  const [genLoading, setGenLoading] = useState(false);
+  const [variants, setVariants] = useState<any[]>([]);
+  const [vIdx, setVIdx] = useState(0);
+
+  const genVariants = async () => {
+    setGenLoading(true);
+    try {
+      /* 带上 fromQid：让模型看着这道错题出变式，而不是泛泛地按考点出。
+       * 错因（error_type）也会一起带过去 —— 判过「概念混淆」的，
+       * 出的题就该能戳中那个概念边界。 */
+      const r = await api.ai.generate(m.kid, { fromQid: m.qid, count: 3 });
+      if (!r.created.length) {
+        pushToast({
+          kind: 'warn',
+          title: '模型这次没给出可用的题',
+          desc: r.skippedUnjudgeable
+            ? `有 ${r.skippedUnjudgeable} 道因为判不了分被丢掉了，再点一次试试`
+            : '再点一次试试',
+        });
+        return;
+      }
+      setVariants(r.created);
+      setVIdx(0);
+      pushToast({ kind: 'success', title: `生成了 ${r.created.length} 道变式题` });
+    } catch (e: any) {
+      pushToast({ kind: 'error', title: e?.message || '生成失败' });
+    } finally {
+      setGenLoading(false);
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -297,6 +333,41 @@ function MistakeRow({ m, index, open, onToggle }: { m: Mistake; index: number; o
                       <RichText text={m.analysis} bareLatex />
                     </div>
                   </div>
+                )}
+
+                {/* 举一反三 —— 重做原题只能记住「这道题的答案」，
+                    换数字换问法才能验证是不是真会了这个方法。 */}
+                <div className="flex flex-wrap items-center gap-2.5 border-t border-hairline pt-3.5">
+                  <Button variant="outline" size="sm" onClick={genVariants} loading={genLoading}>
+                    <Sparkles size={13} /> 举一反三
+                  </Button>
+                  <span className="text-[11px] text-fg-faint">
+                    按这道题的错因出同类型变式，换数字不换方法
+                  </span>
+                </div>
+
+                {variants.length > 0 && (
+                  <QuestionCard
+                    key={variants[vIdx].id}
+                    question={variants[vIdx]}
+                    index={vIdx}
+                    total={variants.length}
+                    context="quiz"
+                    onAnswer={async (ans) => {
+                      const r = await api.study.answer(variants[vIdx].id, ans, 'quiz');
+                      if (r.achievements?.length) announceAchievements(r.achievements, pushToast);
+                      return r;
+                    }}
+                    onNext={() => {
+                      if (vIdx + 1 < variants.length) {
+                        setVIdx(vIdx + 1);
+                      } else {
+                        setVariants([]);
+                        setVIdx(0);
+                        refreshSnapshot();
+                      }
+                    }}
+                  />
                 )}
               </div>
             </motion.div>

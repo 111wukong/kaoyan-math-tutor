@@ -703,6 +703,77 @@ section('13b. AI 正常路径（对着本地 stub 模型跑通）');
 
     stub.setRaw(null);
 
+    /* ---------- 变式题生成（举一反三）----------
+     * 这个功能最容易出的错是「生成的题判不了分」：模型爱出开放题、
+     * 根号答案、多解题，而判题器只对数值做容差比对。
+     * 一旦混进去，用户答对了系统说错 —— 比没有这个功能还糟。
+     * 所以下面一半断言是在验「判不了的题有没有被拦住」。 */
+    const GOOD_Q = JSON.stringify([
+      {
+        type: 'choice', difficulty: 2,
+        stem: '求极限 $\\lim_{x\\to 0}\\frac{\\sin 5x}{x}$ 的值',
+        options: [{ k: 'A', t: '5' }, { k: 'B', t: '1' }, { k: 'C', t: '0' }, { k: 'D', t: '不存在' }],
+        answer: 'A', analysis: '拆成 $5\\cdot\\frac{\\sin 5x}{5x}$，由重要极限得 5。',
+      },
+      {
+        type: 'blank', difficulty: 3,
+        stem: '计算 $\\lim_{x\\to 0}\\frac{e^x-1}{x}$ 的值',
+        answer: '1', analysis: '等价无穷小代换。',
+      },
+    ]);
+
+    stub.setRaw(GOOD_Q);
+    const gen = await POST('/api/ai/generate', { kid, count: 3 });
+    ok('变式题生成 200', gen.status === 200, `实得 ${gen.status}`);
+    ok('生成出题目', (gen.data?.created?.length || 0) > 0, JSON.stringify(gen.data)?.slice(0, 140));
+    ok('生成的题都有答案', gen.data?.created?.every((q) => !!q.answer));
+    ok('生成的题都有解析', gen.data?.created?.every((q) => !!q.analysis));
+
+    /* 最要紧的一条：生成的题必须能被判题器判对、也能判错 */
+    const genQ = gen.data?.created?.[0];
+    if (genQ) {
+      const right = await POST('/api/study/answer', { qid: genQ.id, answer: genQ.answer, context: 'quiz' });
+      ok('★ 生成题的标准答案能判对', right.status === 200 && right.data?.correct === true,
+        `status=${right.status} correct=${right.data?.correct} answer=${genQ.answer}`);
+      const wrongAns = genQ.type === 'choice' ? 'Z' : '99999';
+      const wrong = await POST('/api/study/answer', { qid: genQ.id, answer: wrongAns, context: 'quiz' });
+      ok('★ 生成题的错答案能判错', wrong.data?.correct === false, `correct=${wrong.data?.correct}`);
+    }
+
+    /* 落库后要能出现在题库里，否则用户生成了却找不到 */
+    const list = await GET(`/api/catalog/questions?kid=${kid}&limit=50`);
+    const listedIds = (list.data?.questions || []).map((q) => q.id);
+    ok('★ 生成的题出现在题库里',
+      (gen.data?.created || []).every((q) => listedIds.includes(q.id)),
+      `生成 ${gen.data?.created?.length} 道，题库里 g_ 开头的有 ${listedIds.filter((i) => i.startsWith('g_')).length} 道`);
+
+    /* 判不了的题必须被拦住 —— 这一组全都是判题器处理不了的形状 */
+    stub.setRaw(JSON.stringify([
+      { type: 'blank', difficulty: 2, stem: '证明这个数列收敛', answer: '无解' },
+      { type: 'blank', difficulty: 2, stem: '求这个长度的值是多少', answer: '\\sqrt{2}' },
+      { type: 'blank', difficulty: 2, stem: '求所有解的值分别是多少', answer: 'x_1=1, x_2=2' },
+      { type: 'choice', difficulty: 2, stem: '这是一道只有三个选项的题', options: [{ k: 'A', t: '1' }, { k: 'B', t: '2' }, { k: 'C', t: '3' }], answer: 'A' },
+    ]));
+    const badGen = await POST('/api/ai/generate', { kid, count: 3 });
+    ok('★ 判不了分的题全部被丢弃', (badGen.data?.created?.length || 0) === 0,
+      `实际生成了 ${badGen.data?.created?.length} 道`);
+    ok('★ 一道都出不来时明确报 parseFailed', badGen.data?.parseFailed === true);
+    ok('丢弃的题有计数（前端要能说明原因）', (badGen.data?.skippedUnjudgeable || 0) >= 3,
+      `实得 ${badGen.data?.skippedUnjudgeable}`);
+
+    /* LaTeX 分数与方程答案要被转成判题器认识的形式，而不是直接丢掉 */
+    stub.setRaw(JSON.stringify([
+      { type: 'blank', difficulty: 2, stem: '计算这个极限的值是多少', answer: '\\frac{1}{2}' },
+      { type: 'blank', difficulty: 2, stem: '求这个方程的解的值是多少', answer: 'x=2' },
+    ]));
+    const fixed = await POST('/api/ai/generate', { kid, count: 2 });
+    ok('★ LaTeX 分数答案被转成 1/2 形式', (fixed.data?.created || []).some((q) => q.answer === '1/2'),
+      JSON.stringify((fixed.data?.created || []).map((q) => q.answer)));
+    ok('★ 方程答案被剥成纯值', (fixed.data?.created || []).some((q) => q.answer === '2'),
+      JSON.stringify((fixed.data?.created || []).map((q) => q.answer)));
+
+    stub.setRaw(null);
+
     /* ---------- 错误路径 ---------- */
     stub.setMode('401');
     const bad = await POST('/api/ai/classroom', { kid, mode: 'lesson' });

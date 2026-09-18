@@ -26,7 +26,7 @@ const {
   topoOrder, findCyclesIn, findCycles, nodeContext, graphPayload,
 } = await import('../server/src/lib/graph.js');
 const { diagnoseRoots, nextToLearn, graphHealth } = await import('../server/src/lib/diagnose.js');
-const { getTree } = await import('../server/src/lib/game.js');
+const { getTree, nodeMastery, masteryBoard } = await import('../server/src/lib/game.js');
 
 let pass = 0;
 let fail = 0;
@@ -56,9 +56,7 @@ let clock = Date.now();
 const qOf = (kid) => db.prepare('SELECT id FROM questions WHERE kid = ? LIMIT 1').get(kid)?.id;
 
 /** 造一次作答：同时写 attempts 明细与两张聚合表，口径与 study.js 一致。 */
-function answer(userId, kid, correct) {
-  const qid = qOf(kid);
-  if (!qid) throw new Error(`没有 ${kid} 的题，测试数据不成立`);
+function answerQ(userId, qid, kid, correct) {
   const ts = clock++;
   db.prepare(`INSERT INTO attempts (id,user_id,qid,kid,answer,correct,context,date,ts)
     VALUES (?,?,?,?,?,?,?,?,?)`)
@@ -69,6 +67,13 @@ function answer(userId, kid, correct) {
   db.prepare(`INSERT INTO stats_question (user_id,qid,kid,n,c,ok,ts) VALUES (?,?,?,1,?,?,?)
     ON CONFLICT(user_id,qid) DO UPDATE SET n = n + 1, c = c + excluded.c, ok = excluded.ok, ts = excluded.ts`)
     .run(userId, qid, kid, correct ? 1 : 0, correct ? 1 : 0, ts);
+}
+
+/** 按考点答一道题（取该考点的第一道内置题）。 */
+function answer(userId, kid, correct) {
+  const qid = qOf(kid);
+  if (!qid) throw new Error(`没有 ${kid} 的题，测试数据不成立`);
+  answerQ(userId, qid, kid, correct);
 }
 
 /* ══════════════════════════════════════════════════════════════════ */
@@ -305,6 +310,68 @@ ok(after === actual, `重建后聚合应等于明细：${after} vs ${actual}`);
 /* 重建之后诊断结论必须一致 —— 否则说明诊断偷偷依赖了聚合表的某种偶然状态 */
 const dA2 = diagnoseRoots(uA, { limit: 10 });
 ok(dA2.roots.some((r) => r.nodeId === 'c2n2'), '重建聚合表后根因结论应保持不变');
+
+/* ══════════════════════════════════════════════════════════════════ */
+section('六、自建题与掌握度');
+
+/* 场景：用户把某考点的内置题全答对（评上精通），然后生成几道 AI 变式题。
+ *
+ * 这里钉的是一个**架构约束**：getTree() 是进程级共享缓存，所有用户共用一份，
+ * 所以它只装内置题。自建题必须按用户单独查 —— 一旦有人图省事把自建题
+ * 塞进全局树，别的用户就会看到别人的题。
+ *
+ * 同时钉住「allRight 只算内置题」：把 AI 生成的题也算进去的话，
+ * 用户生成 20 道变式题就永远评不上精通了 —— 那是拿自己出的题把自己堵死。 */
+const uG = makeUser('g@test.local');
+const NODE = 'c1n1';
+const builtin = db.prepare('SELECT id FROM questions WHERE kid = ? AND owner_id IS NULL').all(NODE).map((r) => r.id);
+ok(builtin.length >= 3, `${NODE} 应有至少 3 道内置题，实际 ${builtin.length}`);
+
+for (let round = 0; round < 3; round += 1) {
+  for (const qid of builtin) answerQ(uG, qid, NODE, true);
+}
+
+let m = nodeMastery(uG, NODE);
+ok(m.allRight === true, '内置题全答对后 allRight 应为 true');
+ok(m.level === 'mastered', `应评上精通，实际 ${m.level}`);
+ok(m.ownQuestions === 0, '此时还没有自建题');
+ok(m.questions === builtin.length, `题目数应等于内置题数：${m.questions} vs ${builtin.length}`);
+
+/* 插一道自建题，模拟 AI 生成的变式题 */
+const OWN = 'g_test_1';
+db.prepare(`INSERT INTO questions (id,kid,type,difficulty,stem,options,answer,analysis,source_type,source_year,source,owner_id)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+  .run(OWN, NODE, 'blank', 3, '测试用的自建题题干，够长了', null, '2', '', 'AI 变式', null, 'AI 生成', uG);
+
+ok(!(getTree().questionsByKid[NODE] || []).includes(OWN),
+  '★ 全局知识树缓存不该含某个用户的自建题（它是所有用户共享的）');
+
+m = nodeMastery(uG, NODE);
+ok(m.ownQuestions === 1, '自建题应被计入 ownQuestions');
+ok(m.builtinQuestions === builtin.length, '内置题数应单独统计');
+ok(m.questions === builtin.length + 1, '总题数应包含自建题');
+ok(m.allRight === true, '★ 加了一道没做过的自建题后，allRight 不该变（它只看内置题）');
+ok(m.level === 'mastered', '★ 加了未作答的自建题后仍应是精通 —— 否则生成题越多越评不上');
+
+/* 答错自建题：正确率要跌，但 allRight 仍不动 */
+answerQ(uG, OWN, NODE, false);
+answerQ(uG, OWN, NODE, false);
+m = nodeMastery(uG, NODE);
+ok(m.attempts === builtin.length * 3 + 2, `自建题的作答应计入 attempts，实际 ${m.attempts}`);
+ok(m.accuracy < 0.9, `答错自建题应拉低正确率，实际 ${m.accuracy.toFixed(3)}`);
+ok(m.level !== 'mastered', '正确率跌破 90% 后不该还是精通');
+ok(m.allRight === true, '★ 但 allRight 只看内置题，不该被自建题带下来');
+
+/* masteryBoard 是批量路径，走另一条代码分支，也要覆盖 */
+const board = masteryBoard(uG, { track: 'math1' });
+const row = board.rows.find((r) => r.nodeId === NODE);
+ok(row?.ownQuestions === 1, 'masteryBoard 也应统计自建题（批量路径）');
+ok(row?.builtinQuestions === builtin.length, 'masteryBoard 的内置题数应正确');
+
+/* 另一个用户不该看到 uG 的自建题 —— 隔离性 */
+const uH = makeUser('h@test.local');
+const mH = nodeMastery(uH, NODE);
+ok(mH.ownQuestions === 0, '★ 别的用户不该看到我的自建题');
 
 /* ══════════════════════════════════════════════════════════════════ */
 /* 收摊 */

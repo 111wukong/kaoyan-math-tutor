@@ -110,6 +110,10 @@ export interface Mastery {
   nodeId: string; level: 'new' | 'learning' | 'proficient' | 'mastered';
   label: string; attempts: number; correct: number; accuracy: number;
   questions: number; questionsSeen: number; allRight: boolean;
+  /** 内置题数量（「精通」只看这些） */
+  builtinQuestions?: number;
+  /** 自建题数量，含 AI 生成的变式题（参与正确率，但不参与「精通」判定） */
+  ownQuestions?: number;
 }
 
 export interface TreeNode {
@@ -418,6 +422,24 @@ export const api = {
       remaining: number; parseFailed?: boolean; raw?: string; message?: string;
     }>('/api/ai/error-types', { limit, kid }),
     errorStats: () => get<ErrorStat>('/api/ai/error-stats'),
+    /**
+     * 变式题生成（举一反三）。落库后是当前用户的自建题（id 前缀 `g_`），
+     * 会出现在题库里，也参与掌握度计算。
+     */
+    generate: (kid: string, opts: { count?: number; fromQid?: string; save?: boolean } = {}) => post<{
+      created: {
+        id: string; kid: string; type: 'choice' | 'blank'; difficulty: number;
+        stem: string; options: { k: string; t: string }[] | null;
+        answer: string; analysis: string; sourceType: string; saved: boolean;
+      }[];
+      count: number;
+      /** 因为和已有题目重复而跳过的道数 */
+      skippedDuplicate: number;
+      /** 因为判题器判不了（开放题 / 根号答案 / 多解）而丢掉的道数 */
+      skippedUnjudgeable: number;
+      parseFailed?: boolean;
+      raw?: string;
+    }>('/api/ai/generate', { kid, ...opts }),
   },
 
   /* 管理台。全部接口服务端都有 requireAdmin，非管理员一律 403。 */
