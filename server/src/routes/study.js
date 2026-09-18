@@ -16,6 +16,7 @@ import {
   answerXp, awardXp, checkAchievements, buildSnapshot, masteryBoard,
   getTree, inTrack, nodeMastery, XP,
 } from '../lib/game.js';
+import { diagnoseRoots, nextToLearn } from '../lib/diagnose.js';
 import { newCard } from '../lib/sm2.js';
 
 const todayStr = () => {
@@ -180,7 +181,47 @@ export default async function studyRoutes(fastify) {
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
 
-    return { weak: scored };
+    /* 图谱加成：这个薄弱点背后是不是还有更早的根因。
+     *
+     * 注意这里**没有**改上面的排序 —— weak 的语义是「哪些地方弱」，
+     * 那是个客观事实，不该被图谱搅动。根因是另一件事，单独用
+     * /api/study/roots 表达。把两者混进一个排序里，
+     * 前端就没法既显示「我弱在哪」又显示「我该先补什么」。
+     *
+     * rootCause 只在根因不是它自己时才给 —— 一个节点自己就是根因时，
+     * 回填它自己只会让界面出现「先补 X（就是这里）」这种废话。 */
+    const diag = diagnoseRoots(req.userId, { track: req.query.track || 'math1', limit: 20 });
+    const rootOf = new Map();
+    for (const r of diag.roots) {
+      for (const s of r.coveredSymptoms) {
+        if (!rootOf.has(s.nodeId)) rootOf.set(s.nodeId, r);
+      }
+    }
+
+    return {
+      weak: scored.map((s) => {
+        const r = rootOf.get(s.nodeId);
+        return {
+          ...s,
+          rootCause: r && r.nodeId !== s.nodeId
+            ? { nodeId: r.nodeId, title: r.title, kind: r.kind, accuracy: r.accuracy, why: r.why }
+            : null,
+        };
+      }),
+    };
+  });
+
+  /* ============ 根因诊断：从错题回溯到真正没打牢的前置 ============
+   *
+   * 与 /api/study/weak 的区别（这两个接口很容易被混用）：
+   *   weak  回答「我哪里弱」    —— 平铺，看全貌
+   *   roots 回答「我该先补什么」—— 有向回溯，给行动顺序
+   * 仪表盘上「今天先做什么」应该用 roots；知识树高亮用 weak。
+   */
+  fastify.get('/api/study/roots', async (req) => {
+    const track = req.query.track || 'math1';
+    const limit = Math.min(10, Number(req.query.limit) || 5);
+    return diagnoseRoots(req.userId, { track, limit });
   });
 
   /* ============ 学情快照 ============ */

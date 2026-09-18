@@ -17,6 +17,7 @@
     "test": "node tests/run-all.mjs",
     "test:latex": "node tests/latex-coverage.mjs",
     "test:pipeline": "node tests/pipeline-leak.mjs",
+    "test:graph": "node tests/graph.mjs",
     "test:api": "node server/scripts/smoke.mjs",
     "test:browser": "node tests/browser-smoke.mjs",
     "test:day": "node tests/day-boundary.mjs",
@@ -24,7 +25,8 @@
     "shots": "node tests/screenshot.mjs",
     "gallery": "node tests/theme-gallery.mjs",
     "start": "npm -w server run start",
-    "seed": "npm -w server run seed"
+    "seed": "npm -w server run seed",
+    "edges": "npm -w server run edges"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"

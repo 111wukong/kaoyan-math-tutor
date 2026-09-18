@@ -179,6 +179,95 @@ export interface Achievement {
   progress: { have: number; need: number; pct: number } | null;
 }
 
+/* ---- 知识图谱 ---- */
+
+export interface GraphNeighbor {
+  id: string; title: string;
+  strength: 'hard' | 'soft';
+  reason: string;
+  source: string;
+}
+
+export interface NodeGraphContext {
+  prerequisites: GraphNeighbor[];
+  unlocks: GraphNeighbor[];
+  confusable: GraphNeighbor[];
+  impact: number;
+}
+
+/**
+ * 根因。kind 决定用户该做什么，两者动作完全不同：
+ *   gap  —— 从没学过，得去**学**
+ *   weak —— 学过但没打牢，得去**补**
+ */
+export interface RootCause {
+  nodeId: string; title: string; chapterId: string; difficulty: number;
+  kind: 'gap' | 'weak';
+  level: Mastery['level']; label: string;
+  accuracy: number; attempts: number;
+  coverage: number; depth: number;
+  strength: 'hard' | 'soft'; score: number;
+  coveredSymptoms: { nodeId: string; title: string; wrong: number; accuracy: number }[];
+  why: string;
+}
+
+export interface RootDiagnosis {
+  roots: RootCause[];
+  symptomCount: number;
+  scanned: number;
+  message: string;
+}
+
+export interface PathItem {
+  nodeId: string; title: string; chapterId: string; difficulty: number;
+  level: Mastery['level']; label: string;
+  accuracy: number; attempts: number; wrong: number;
+  isRoot: boolean; rank: number;
+  prereqCount: number; prereqRatio: number; order: number; score: number;
+  why: string;
+}
+
+export interface LearningPath {
+  items: PathItem[];
+  ready: number;
+  blocked: number;
+  blockedSample: {
+    nodeId: string; title: string; wrong: number;
+    blockers: { nodeId: string; title: string; level: Mastery['level']; accuracy: number }[];
+  }[];
+  total: number;
+  message: string;
+}
+
+export interface GraphNode {
+  id: string; title: string;
+  chapterId: string; chapterName: string; categoryId: string;
+  difficulty: number;
+  level: Mastery['level']; label: string;
+  accuracy: number; attempts: number;
+  /** 影响面：这个节点卡住多少个下游。用来决定图上节点的大小。 */
+  impact: number;
+  prereqCount: number; hardPrereqCount: number;
+}
+
+export interface GraphPayload {
+  nodes: GraphNode[];
+  edges: { from: string; to: string; type: string; strength: string; reason: string }[];
+  counts: { total: number; prereq: number; confusable: number; related: number };
+  dist: Record<string, number>;
+  pct: Record<string, number>;
+  health: { nodes: number; edges: number; isolated: string[]; dangling: string[]; byType: Record<string, number> };
+}
+
+/* ---- 错因归类 ---- */
+
+export type ErrorType = 'concept' | 'calc' | 'condition' | 'method' | 'misread' | 'blank';
+
+export interface ErrorStat {
+  items: { type: ErrorType; label: string; count: number }[];
+  judged: number; totalWrong: number; unjudged: number; advice: string;
+}
+
 /* ---- 多智能体课堂 ---- */
 export type ClassRole = 'teacher' | 'xiaoming' | 'xiaohong' | 'xiaogang';
 
@@ -237,6 +326,8 @@ export const api = {
     answer: (qid: string, answer: string, context = 'quiz') => post<AnswerResult>('/api/study/answer', { qid, answer, context }),
     mistakes: (kid?: string) => get<{ mistakes: Mistake[]; total: number; byKid: Record<string, number> }>(`/api/study/mistakes${kid ? `?kid=${kid}` : ''}`),
     weak: (limit = 8) => get<{ weak: any[] }>(`/api/study/weak?limit=${limit}`),
+    /** 根因诊断：从错题回溯到真正没打牢的前置。与 weak 的分工见后端注释。 */
+    roots: (limit = 5) => get<RootDiagnosis>(`/api/study/roots?limit=${limit}`),
     snapshot: (track = 'math1') => get<{ snapshot: Snapshot; settings: any }>(`/api/study/snapshot?track=${track}`),
     stats: (track = 'math1') => get<any>(`/api/study/stats?track=${track}`),
     daily: () => get<any>('/api/study/daily'),
@@ -267,7 +358,16 @@ export const api = {
     blitz: (body: { score: number; correct: number; wrong?: number; bestCombo?: number; seconds?: number }) => post<any>('/api/game/blitz', body),
     boss: (chapterId: string, score: number, total: number) => post<any>('/api/game/boss', { chapterId, score, total }),
     projection: () => get<any>('/api/game/projection'),
-    next: () => get<{ items: { kind: string; priority: number; title: string; why: string; route: string }[]; snapshot: Snapshot; dueCount: number }>('/api/game/next'),
+    next: () => get<{
+      items: { kind: string; priority: number; title: string; why: string; route: string; nodes?: { nodeId: string; title: string }[] }[];
+      snapshot: Snapshot; dueCount: number;
+      path: LearningPath; roots: RootDiagnosis;
+    }>('/api/game/next'),
+  },
+
+  graph: {
+    all: (track = 'math1') => get<GraphPayload>(`/api/graph?track=${track}`),
+    node: (id: string) => get<{ id: string; title: string } & NodeGraphContext>(`/api/graph/node/${id}`),
   },
 
   deck: {
@@ -306,6 +406,18 @@ export const api = {
     personas: () => get<{ personas: { id: string; name: string; desc: string }[] }>('/api/ai/personas'),
     extract: (text: string, kid?: string) => post<{ cards: any[]; raw?: string }>('/api/ai/extract', { text, kid }),
     classroom: (body: ClassroomRoundBody) => post<ClassroomRound>('/api/ai/classroom', body),
+    /** 单题错因归类。判成 concept 时会附带图谱回溯出来的前置建议。 */
+    errorType: (qid: string) => post<{
+      qid: string; errorType: ErrorType | null; label?: string; reason?: string;
+      saved: boolean; parseFailed?: boolean; raw?: string;
+      rootHint?: { message: string; candidates: { nodeId: string; title: string; level: string; label: string; accuracy: number }[] } | null;
+    }>('/api/ai/error-type', { qid }),
+    /** 批量归类。只处理还没判过的错题，一次最多 8 道。 */
+    errorTypes: (limit = 5, kid?: string) => post<{
+      items: { qid: string; kid: string; errorType: ErrorType; label: string; reason: string }[];
+      remaining: number; parseFailed?: boolean; raw?: string; message?: string;
+    }>('/api/ai/error-types', { limit, kid }),
+    errorStats: () => get<ErrorStat>('/api/ai/error-stats'),
   },
 
   /* 管理台。全部接口服务端都有 requireAdmin，非管理员一律 403。 */

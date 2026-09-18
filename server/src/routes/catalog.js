@@ -1,6 +1,7 @@
 /* 知识树与题库（只读 + 用户掌握状态） */
 import { db } from '../db/index.js';
 import { getTree, masteryBoard, nodeMastery, inTrack } from '../lib/game.js';
+import { nodeContext } from '../lib/graph.js';
 import { publicQuestion } from '../lib/judge.js';
 
 export default async function catalogRoutes(fastify) {
@@ -84,6 +85,24 @@ export default async function catalogRoutes(fastify) {
       return r ? { id: r.id, title: r.title } : null;
     }).filter(Boolean);
 
+    /* 图谱上下文：前置 / 解锁 / 易混 / 影响面。
+     * 与上面的 related 是两回事 —— related 是旧的无向 JSON 字段（保留兼容），
+     * graph 是有向边。前端要展示「学这个之前得先会什么」只能用 graph。 */
+    const ctx = nodeContext(node.id);
+    const withTitle = (list) => list.map((e) => ({
+      id: e.kid,
+      title: tree.nodeById.get(e.kid)?.title || e.kid,
+      strength: e.strength,
+      reason: e.reason,
+      source: e.source,
+    }));
+    const graph = {
+      prerequisites: withTitle(ctx.prerequisites),
+      unlocks: withTitle(ctx.unlocks),
+      confusable: withTitle(ctx.confusable),
+      impact: ctx.impact,
+    };
+
     const notes = db.prepare('SELECT id, text, date FROM notes WHERE user_id = ? AND kid = ? ORDER BY created_at DESC')
       .all(req.userId, node.id);
 
@@ -107,6 +126,7 @@ export default async function catalogRoutes(fastify) {
       },
       mastery,
       related,
+      graph,
       notes,
       card: card || null,
       questions: qs.map((q) => publicQuestion(q, { withAnswer: false })),

@@ -110,6 +110,41 @@ CREATE TABLE IF NOT EXISTS knowledge (
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_chapter ON knowledge(chapter_id, sort_order);
 
+-- ============ 知识图谱：有向前置依赖 ============
+/* 为什么单独建表，而不是给 knowledge 再加一列：
+ *
+ *   knowledge.related 是**无向**的 JSON 数组 —— c1n1 写 [c1n2] 的同时
+ *   c1n2 也写 [c1n1]，两边都写，方向信息就没了。没有方向就无法回答
+ *   「学 A 之前该先学什么」，也无法从一道错题回溯到它真正的前置缺口。
+ *
+ *   而方向、类型、强度都是**边**的属性，不是节点的属性。一条边一行，
+ *   才能按 from/to 建索引、才能做遍历和环检测。把它塞进节点的 JSON 列里，
+ *   每次遍历都要全表扫 + 反序列化，68 个节点时就慢了，何况还要递归。
+ *
+ * 方向约定（这里最容易搞反，写死一遍）：
+ *   from_kid = 前置（先学的）  →  to_kid = 后继（后学的）
+ *   找祖先（我该先补什么）走 from_kid；找后代（补这个能救多少）走 to_kid。
+ *
+ * type 的语义：
+ *   prereq      硬前置，缺了学不动
+ *   related     相关但无先后，遍历时视为**双向**
+ *   confusable  易混淆，用来出对比辨析题，不参与路径规划
+ *
+ * strength 只在 prereq 上有意义：hard 缺了直接学不懂；soft 缺了能学但吃力。
+ * 这个区分决定了回溯时该不该停下来 —— hard 必须补，soft 可以边学边补。
+ */
+CREATE TABLE IF NOT EXISTS knowledge_edges (
+  from_kid TEXT NOT NULL,
+  to_kid   TEXT NOT NULL,
+  type     TEXT NOT NULL DEFAULT 'prereq',   -- prereq | related | confusable
+  strength TEXT NOT NULL DEFAULT 'hard',     -- hard | soft
+  reason   TEXT NOT NULL DEFAULT '',         -- 为什么这么连，给人审的
+  source   TEXT NOT NULL DEFAULT 'derived',  -- derived 推导 | ai 模型生成 | manual 人工
+  PRIMARY KEY (from_kid, to_kid, type)
+);
+CREATE INDEX IF NOT EXISTS idx_edges_from ON knowledge_edges(from_kid);
+CREATE INDEX IF NOT EXISTS idx_edges_to ON knowledge_edges(to_kid);
+
 -- ============ 题库 ============
 CREATE TABLE IF NOT EXISTS questions (
   id          TEXT PRIMARY KEY,
@@ -140,7 +175,11 @@ CREATE TABLE IF NOT EXISTS attempts (
   correct INTEGER NOT NULL,
   context TEXT,                              -- quiz | review | blitz | classroom | accept
   date    TEXT    NOT NULL,                  -- 'YYYY-MM-DD' 本地日期
-  ts      INTEGER NOT NULL                   -- epoch ms
+  ts      INTEGER NOT NULL,                  -- epoch ms
+  /* 错因归类。空串 = 没判过（答对、或还没跑 AI 判定）。
+   * 为什么值得单开一列：答错和答错不是一回事 —— 「概念混淆」要回去补前置，
+   * 「计算失误」只需要练熟练度。两者策略相反，混在一个 correct=0 里就分不出来。 */
+  error_type TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_user_ts ON attempts(user_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_attempts_user_kid ON attempts(user_id, kid);

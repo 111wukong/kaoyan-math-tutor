@@ -11,6 +11,49 @@
 import { db } from '../db/index.js';
 import { resolveLlm } from './misc.js';
 import { buildSnapshot, nodeMastery, getTree } from '../lib/game.js';
+import { ancestors } from '../lib/graph.js';
+
+/* ---------- 错因分类 ----------
+ *
+ * 「答错」是一个二值事实，「为什么错」才决定下一步该干什么：
+ *   概念混淆 → 回去补前置（触发图谱回溯）
+ *   计算失误 → 只需要练熟练度
+ *   条件遗漏 → 补的是审题清单，不是知识
+ *   方法不会 → 得先看例题，不是继续刷题
+ *   审题偏差 → 跟知识无关，跟习惯有关
+ * 五种处置方式完全不同，而 attempts 里只存了 correct = 0，分不出来。
+ *
+ * 顺序有意义：concept 排第一是因为它最常被误判成「粗心」——
+ * 学生以为自己是算错了，其实是根本没理解，于是继续刷题，越刷越错。
+ */
+export const ERROR_TYPES = {
+  concept: '概念混淆',
+  calc: '计算失误',
+  condition: '条件遗漏',
+  method: '方法不会',
+  misread: '审题偏差',
+  blank: '未作答',
+};
+
+/* 小模型基本不听枚举约束 —— 实测会给出「概念不清」「理解错误」「运算错误」
+ * 这类同义变体。按关键词兜一层，宁可按最接近的归类，也别整条丢掉。 */
+const ERROR_ALIAS = [
+  [/概念|定义|理解|定理|混淆|不清/, 'concept'],
+  [/计算|运算|算错|粗心|笔误|符号/, 'calc'],
+  [/条件|前提|定义域|边界|遗漏|漏掉|范围/, 'condition'],
+  [/方法|思路|不会|无从|没有方向|公式不记得/, 'method'],
+  [/审题|看错|读错|题意|误解/, 'misread'],
+  [/未作答|没做|放弃|空白|来不及/, 'blank'],
+];
+
+export function normalizeErrorType(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  const key = s.toLowerCase();
+  if (ERROR_TYPES[key]) return key;
+  for (const [re, t] of ERROR_ALIAS) if (re.test(s)) return t;
+  return null;
+}
 
 const PERSONAS = {
   strict: {
@@ -373,6 +416,218 @@ export default async function aiRoutes(fastify) {
     }
   });
 
+  /* ---------- 错因归类：单题 ----------
+   *
+   * 为什么不做成「答错就自动判」：
+   * 每答错一题就多一次模型调用，一晚上刷 50 道就是 50 次请求，
+   * 而错因归类是**回看时**才有价值的东西，不是即时反馈。
+   * 所以做成按需触发（错题本里点「分析错因」），以及批量版本。
+   */
+  fastify.post('/api/ai/error-type', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['qid'],
+        properties: {
+          qid: { type: 'string' },
+          myAnswer: { type: 'string' },
+          save: { type: 'boolean' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
+    const cfg = l ? resolveLlm(l) : null;
+    if (!cfg || !cfg.base || !cfg.model) {
+      return reply.code(400).send({ error: '还没配置模型', code: 'NO_LLM' });
+    }
+
+    const { qid, save = true } = req.body;
+    const q = db.prepare('SELECT * FROM questions WHERE id = ?').get(qid);
+    if (!q) return reply.code(404).send({ error: '题目不存在' });
+
+    const last = db.prepare('SELECT * FROM attempts WHERE user_id = ? AND qid = ? ORDER BY ts DESC LIMIT 1')
+      .get(req.userId, qid);
+    const myAnswer = req.body.myAnswer ?? last?.answer ?? '';
+
+    const prompt = buildErrorPrompt(q, myAnswer);
+    let content = '';
+    try {
+      content = await callLlm(cfg, prompt, { temperature: 0.2 });
+    } catch (e) {
+      return reply.code(502).send({ error: e.message });
+    }
+
+    const parsed = parseJsonObject(content);
+    const type = normalizeErrorType(parsed?.errorType) || normalizeErrorType(content);
+    if (!type) {
+      return { errorType: null, raw: content.slice(0, 300), parseFailed: true };
+    }
+
+    const reason = String(parsed?.reason || '').slice(0, 200);
+
+    /* 只回写**最近一次答错**的那条。答对的那条不该被贴上错因标签，
+     * 否则将来统计错因分布时会把做对的题也算进去。 */
+    let saved = false;
+    if (save && last && !last.correct) {
+      db.prepare('UPDATE attempts SET error_type = ? WHERE id = ?').run(type, last.id);
+      saved = true;
+    }
+
+    return {
+      qid,
+      errorType: type,
+      label: ERROR_TYPES[type],
+      reason,
+      saved,
+      rootHint: type === 'concept' ? conceptRootHint(req.userId, q.kid) : null,
+    };
+  });
+
+  /* ---------- 错因归类：批量（错题本一次判一批）----------
+   *
+   * 一次 prompt 判多题，而不是 N 次单题调用 —— 错题本动辄几十道，
+   * 逐题调用既慢又贵，而且模型看不到「这批错题的共同点」。
+   * 上限 8 题：再多的话题干会把上下文撑爆，判得反而更糊。
+   */
+  fastify.post('/api/ai/error-types', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: { limit: { type: 'integer' }, kid: { type: 'string' } },
+      },
+    },
+  }, async (req, reply) => {
+    const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
+    const cfg = l ? resolveLlm(l) : null;
+    if (!cfg || !cfg.base || !cfg.model) {
+      return reply.code(400).send({ error: '还没配置模型', code: 'NO_LLM' });
+    }
+
+    const limit = Math.min(8, Math.max(1, Number(req.body?.limit) || 5));
+    const kid = req.body?.kid;
+
+    /* 只挑**还没判过**的：已经有人工或模型结论的题不重复消耗。
+     * 判过的标志是该题存在一条 error_type 非空的作答记录。 */
+    const rows = db.prepare(`
+      SELECT sq.qid, sq.kid, q.stem, q.answer, q.analysis,
+             (SELECT answer FROM attempts a WHERE a.user_id = sq.user_id AND a.qid = sq.qid
+               ORDER BY a.ts DESC LIMIT 1) AS myAnswer
+      FROM stats_question sq
+      JOIN questions q ON q.id = sq.qid
+      WHERE sq.user_id = @uid AND sq.ok = 0
+        ${kid ? 'AND sq.kid = @kid' : ''}
+        AND NOT EXISTS (
+          SELECT 1 FROM attempts a2
+          WHERE a2.user_id = sq.user_id AND a2.qid = sq.qid AND a2.error_type <> ''
+        )
+      ORDER BY sq.ts DESC LIMIT @limit
+    `).all({ uid: req.userId, kid, limit });
+
+    if (!rows.length) {
+      return { items: [], remaining: 0, message: '没有需要判定的错题了。' };
+    }
+
+    const prompt = [
+      '下面是若干道考研数学错题。请为每道题判断**错因类别**。',
+      '',
+      '类别（只能选这五个之一）：',
+      '  concept   概念混淆 —— 对定义、定理或条件的理解本身有误',
+      '  calc      计算失误 —— 思路正确但算错了',
+      '  condition 条件遗漏 —— 漏掉定义域、边界、前提条件',
+      '  method    方法不会 —— 完全不知道从哪下手',
+      '  misread   审题偏差 —— 看错或误解了题意',
+      '',
+      '判断原则：如果学生的答案显示出**方向性的理解错误**（比如把可导当成连续、',
+      '用错了定理的适用条件），一律归为 concept，不要归成 calc。',
+      '学生以为自己「粗心」，实际是没理解 —— 这种情况在考研数学里非常普遍，',
+      '判成 calc 会让他继续刷题而不是回去补基础。',
+      '',
+      '只输出 JSON 数组，不要任何解释文字：',
+      '[{"qid":"题目 id","errorType":"类别英文名","reason":"不超过 30 字的中文理由"}]',
+      '',
+      '错题列表：',
+      ...rows.map((r, i) => [
+        `--- 第 ${i + 1} 题（qid: ${r.qid}）---`,
+        `题干：${String(r.stem || '').slice(0, 400)}`,
+        `正确答案：${String(r.answer || '').slice(0, 100)}`,
+        `学生答案：${String(r.myAnswer ?? '').slice(0, 100)}`,
+        r.analysis ? `解析：${String(r.analysis).slice(0, 300)}` : '',
+      ].filter(Boolean).join('\n')),
+    ].join('\n');
+
+    let content = '';
+    try {
+      content = await callLlm(cfg, prompt, { temperature: 0.2 });
+    } catch (e) {
+      return reply.code(502).send({ error: e.message });
+    }
+
+    const arr = parseJsonArray(content);
+    const byQid = new Map(rows.map((r) => [r.qid, r]));
+    const upd = db.prepare(`
+      UPDATE attempts SET error_type = @type
+      WHERE id = (SELECT id FROM attempts WHERE user_id = @uid AND qid = @qid AND correct = 0
+                  ORDER BY ts DESC LIMIT 1)
+    `);
+
+    const items = [];
+    const run = db.transaction(() => {
+      for (const c of arr) {
+        const qid = String(c?.qid || '');
+        if (!byQid.has(qid)) continue;          // 模型编出来的 qid，丢掉
+        const type = normalizeErrorType(c?.errorType);
+        if (!type) continue;
+        upd.run({ type, uid: req.userId, qid });
+        items.push({
+          qid,
+          kid: byQid.get(qid).kid,
+          errorType: type,
+          label: ERROR_TYPES[type],
+          reason: String(c?.reason || '').slice(0, 200),
+        });
+      }
+    });
+    run();
+
+    const remaining = db.prepare(`
+      SELECT COUNT(*) n FROM stats_question sq
+      WHERE sq.user_id = ? AND sq.ok = 0
+        AND NOT EXISTS (SELECT 1 FROM attempts a2
+          WHERE a2.user_id = sq.user_id AND a2.qid = sq.qid AND a2.error_type <> '')
+    `).get(req.userId).n;
+
+    return {
+      items,
+      remaining,
+      parseFailed: items.length === 0,
+      raw: items.length ? undefined : content.slice(0, 400),
+    };
+  });
+
+  /* ---------- 错因分布：给统计页用 ---------- */
+  fastify.get('/api/ai/error-stats', async (req) => {
+    const rows = db.prepare(`
+      SELECT error_type, COUNT(*) n FROM attempts
+      WHERE user_id = ? AND correct = 0 AND error_type <> ''
+      GROUP BY error_type ORDER BY n DESC
+    `).all(req.userId);
+
+    const judged = rows.reduce((a, r) => a + r.n, 0);
+    const totalWrong = db.prepare('SELECT COUNT(*) n FROM attempts WHERE user_id = ? AND correct = 0')
+      .get(req.userId).n;
+
+    return {
+      items: rows.map((r) => ({ type: r.error_type, label: ERROR_TYPES[r.error_type] || r.error_type, count: r.n })),
+      judged,
+      totalWrong,
+      unjudged: Math.max(0, totalWrong - judged),
+      /* 一句人话的结论。纯数字用户不会自己解读 —— 但「概念类占一半」
+       * 和「计算类占一半」该做的事完全不同，值得直接说出来。 */
+      advice: buildErrorAdvice(rows, judged),
+    };
+  });
+
   /* ---------- 人格列表 ---------- */
   fastify.get('/api/ai/personas', async () => ({
     personas: Object.entries(PERSONAS).map(([id, p]) => ({ id, name: p.name, desc: p.desc })),
@@ -458,4 +713,112 @@ function parseJsonObject(content) {
       return null;
     }
   }
+}
+
+/* ---------- 错因归类用到的三个辅助 ---------- */
+
+/** 非流式调用一次模型，只取文本。三处（extract / 课堂 / 错因）共用。 */
+async function callLlm(cfg, prompt, { temperature = 0.2 } = {}) {
+  const res = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
+    body: JSON.stringify({
+      model: cfg.model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature,
+      stream: false,
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`模型返回 ${res.status}：${t.slice(0, 200)}`);
+  }
+  const j = await res.json();
+  return j.choices?.[0]?.message?.content || '';
+}
+
+function buildErrorPrompt(q, myAnswer) {
+  return [
+    '下面是一道考研数学错题。请判断**错因类别**。',
+    '',
+    '类别（只能选一个）：',
+    '  concept   概念混淆 —— 对定义、定理或条件的理解本身有误',
+    '  calc      计算失误 —— 思路正确但算错了',
+    '  condition 条件遗漏 —— 漏掉定义域、边界、前提条件',
+    '  method    方法不会 —— 完全不知道从哪下手',
+    '  misread   审题偏差 —— 看错或误解了题意',
+    '  blank     未作答',
+    '',
+    '判断原则：如果学生的答案显示出**方向性的理解错误**（把可导当成连续、',
+    '用错了定理的适用条件、把两个定理记混），一律归为 concept。',
+    '宁可判成 concept 也不要轻易判成 calc —— 学生以为自己粗心、',
+    '实际是没理解，这种情况在考研数学里极常见，误判成 calc 会让他',
+    '继续刷题而不是回去补基础。',
+    '',
+    '只输出 JSON，不要任何解释文字：',
+    '{"errorType":"类别英文名","reason":"不超过 30 字的中文理由"}',
+    '',
+    `题干：${String(q.stem || '').slice(0, 800)}`,
+    `正确答案：${String(q.answer || '').slice(0, 200)}`,
+    `学生答案：${String(myAnswer ?? '').slice(0, 200)}`,
+    q.analysis ? `解析：${String(q.analysis).slice(0, 500)}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+/**
+ * 概念类错因的图谱联动：往回找 2 层前置，挑出没掌握的那几个。
+ *
+ * 这是「错因归类」和「知识图谱」真正接上的地方 ——
+ * 判成 concept 只是知道了性质，还得知道该补哪一块，否则用户依然无从下手。
+ */
+function conceptRootHint(userId, kid) {
+  const tree = getTree();
+  const anc = ancestors(kid, { depth: 2, types: ['prereq'] });
+
+  const candidates = [];
+  for (const id of anc.keys()) {
+    const node = tree.nodeById.get(id);
+    if (!node) continue;
+    const m = nodeMastery(userId, id);
+    if (m.level === 'proficient' || m.level === 'mastered') continue;
+    candidates.push({
+      nodeId: id,
+      title: node.title,
+      level: m.level,
+      label: m.label,
+      accuracy: Number((m.accuracy || 0).toFixed(3)),
+    });
+  }
+  if (!candidates.length) return null;
+
+  /* 先推「没学过」的，再推「学过但正确率低」的。
+   * 顺序反了的话，会把一个 0.3 正确率但已经练过 10 次的节点，
+   * 排在完全没学过的基础之前 —— 而后者才是真正卡住他的。 */
+  candidates.sort((a, b) => {
+    const an = a.level === 'new' ? 0 : 1;
+    const bn = b.level === 'new' ? 0 : 1;
+    return an - bn || a.accuracy - b.accuracy;
+  });
+
+  return {
+    message: `这题错在概念上，未必是这道题的问题 —— 建议先回看「${candidates[0].title}」。`,
+    candidates: candidates.slice(0, 3),
+  };
+}
+
+function buildErrorAdvice(rows, judged) {
+  if (!judged) {
+    return '还没判定过错因。去错题本点一次「分析错因」，才能看出你是真不会还是只是算错。';
+  }
+  const top = rows[0];
+  const pct = Math.round((top.n / judged) * 100);
+  const advice = {
+    concept: '继续刷题收益很低，该回去补前置知识点了。',
+    calc: '知识点是懂的，缺的是熟练度和检查习惯 —— 限时训练最有效。',
+    condition: '建议做题时先把定义域和前提条件圈出来再动笔。',
+    method: '说明题型见得不够，该看例题总结套路，而不是硬刷。',
+    misread: '跟知识无关，把题干读两遍再动笔就能改善大半。',
+    blank: '先解决「会不会」的问题，再谈快不快。',
+  }[top.type] || '';
+  return `${ERROR_TYPES[top.type] || top.type}占 ${pct}%。${advice}`;
 }

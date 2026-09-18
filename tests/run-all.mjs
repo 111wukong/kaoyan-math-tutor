@@ -43,6 +43,9 @@ const SUITES = [
    * 所以真正的门禁在这两个确定性套件上，浏览器那条只当补充。 */
   { name: 'LaTeX 全量检查', file: 'tests/latex-coverage.mjs' },
   { name: '渲染管线漏屏检查', file: 'tests/pipeline-leak.mjs' },
+  /* 图谱套件也是**确定性全量**检查，而且自己建临时库、不走 HTTP ——
+   * 放在这里跑得最快，挂了能立刻看出是数据问题还是接口问题。 */
+  { name: '图谱与诊断', file: 'tests/graph.mjs' },
   /* 日期口径放在接口套件之前：它自己起一个 TZ 特殊的服务，
    * 挂了的话能一眼看出是「时区」问题而不是业务逻辑问题。 */
   { name: '日期口径检查', file: 'tests/day-boundary.mjs' },

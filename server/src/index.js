@@ -24,6 +24,7 @@ import catalogRoutes from './routes/catalog.js';
 import studyRoutes from './routes/study.js';
 import cardRoutes from './routes/cards.js';
 import gameRoutes from './routes/game.js';
+import graphRoutes from './routes/graph.js';
 import miscRoutes from './routes/misc.js';
 import aiRoutes from './routes/ai.js';
 
@@ -131,6 +132,7 @@ await app.register(catalogRoutes);
 await app.register(studyRoutes);
 await app.register(cardRoutes);
 await app.register(gameRoutes);
+await app.register(graphRoutes);
 await app.register(miscRoutes);
 await app.register(aiRoutes);
 

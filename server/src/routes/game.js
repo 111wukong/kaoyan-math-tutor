@@ -4,6 +4,7 @@ import {
   buildSnapshot, levelInfo, achievementBoard, checkAchievements,
   awardXp, projection, nextSuggestion, ACHIEVEMENTS, LEVELS, needFor,
 } from '../lib/game.js';
+import { diagnoseRoots, nextToLearn } from '../lib/diagnose.js';
 
 const todayStr = () => {
   const d = new Date();
@@ -120,10 +121,42 @@ export default async function gameRoutes(fastify) {
     });
   });
 
-  /* ---------- 下一步建议 ---------- */
+  /* ---------- 下一步建议 ----------
+   *
+   * 三条数据在这里汇合，各有分工，别混：
+   *   items  今天干什么（复习 / 错题 / 学新 / 刷题）—— 行动清单
+   *   path   具体该学哪几个知识点（拓扑序，前置没齐的不进来）
+   *   roots  先补哪个前置（从错题回溯出来的根因）
+   *
+   * 为什么在路由层组合而不是塞进 nextSuggestion()：
+   * nextSuggestion 在 lib/game.js，而 path / roots 要 import diagnose.js，
+   * 后者又依赖 game.js —— 塞进去就是循环依赖。组合逻辑留在这一层最省事。
+   */
   fastify.get('/api/game/next', async (req) => {
     const settings = db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(req.userId) || {};
-    return nextSuggestion(req.userId, { track: settings.exam_track || 'math1' });
+    const track = settings.exam_track || 'math1';
+
+    const base = nextSuggestion(req.userId, { track });
+    const path = nextToLearn(req.userId, { track, limit: 3 });
+    const roots = diagnoseRoots(req.userId, { track, limit: 3 });
+
+    /* 把「学 2 个新知识点」这种泛泛的一条，换成**具体是哪两个**。
+     * 旧版只能说「还有 12 个知识点没学过」—— 用户点进去还得自己挑，
+     * 而挑错顺序恰恰是「刷了很多题但分数不动」的根源。 */
+    const items = base.items.map((it) => {
+      if (it.kind !== 'learn' || !path.items.length) return it;
+      const first = path.items[0];
+      return {
+        ...it,
+        title: path.items.length > 1
+          ? `学「${first.title}」等 ${path.items.length} 个`
+          : `学「${first.title}」`,
+        why: first.why,
+        nodes: path.items.map((x) => ({ nodeId: x.nodeId, title: x.title })),
+      };
+    });
+
+    return { ...base, items, path, roots };
   });
 
   /* ---------- 等级表（给前端画进度用）---------- */

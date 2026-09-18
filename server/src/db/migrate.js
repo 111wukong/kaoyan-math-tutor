@@ -50,6 +50,12 @@ const ADD_COLUMNS = {
     status: "TEXT NOT NULL DEFAULT 'active'",
     note: "TEXT NOT NULL DEFAULT ''",
   },
+  /* attempts.error_type —— 错因归类。
+   * 新库由 schema.sql 建好，老库必须在这里补：attempts 表早已存在，
+   * schema.sql 里那条 CREATE TABLE IF NOT EXISTS 会被整个跳过。 */
+  attempts: {
+    error_type: "TEXT NOT NULL DEFAULT ''",
+  },
 };
 
 /**

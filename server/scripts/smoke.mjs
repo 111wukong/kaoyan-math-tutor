@@ -96,10 +96,11 @@ section('0. 健康检查与鉴权边界');
 {
   const h = await GET('/api/health');
   ok('健康检查 200', h.status === 200);
-  /* 26 = 原来的 25 张 + admin_log。
+  /* 27 = 原来的 25 张 + admin_log + knowledge_edges。
    * 这个数字是**故意钉死的**：它盯的是「建表脚本有没有被误改」。
-   * 加表时同步改这里，是让改动者被迫确认一次「我知道我加了一张表」。 */
-  ok('数据库 26 张表', h.data?.db?.tables === 26, `实得 ${h.data?.db?.tables}`);
+   * 加表时同步改这里，是让改动者被迫确认一次「我知道我加了一张表」。
+   * 最近一次：knowledge_edges（知识图谱的有向前置依赖边）。 */
+  ok('数据库 27 张表', h.data?.db?.tables === 27, `实得 ${h.data?.db?.tables}`);
   ok('数据库连接正常', h.data?.db?.ok === true);
 
   const guarded = await GET('/api/study/snapshot');
@@ -247,6 +248,66 @@ section('6. 错题与薄弱点');
 
   const w = await GET('/api/study/weak?limit=8');
   ok('薄弱点列表可用', w.status === 200 && Array.isArray(w.data?.weak));
+  /* 图谱加成字段必须存在（哪怕值是 null）——
+   * 少了这个字段，前端会静默地不显示「先补哪个」，而不是报错。 */
+  ok('薄弱点带 rootCause 字段', w.data?.weak?.every((x) => 'rootCause' in x));
+}
+
+section('6b. 知识图谱与根因诊断');
+{
+  const g = await GET('/api/graph');
+  ok('图谱 200', g.status === 200);
+  ok('图谱返回 68 个节点', g.data?.nodes?.length === 68, `实得 ${g.data?.nodes?.length}`);
+  ok('图谱边数合理', (g.data?.edges?.length || 0) > 80, `实得 ${g.data?.edges?.length}`);
+  ok('图谱边全是 prereq 或 confusable',
+    (g.data?.edges || []).every((e) => ['prereq', 'confusable', 'related'].includes(e.type)));
+  /* 悬空边会让诊断走到一个没有标题的空节点；孤立节点意味着从它出发查不到任何东西 */
+  ok('图谱无悬空边', (g.data?.health?.dangling?.length || 0) === 0,
+    `实得 ${JSON.stringify(g.data?.health?.dangling)}`);
+  ok('图谱无孤立节点', (g.data?.health?.isolated?.length || 0) === 0,
+    `实得 ${JSON.stringify(g.data?.health?.isolated)}`);
+  /* 影响面：极限这种地基必须显著大于末章叶子，否则前端按影响面画不出层次 */
+  const byId = Object.fromEntries((g.data?.nodes || []).map((n) => [n.id, n]));
+  ok('影响面能区分地基与叶子', (byId.c1n1?.impact || 0) > (byId.c6n3?.impact || 0),
+    `c1n1=${byId.c1n1?.impact} c6n3=${byId.c6n3?.impact}`);
+
+  const gn = await GET('/api/graph/node/c2n5');
+  ok('单节点图谱 200', gn.status === 200);
+  ok('洛必达有前置', (gn.data?.prerequisites?.length || 0) > 0);
+  ok('前置带 reason（能回答为什么）', gn.data?.prerequisites?.every((p) => !!p.reason));
+  ok('洛必达与泰勒互为易混', (gn.data?.confusable || []).some((c) => c.id === 'c2n6'));
+
+  const roots = await GET('/api/study/roots?limit=5');
+  ok('根因诊断 200', roots.status === 200);
+  ok('根因有症状计数', typeof roots.data?.symptomCount === 'number');
+  ok('根因有说明文案', typeof roots.data?.message === 'string' && roots.data.message.length > 0);
+  for (const r of roots.data?.roots || []) {
+    ok(`根因 ${r.nodeId} 带 kind`, r.kind === 'gap' || r.kind === 'weak');
+    ok(`根因 ${r.nodeId} 有 why`, typeof r.why === 'string' && r.why.length > 5);
+  }
+
+  /* 知识点详情里要带上依赖关系 —— 这是「学这个之前得先会什么」的唯一来源 */
+  const kn = await GET('/api/catalog/knowledge/c2n5');
+  ok('知识点详情带 graph 字段', !!kn.data?.graph);
+  ok('知识点详情有前置列表', (kn.data?.graph?.prerequisites?.length || 0) > 0);
+  ok('知识点详情有影响面', typeof kn.data?.graph?.impact === 'number');
+
+  /* 下一步建议要同时给出「今天干什么」和「具体学哪几个」。
+   * 只有前者的话，用户点进去还得自己挑 —— 而挑错顺序正是刷题不涨分的根源。 */
+  const nx = await GET('/api/game/next');
+  ok('下一步建议 200', nx.status === 200);
+  ok('下一步建议带 path', !!nx.data?.path && Array.isArray(nx.data.path.items));
+  ok('下一步建议带 roots', !!nx.data?.roots && Array.isArray(nx.data.roots.roots));
+  ok('path 带 blocked 计数', typeof nx.data?.path?.blocked === 'number');
+
+  const pathItems = nx.data?.path?.items || [];
+  const firstRootIdx = pathItems.findIndex((x) => x.isRoot);
+  ok('根因若出现在推荐里就必须排最前', firstRootIdx <= 0,
+    `第一个根因在第 ${firstRootIdx + 1} 位`);
+
+  const learnItem = (nx.data?.items || []).find((i) => i.kind === 'learn');
+  ok('有候选时 learn 项要给出具体节点',
+    !learnItem || pathItems.length === 0 || Array.isArray(learnItem.nodes));
 }
 
 section('7. 复习卡（SM-2）');
@@ -592,6 +653,53 @@ section('13b. AI 正常路径（对着本地 stub 模型跑通）');
     const noPrefix = await POST('/api/ai/classroom', { kid, mode: 'lesson' });
     ok('★ 字符串数组没前缀也不丢内容', (noPrefix.data?.turns || []).length === 2,
       `turns=${noPrefix.data?.turns?.length}`);
+
+    stub.setRaw(null);
+
+    /* ---------- 错因归类 ----------
+     * 验两件事：
+     *   1. 标准 JSON 能解析出 errorType
+     *   2. **模型说人话时也能认出类别** —— 小模型基本不会老老实实只输出 JSON，
+     *      这条才是实际可用性的关键。分类失败等于这个功能完全没用。 */
+    const mis = await GET('/api/study/mistakes');
+    const mq = mis.data?.mistakes?.[0]?.qid;
+    ok('错因归类有题可测', !!mq);
+
+    if (mq) {
+      stub.setRaw('{"errorType":"concept","reason":"把可导和连续混为一谈"}');
+      const et = await POST('/api/ai/error-type', { qid: mq });
+      ok('错因归类 200', et.status === 200, `实得 ${et.status}`);
+      ok('识别出概念类', et.data?.errorType === 'concept', `实得 ${et.data?.errorType}`);
+      ok('给出中文标签', et.data?.label === '概念混淆', `实得 ${et.data?.label}`);
+      ok('概念类附带图谱回溯建议', !!et.data?.rootHint,
+        JSON.stringify(et.data?.rootHint)?.slice(0, 90));
+
+      stub.setRaw('这道题的错误类型是「概念不清」，学生把两个定理记混了。');
+      const et2 = await POST('/api/ai/error-type', { qid: mq });
+      ok('★ 模型说人话（不输出 JSON）时也能认出类别',
+        et2.data?.errorType === 'concept', `实得 ${et2.data?.errorType}`);
+
+      stub.setRaw('学生算错了一个符号，属于运算失误。');
+      const et3 = await POST('/api/ai/error-type', { qid: mq });
+      ok('★ 同义变体「运算失误」能归到 calc',
+        et3.data?.errorType === 'calc', `实得 ${et3.data?.errorType}`);
+
+      const stats = await GET('/api/ai/error-stats');
+      ok('错因统计 200', stats.status === 200);
+      ok('统计里有已判定的错因', (stats.data?.judged || 0) > 0,
+        JSON.stringify(stats.data)?.slice(0, 110));
+      ok('统计给出人话建议', typeof stats.data?.advice === 'string' && stats.data.advice.length > 5,
+        JSON.stringify(stats.data?.advice)?.slice(0, 70));
+
+      /* 批量接口只处理「还没判过」的错题，所以这里不断言 items 非空 ——
+       * 上面单题已经把第一道判过了，批量跳过它是**正确行为**。 */
+      stub.setRaw(`[{"qid":"${mq}","errorType":"calc","reason":"符号写错"}]`);
+      const batch = await POST('/api/ai/error-types', { limit: 3 });
+      ok('批量错因归类 200', batch.status === 200, `实得 ${batch.status}`);
+      ok('批量返回 items 数组', Array.isArray(batch.data?.items));
+      ok('批量不重复消耗已判过的题', (batch.data?.items || []).every((x) => x.qid !== mq),
+        `实得 ${JSON.stringify(batch.data?.items)?.slice(0, 110)}`);
+    }
 
     stub.setRaw(null);
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
-  ArrowRight, CalendarClock, CircleAlert, Flame, Layers, Pause, Play,
+  ArrowRight, CalendarClock, CircleAlert, Crosshair, Flame, Layers, Pause, Play,
   RotateCcw, Sparkles, Target, Timer, TrendingUp, Trophy, Zap,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -34,6 +34,9 @@ export default function Dashboard() {
   const settings = useAsync(() => api.settings.get(), []);
 
   const snap = next.data?.snapshot;
+  /* 根因单独取出来。写成 next.data?.roots?.roots?.length > 0 的话 TS 收窄不了，
+   * 后面每处 next.data.roots 都要再判一次空 —— 取成变量最省事。 */
+  const rootItems = next.data?.roots?.roots ?? [];
   const examDate = settings.data?.settings?.examDate || '';
   const countdown = useCountdown(examDate || undefined);
 
@@ -211,6 +214,53 @@ export default function Dashboard() {
             );
           })}
         </div>
+
+        {/* ---------- 根因诊断 ----------
+         * 放在「今日任务」里面而不是单开一节，是因为它回答的正是
+         * 「为什么今天排的是这些」—— 两者是一件事的两面。
+         *
+         * 只显示前 3 条。根因列表给长了，用户又会陷入「先做哪个」的
+         * 选择困难 —— 那正是这个功能要消灭的东西。 */}
+        {rootItems.length > 0 && (
+          <div className="mt-4">
+            <div className="mb-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+              <div className="grid h-6 w-6 shrink-0 place-items-center rounded-lg border border-amber/20 bg-amber/10 text-amber">
+                <Crosshair size={13} />
+              </div>
+              <span className="text-[13px] font-medium text-fg">根因诊断</span>
+              <span className="text-[11.5px] text-fg-mute">
+                从 {next.data?.roots?.symptomCount ?? 0} 个出问题的考点往前回溯
+              </span>
+            </div>
+            <div className="space-y-2">
+              {rootItems.slice(0, 3).map((r) => (
+                <Link
+                  key={r.nodeId}
+                  to={`/learn/${r.nodeId}`}
+                  className="group flex items-start gap-3 rounded-xl border border-amber/12 bg-amber/4 px-3.5 py-3 transition-all hover:border-amber/30"
+                >
+                  {/* 「没学过」和「没打牢」是两种处境，动作不同：
+                   * 前者要去学，后者要去补。标签必须区分，否则用户不知道该干嘛。 */}
+                  <span
+                    className={cn(
+                      'mt-0.5 shrink-0 rounded-md border px-1.5 py-0.5 text-[10.5px]',
+                      r.kind === 'gap'
+                        ? 'border-rose/25 bg-rose/10 text-rose'
+                        : 'border-amber/25 bg-amber/10 text-amber',
+                    )}
+                  >
+                    {r.kind === 'gap' ? '没学过' : '没打牢'}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13.5px] font-medium leading-snug text-fg">{r.title}</div>
+                    <div className="mt-1 text-[11.5px] leading-relaxed text-fg-mute">{r.why}</div>
+                  </div>
+                  <ArrowRight size={14} className="mt-1 shrink-0 text-fg-faint transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ---------- 统计卡 ---------- */}

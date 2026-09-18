@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  ArrowLeft, BookOpen, ChevronRight, Lightbulb, Link2, MessagesSquare,
+  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, BookOpen, ChevronRight, Lightbulb, Link2, MessagesSquare,
   PenLine, Plus, Sparkles, StickyNote, Target, Trash2, Zap,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -49,7 +49,7 @@ export default function KnowledgeDetail() {
     );
   }
 
-  const { node, mastery, related, notes, questions } = data;
+  const { node, mastery, related, notes, questions, graph } = data;
   const ms = MASTERY_STYLE[mastery.level as keyof typeof MASTERY_STYLE] || MASTERY_STYLE.new;
   const diff = DIFFICULTY[node.difficulty] || DIFFICULTY[2];
 
@@ -275,6 +275,98 @@ export default function KnowledgeDetail() {
               </p>
             )}
           </Panel>
+
+          {/* 依赖关系（有向图边）
+           *
+           * 与下面「相关考点」的区别，界面上要让人一眼看出来：
+           *   相关 = 无向，常一起考，先学哪个都行
+           *   依赖 = 有向，hard 前置缺了根本学不懂
+           * 把两者画成一个样子，用户就分不清「该先补哪个」了。 */}
+          {(graph?.prerequisites?.length > 0 || graph?.unlocks?.length > 0 || graph?.confusable?.length > 0) && (
+            <Panel className="p-5">
+              <SectionTitle
+                title={<span className="flex items-center gap-2"><ArrowDown size={14} className="text-amber" /> 依赖关系</span>}
+                desc={graph.impact > 0
+                  ? `有 ${graph.impact} 个下游考点建立在它之上`
+                  : '没有下游考点依赖它'}
+                className="mb-3"
+              />
+
+              {graph.prerequisites?.length > 0 && (
+                <div className="mb-3.5">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] text-fg-mute">
+                    <ArrowDown size={11} /> 学它之前应该先会
+                  </div>
+                  <div className="space-y-1.5">
+                    {graph.prerequisites.map((p: any) => (
+                      <Link
+                        key={p.id}
+                        to={`/learn/${p.id}`}
+                        className="group flex items-start gap-2.5 rounded-lg border border-veil/7 bg-veil/3 px-3 py-2 transition-all hover:border-amber/25 hover:bg-veil/6"
+                      >
+                        <span
+                          className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full',
+                            p.strength === 'hard' ? 'bg-rose' : 'bg-amber')}
+                          title={p.strength === 'hard' ? '硬前置：缺了学不动' : '软前置：缺了能学但吃力'}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[12.5px] text-fg-soft">{p.title}</div>
+                          {p.reason && (
+                            <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-fg-faint">{p.reason}</div>
+                          )}
+                        </div>
+                        <ChevronRight size={12} className="mt-0.5 shrink-0 text-fg-faint transition-transform group-hover:translate-x-0.5" />
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {graph.unlocks?.length > 0 && (
+                <div className="mb-3.5">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] text-fg-mute">
+                    <ArrowUp size={11} /> 学会它能解锁
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {graph.unlocks.map((u: any) => (
+                      <Link
+                        key={u.id}
+                        to={`/learn/${u.id}`}
+                        className="rounded-md border border-veil/7 bg-veil/3 px-2 py-1 text-[11.5px] text-fg-soft transition-colors hover:border-emerald/25 hover:text-emerald"
+                      >
+                        {u.title}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {graph.confusable?.length > 0 && (
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] text-fg-mute">
+                    <AlertTriangle size={11} className="text-rose" /> 最容易和它搞混
+                  </div>
+                  <div className="space-y-1.5">
+                    {graph.confusable.map((c: any) => (
+                      <Link
+                        key={c.id}
+                        to={`/learn/${c.id}`}
+                        className="group flex items-start gap-2.5 rounded-lg border border-rose/12 bg-rose/4 px-3 py-2 transition-all hover:border-rose/30"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[12.5px] text-fg-soft">{c.title}</div>
+                          {c.reason && (
+                            <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-fg-faint">{c.reason}</div>
+                          )}
+                        </div>
+                        <ChevronRight size={12} className="mt-0.5 shrink-0 text-fg-faint transition-transform group-hover:translate-x-0.5" />
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Panel>
+          )}
 
           {/* 关联 */}
           {related?.length > 0 && (
