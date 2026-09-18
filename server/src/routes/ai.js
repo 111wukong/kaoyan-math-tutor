@@ -12,6 +12,7 @@ import { db } from '../db/index.js';
 import { resolveLlm } from './misc.js';
 import { buildSnapshot, nodeMastery, getTree } from '../lib/game.js';
 import { ancestors } from '../lib/graph.js';
+import { answerIssue, normalizeAnswer } from '../lib/judge.js';
 
 /* ---------- 错因分类 ----------
  *
@@ -975,27 +976,11 @@ export function sanitizeGenerated(raw, kid) {
     return { kid, type, difficulty, stem, options: clean, answer, analysis };
   }
 
-  let answer = String(raw?.answer ?? '').trim().slice(0, 200);
-  if (!answer) return null;
-
-  answer = answer
-    .replace(/\$+/g, '')
-    /* LaTeX 分数 → 判题器认识的 a/b。判题器的 fracVal 只认 `a/b` 字面量，不认 \frac。 */
-    .replace(/\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/g, '$1/$2')
-    .trim();
-
-  /* `x=2` / `y=1/2` 取等号右边的值 —— 判题器比的是值，不是方程。
-   * 不转换的话，用户输入 2 会判错（`x=2` 和 `2` 归一化后不相等）。 */
-  const eq = answer.match(/^[a-zA-Z][_a-zA-Z0-9]*\s*=\s*(.+)$/);
-  if (eq) answer = eq[1].trim();
-
-  /* 最终判据：**只能是纯数值或分数**。
-   *
-   * 为什么卡这么死：判题器只对数值做容差比对，对 LaTeX 命令的归一化是不完整的 ——
-   * 标准答案 `\sqrt{2}` 归一化后是 `sqrt{2}`，而用户输入 `√2` 归一化后是 `sqrt2`，
-   * 两者并不相等。一旦答案里出现根号、π、字母或方程，就有相当概率把对的判成错的，
-   * 那比不出题还糟。这类内容交给选择题出（提示词里写明了）。 */
-  if (!/^-?\d+(\.\d+)?(\/\d+(\.\d+)?)?$/.test(answer)) return null;
+  /* 填空题：先做能救的规范化（\frac{1}{2}→1/2、x=2→2），再过共用的判据。
+   * 判据本体在 judge.js 的 answerIssue —— 手工录题走的是同一个函数，
+   * 两处各写一份正则迟早会改歪一边。 */
+  const answer = normalizeAnswer(String(raw?.answer ?? '').slice(0, 200));
+  if (answerIssue('blank', answer)) return null;
 
   return { kid, type, difficulty, stem, options: null, answer, analysis };
 }

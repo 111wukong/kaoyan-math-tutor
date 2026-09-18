@@ -1,8 +1,8 @@
 /* 知识树与题库（只读 + 用户掌握状态） */
-import { db } from '../db/index.js';
+import { db, rebuildStats } from '../db/index.js';
 import { getTree, masteryBoard, nodeMastery, inTrack } from '../lib/game.js';
 import { nodeContext } from '../lib/graph.js';
-import { publicQuestion } from '../lib/judge.js';
+import { publicQuestion, answerIssue, normalizeAnswer } from '../lib/judge.js';
 
 export default async function catalogRoutes(fastify) {
   /* ---------- 完整知识树（带掌握状态）---------- */
@@ -150,7 +150,16 @@ export default async function catalogRoutes(fastify) {
     const rows = db.prepare(`SELECT * FROM questions WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT @limit`)
       .all({ ...params, limit: Math.min(500, Number(limit) || 50) });
 
-    return { questions: rows.map((q) => publicQuestion(q, { withAnswer: false })), count: rows.length };
+    /* 带上 mine —— 前端要靠它决定「能不能改 / 能不能删」。
+     * 让前端去猜 id 前缀（u_ / g_ / q01）迟早会猜错，
+     * 而且那是存储细节，不该泄漏到 UI 层。 */
+    return {
+      questions: rows.map((q) => ({
+        ...publicQuestion(q, { withAnswer: false }),
+        mine: q.owner_id === req.userId,
+      })),
+      count: rows.length,
+    };
   });
 
   /* ---------- 题库筛选维度（给筛选面板用）---------- */
@@ -163,11 +172,180 @@ export default async function catalogRoutes(fastify) {
     return { sources, years, difficulties, types, total };
   });
 
+  /* ============ 自建题（录题）============
+   *
+   * 内置题库只有 204 道，而真题卷子上的错题才是真正的短板所在。
+   * 这一组接口让用户把那些题录进来 —— 录完就能作答、进错题本、
+   * 参与掌握度，也能被 AI 分析错因。
+   *
+   * ── 为什么录入时要卡答案 ────────────────────────────────────────
+   * 判题器只对数值做容差比对（判据在 judge.js 的 answerIssue）。
+   * 录一道判不了的题，用户之后每次答对都会被判错，而且没有任何提示 ——
+   * 与其让他过几天来困惑，不如录入时就拦住，并说清该怎么改。
+   */
+
+  /** 校验并规整一条自建题。返回 { error } 或 { row }。 */
+  function prepareQuestion(body, tree) {
+    const kid = String(body?.kid ?? '').trim();
+    if (!tree.nodeById.has(kid)) return { error: '考点不存在' };
+
+    const type = body?.type === 'blank' ? 'blank' : 'choice';
+    const stem = String(body?.stem ?? '').trim().slice(0, 800);
+    if (stem.length < 5) return { error: '题干太短了，至少写 5 个字' };
+
+    const answer = type === 'choice'
+      ? String(body?.answer ?? '').trim().toUpperCase().slice(0, 1)
+      : normalizeAnswer(String(body?.answer ?? '').slice(0, 200));
+
+    const issue = answerIssue(type, answer);
+    if (issue) return { error: issue };
+
+    let options = null;
+    if (type === 'choice') {
+      const raw = Array.isArray(body?.options) ? body.options : [];
+      const clean = raw.map((o, i) => ({
+        k: String(o?.k ?? 'ABCD'[i] ?? '').trim().toUpperCase().slice(0, 1),
+        t: String(o?.t ?? '').trim().slice(0, 300),
+      })).filter((o) => o.k && o.t);
+      if (clean.length !== 4 || clean.map((o) => o.k).join('') !== 'ABCD') {
+        return { error: '选择题需要正好四个选项，标号是 A / B / C / D' };
+      }
+      /* 这里**不需要**再检查「答案在不在选项里」：
+       * 上一行已经保证选项键正好是 ABCD，而 answerIssue 保证答案是 A–D 之一，
+       * 两者一交，答案必然在选项里。写一个永远不成立的检查只会让人以为
+       * 这里有保护，实际是死的 —— 端到端测试里就是这么暴露出来的。 */
+      options = JSON.stringify(clean);
+    }
+
+    return {
+      row: {
+        kid,
+        type,
+        difficulty: Math.min(4, Math.max(1, Number(body?.difficulty) || 2)),
+        stem,
+        options,
+        answer,
+        analysis: String(body?.analysis ?? '').trim().slice(0, 2000),
+        sourceType: String(body?.sourceType ?? '').trim().slice(0, 40) || '自建',
+        sourceYear: Number(body?.sourceYear) || null,
+        source: String(body?.source ?? '').trim().slice(0, 80) || '手动录入',
+      },
+    };
+  }
+
+  /* ---------- 新建题目 ---------- */
+  fastify.post('/api/questions', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['kid', 'stem', 'answer'],
+        properties: {
+          kid: { type: 'string' },
+          type: { type: 'string' },
+          stem: { type: 'string' },
+          options: { type: 'array' },
+          answer: { type: 'string' },
+          analysis: { type: 'string' },
+          difficulty: { type: 'integer' },
+          sourceType: { type: 'string' },
+          sourceYear: { type: 'integer' },
+          source: { type: 'string' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { error, row } = prepareQuestion(req.body, getTree());
+    if (error) return reply.code(400).send({ error });
+
+    const id = 'u_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e6).toString(36);
+    db.prepare(`INSERT INTO questions (id,kid,type,difficulty,stem,options,answer,analysis,source_type,source_year,source,owner_id)
+      VALUES (@id,@kid,@type,@difficulty,@stem,@options,@answer,@analysis,@sourceType,@sourceYear,@source,@ownerId)`)
+      .run({ id, ...row, ownerId: req.userId });
+
+    const saved = db.prepare('SELECT * FROM questions WHERE id = ?').get(id);
+    return { ok: true, question: publicQuestion(saved, { withAnswer: true }) };
+  });
+
   /* ---------- 单题详情（含答案，用于复盘）---------- */
   fastify.get('/api/catalog/questions/:id', async (req, reply) => {
     const q = db.prepare('SELECT * FROM questions WHERE id = ?').get(req.params.id);
     if (!q) return reply.code(404).send({ error: '题目不存在' });
     const stat = db.prepare('SELECT n, c, ok FROM stats_question WHERE user_id = ? AND qid = ?').get(req.userId, q.id);
     return { question: publicQuestion(q, { withAnswer: true }), stat: stat || { n: 0, c: 0, ok: 0 } };
+  });
+
+  /* ---------- 改自己的题 ----------
+   * 内置题不能改。用 404 而不是 403：内置题的 id 是公开的，
+   * 但没必要告诉调用者「它存在、只是不归你」。 */
+  fastify.put('/api/questions/:id', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          kid: { type: 'string' },
+          type: { type: 'string' },
+          stem: { type: 'string' },
+          options: { type: 'array' },
+          answer: { type: 'string' },
+          analysis: { type: 'string' },
+          difficulty: { type: 'integer' },
+          sourceType: { type: 'string' },
+          sourceYear: { type: 'integer' },
+          source: { type: 'string' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const own = db.prepare('SELECT * FROM questions WHERE id = ? AND owner_id = ?')
+      .get(req.params.id, req.userId);
+    if (!own) return reply.code(404).send({ error: '题目不存在，或者不是你创建的' });
+
+    /* 部分更新：没传的字段沿用原值。
+     *
+     * 不这么做的话，编辑时只想改题干，却因为没把 options 一起传回来
+     * 被「选择题需要四个选项」拒掉 —— 而前端根本不知道要回传哪些字段。
+     * 合并之后再走同一套校验，所以改完的题仍然是可判分的。 */
+    const ownOptions = own.options ? JSON.parse(own.options) : undefined;
+    const merged = {
+      kid: req.body?.kid ?? own.kid,
+      type: req.body?.type ?? own.type,
+      stem: req.body?.stem ?? own.stem,
+      options: req.body?.options ?? ownOptions,
+      answer: req.body?.answer ?? own.answer,
+      analysis: req.body?.analysis ?? own.analysis,
+      difficulty: req.body?.difficulty ?? own.difficulty,
+      sourceType: req.body?.sourceType ?? own.source_type,
+      sourceYear: req.body?.sourceYear ?? own.source_year,
+      source: req.body?.source ?? own.source,
+    };
+
+    const { error, row } = prepareQuestion(merged, getTree());
+    if (error) return reply.code(400).send({ error });
+
+    db.prepare(`UPDATE questions SET kid=@kid, type=@type, difficulty=@difficulty, stem=@stem,
+      options=@options, answer=@answer, analysis=@analysis, source_type=@sourceType,
+      source_year=@sourceYear, source=@source WHERE id=@id`).run({ ...row, id: own.id });
+
+    const saved = db.prepare('SELECT * FROM questions WHERE id = ?').get(own.id);
+    return { ok: true, question: publicQuestion(saved, { withAnswer: true }) };
+  });
+
+  /* ---------- 删自己的题 ---------- */
+  fastify.delete('/api/questions/:id', async (req, reply) => {
+    const own = db.prepare('SELECT id FROM questions WHERE id = ? AND owner_id = ?')
+      .get(req.params.id, req.userId);
+    if (!own) return reply.code(404).send({ error: '题目不存在，或者不是你创建的' });
+
+    /* 连作答记录一起清掉，然后重建聚合表。
+     * 不删明细的话 stats_node 里会留着一个已不存在题目的计数 ——
+     * 掌握度虚高，而这个用户删题的意图恰恰是「这道题不算数」。 */
+    const run = db.transaction(() => {
+      db.prepare('DELETE FROM attempts WHERE user_id = ? AND qid = ?').run(req.userId, own.id);
+      db.prepare('DELETE FROM stats_question WHERE user_id = ? AND qid = ?').run(req.userId, own.id);
+      db.prepare('DELETE FROM questions WHERE id = ?').run(own.id);
+      rebuildStats(req.userId);
+    });
+    run();
+    return { ok: true };
   });
 }

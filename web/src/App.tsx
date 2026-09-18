@@ -12,6 +12,7 @@ import KnowledgeDetail from '@/pages/KnowledgeDetail';
 import Quiz from '@/pages/Quiz';
 import Review from '@/pages/Review';
 import Mistakes from '@/pages/Mistakes';
+import Questions from '@/pages/Questions';
 import Stats from '@/pages/Stats';
 import Lab from '@/pages/Lab';
 import Blitz from '@/pages/Blitz';
@@ -50,6 +51,7 @@ export default function App() {
                 <Route path="/quiz" element={<Quiz />} />
                 <Route path="/review" element={<Review />} />
                 <Route path="/mistakes" element={<Mistakes />} />
+                <Route path="/questions" element={<Questions />} />
                 <Route path="/stats" element={<Stats />} />
                 <Route path="/lab" element={<Lab />} />
                 <Route path="/blitz" element={<Blitz />} />

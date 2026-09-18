@@ -425,7 +425,7 @@ try {
     const entered = await waitFor('!!document.querySelector("nav[aria-label=\\"主导航\\"]")', '注册成功并进入主界面', 15000);
     ok('注册后自动进入应用外壳', entered);
     const navCount = (await ev('document.querySelectorAll("nav[aria-label=\\"主导航\\"] a").length')).value;
-    ok('侧栏 13 项导航全部渲染', navCount === 13, `实得 ${navCount} 个`);
+    ok('侧栏 14 项导航全部渲染', navCount === 14, `实得 ${navCount} 个`);
     const groups = (await ev('document.querySelectorAll("nav[aria-label=\\"主导航\\"] > div").length')).value;
     ok('导航分了 4 组', groups === 4, `实得 ${groups} 组`);
   }
@@ -438,6 +438,7 @@ try {
       ['/quiz', '每日一练', ''],
       ['/review', '复习队列', ''],
       ['/mistakes', '错题本', ''],
+      ['/questions', '我的题库', ''],
       ['/lab', '公式实验室', ''],
       ['/blitz', '闪电战', ''],
       ['/deck', '卡片库', ''],
@@ -894,7 +895,7 @@ try {
       after.veil !== before.veil && !/#fff/i.test(after.veil), `${before.veil} → ${after.veil}`);
     ok('★ color-scheme 跟着切成 light（否则滚动条/日期控件还是黑的）', after.cs === 'light', after.cs);
     ok('★ 亮色主题下不挂 WebGL 背景画布', Number(after.canvas) === 0, `${after.canvas} 个画布`);
-    ok('切主题不影响导航项数量', Number(after.navItems) === 13, `${after.navItems} 项`);
+    ok('切主题不影响导航项数量', Number(after.navItems) === 14, `${after.navItems} 项`);
 
     /* ★ 对比度：亮色主题最容易出的错是「浅色字压在浅底上」。
      * 取一个正文标题的实际 color，要求三通道都足够深。
@@ -1051,7 +1052,7 @@ try {
     })`));
     ok('★ 普通用户访问 /admin 会被弹回首页', asUser.path === '/', asUser.path);
     ok('★ 普通用户看不到用户表格', asUser.table === false, String(asUser.table));
-    ok('★ 普通用户侧栏没有「管理」入口', Number(asUser.navItems) === 13, `${asUser.navItems} 项`);
+    ok('★ 普通用户侧栏没有「管理」入口', Number(asUser.navItems) === 14, `${asUser.navItems} 项`);
 
     /* ---- 换成管理员 ----
      * 用页面上下文的 fetch 登录（cookie 会写进同一个浏览器上下文），
@@ -1082,7 +1083,7 @@ try {
       ok('★ 管理台列出了用户行', ad.rows >= 2, `${ad.rows} 行`);
       ok('管理台标题正确', ad.h1.indexOf('用户管理') >= 0, ad.h1);
       ok('管理台渲染出内容', ad.len > 300, `${ad.len} 字`);
-      ok('★ 管理员侧栏多了「管理」分组与入口', ad.navItems === 14 && ad.groups === 5,
+      ok('★ 管理员侧栏多了「管理」分组与入口', ad.navItems === 15 && ad.groups === 5,
         `${ad.navItems} 项 / ${ad.groups} 组`);
       ok('管理台有搜索框', ad.search === true);
 

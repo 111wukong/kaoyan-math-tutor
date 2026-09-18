@@ -61,6 +61,7 @@ const GET = (p) => req('GET', p);
 const POST = (p, b) => req('POST', p, b);
 const PUT = (p, b) => req('PUT', p, b);
 const PATCH = (p, b) => req('PATCH', p, b);
+const DELETE = (p) => req('DELETE', p);
 const DEL = (p) => req('DELETE', p);
 
 /* ============================================================ */
@@ -792,6 +793,102 @@ section('13b. AI 正常路径（对着本地 stub 模型跑通）');
     await PUT('/api/settings/llm', { enabled: false, kind: 'local', localBase: '', localModel: '' });
     await stub.stop();
   }
+}
+
+section('13c. 录题（自建题的增删改与判分）');
+{
+  /* 录题这条链最容易出的错是「录进去却判不了分」——
+   * 用户之后每次答对都被判错，而且看不出哪里不对。
+   * 所以下面一半断言是在验「判不了的答案有没有被拦住」。 */
+
+  // 1. 录一道选择题
+  const c1 = await POST('/api/questions', {
+    kid,
+    type: 'choice',
+    difficulty: 3,
+    stem: '设数列 $\\{x_n\\}$ 满足 $x_n \\to 2$，则下列哪个说法一定成立？',
+    options: [
+      { k: 'A', t: '$x_n$ 单调递增' }, { k: 'B', t: '$x_n$ 有界' },
+      { k: 'C', t: '$x_n > 1$' }, { k: 'D', t: '$x_n$ 收敛到 0' },
+    ],
+    answer: 'B',
+    analysis: '收敛数列必有界。',
+    sourceType: '真题',
+    sourceYear: 2023,
+  });
+  ok('录选择题 200', c1.status === 200 && c1.data?.ok === true,
+    `实得 ${c1.status} ${JSON.stringify(c1.data)?.slice(0, 100)}`);
+  const myQid = c1.data?.question?.id;
+  ok('自建题 id 前缀是 u_', String(myQid).startsWith('u_'), `实得 ${myQid}`);
+
+  // 2. 录一道填空题，LaTeX 分数应被规范化
+  const c2 = await POST('/api/questions', {
+    kid, type: 'blank', stem: '计算这个极限的值是多少', answer: '\\frac{1}{2}', difficulty: 2,
+  });
+  ok('录填空题 200', c2.status === 200, `实得 ${c2.status}`);
+  ok('★ LaTeX 分数被规范成 1/2', c2.data?.question?.answer === '1/2',
+    `实得 ${c2.data?.question?.answer}`);
+
+  // 3. 判不了分的答案必须被拒，且理由要能看懂
+  const rej = [
+    ['根号答案', { kid, type: 'blank', stem: '计算长度的值是多少', answer: '\\sqrt{2}' }],
+    ['中文答案', { kid, type: 'blank', stem: '判断这个方程解的情况', answer: '无解' }],
+    ['多解', { kid, type: 'blank', stem: '求所有解的值分别是多少', answer: 'x_1=1, x_2=2' }],
+    ['三个选项', { kid, type: 'choice', stem: '这是一道只有三个选项的题', options: [{ k: 'A', t: '1' }, { k: 'B', t: '2' }, { k: 'C', t: '3' }], answer: 'A' }],
+    ['有选项没填内容', { kid, type: 'choice', stem: '这是一道有选项没填内容的题', options: [{ k: 'A', t: '1' }, { k: 'B', t: '' }, { k: 'C', t: '3' }, { k: 'D', t: '4' }], answer: 'A' }],
+    ['答案不是字母', { kid, type: 'choice', stem: '这是一道答案不是字母的题', options: [{ k: 'A', t: '1' }, { k: 'B', t: '2' }, { k: 'C', t: '3' }, { k: 'D', t: '4' }], answer: '对' }],
+    ['考点不存在', { kid: '不存在的考点', stem: '这是一道考点不存在的题', answer: '1' }],
+    ['题干太短', { kid, type: 'blank', stem: '求值', answer: '1' }],
+  ];
+  for (const [label, body] of rej) {
+    const r = await POST('/api/questions', body);
+    ok(`★ 拒绝「${label}」`, r.status === 400, `实得 ${r.status} ${JSON.stringify(r.data)?.slice(0, 80)}`);
+    ok(`「${label}」的拒绝理由可读`, typeof r.data?.error === 'string' && r.data.error.length > 4);
+  }
+
+  // 4. 录的题要出现在题库里，并带 mine 标记
+  const list = await GET(`/api/catalog/questions?kid=${kid}&limit=200`);
+  const mineRow = (list.data?.questions || []).find((q) => q.id === myQid);
+  ok('录的题出现在题库里', !!mineRow);
+  ok('★ 自建题带 mine 标记（前端靠它决定能不能改删）', mineRow?.mine === true);
+  /* 内置题的 id 是 q01 这种；u_ 是手工录的、g_ 是 AI 生成的，
+   * 后两者都属于当前用户，只有 q 开头才是真正「不是我的」。 */
+  const builtinRow = (list.data?.questions || []).find((q) => /^q\d+$/.test(q.id));
+  ok('内置题 mine 为 false', builtinRow?.mine === false,
+    `实得 ${JSON.stringify(builtinRow)?.slice(0, 80)}`);
+
+  // 5. 录的题要能被判对也能被判错 —— 这是录题功能的成败点
+  const right = await POST('/api/study/answer', { qid: myQid, answer: 'B', context: 'quiz' });
+  ok('★ 自建题的正确答案能判对', right.data?.correct === true, `correct=${right.data?.correct}`);
+  const wrong = await POST('/api/study/answer', { qid: myQid, answer: 'A', context: 'quiz' });
+  ok('★ 自建题的错答案能判错', wrong.data?.correct === false);
+
+  // 6. 部分更新：只传题干，不该被「缺 options」拒掉
+  const up = await PUT(`/api/questions/${myQid}`, { stem: '改过之后的题干内容够长了' });
+  ok('★ 部分更新能成功（只传题干）', up.status === 200,
+    `实得 ${up.status} ${JSON.stringify(up.data)?.slice(0, 90)}`);
+  ok('题干已更新', String(up.data?.question?.stem).includes('改过之后'));
+  ok('★ 没传的字段沿用原值（考点没被挪走）', up.data?.question?.kid === kid,
+    `实得 ${up.data?.question?.kid}`);
+  ok('★ 没传的字段沿用原值（选项还在）', (up.data?.question?.options || []).length === 4,
+    `实得 ${(up.data?.question?.options || []).length} 个选项`);
+
+  // 7. 内置题改不了也删不了
+  const bUp = await PUT('/api/questions/q01', { stem: '试图改内置题' });
+  ok('内置题改不了（404）', bUp.status === 404, `实得 ${bUp.status}`);
+  const bDel = await DELETE('/api/questions/q01');
+  ok('内置题删不了（404）', bDel.status === 404, `实得 ${bDel.status}`);
+
+  // 8. 删自己的题，作答记录要一起清掉
+  const beforeDel = await GET('/api/study/snapshot');
+  const del = await DELETE(`/api/questions/${myQid}`);
+  ok('删自己的题 200', del.status === 200, `实得 ${del.status}`);
+  const afterDel = await GET('/api/study/snapshot');
+  ok('★ 删题带走它的作答记录', afterDel.data?.snapshot?.attempts === beforeDel.data?.snapshot?.attempts - 2,
+    `${beforeDel.data?.snapshot?.attempts} → ${afterDel.data?.snapshot?.attempts}`);
+
+  const gone = await GET(`/api/catalog/questions?kid=${kid}&limit=200`);
+  ok('删掉的题不在题库里了', !(gone.data?.questions || []).some((q) => q.id === myQid));
 }
 
 section('14. 登出与重新登录');

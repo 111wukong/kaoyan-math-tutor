@@ -136,6 +136,20 @@ export interface Question {
   sourceType: string; sourceYear: number | null; source: string;
 }
 
+/** 录题 / 改题时提交的字段。答案必须能被判题器判分，否则服务端会拒。 */
+export interface QuestionDraft {
+  kid: string;
+  type: 'choice' | 'blank';
+  stem: string;
+  options?: { k: string; t: string }[];
+  answer: string;
+  analysis?: string;
+  difficulty?: number;
+  sourceType?: string;
+  sourceYear?: number;
+  source?: string;
+}
+
 export interface AnswerResult {
   correct: boolean; myAnswer: string; answer: string; analysis: string;
   options: { k: string; t: string }[] | null; stem: string; kid: string;
@@ -320,10 +334,20 @@ export const api = {
     knowledge: (id: string) => get<any>(`/api/catalog/knowledge/${id}`),
     questions: (params: Record<string, string | number> = {}) => {
       const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
-      return get<{ questions: Question[]; count: number }>(`/api/catalog/questions?${qs}`);
+      return get<{ questions: (Question & { mine: boolean })[]; count: number }>(`/api/catalog/questions?${qs}`);
     },
     facets: () => get<{ sources: any[]; years: any[]; difficulties: any[]; types: any[]; total: number }>('/api/catalog/facets'),
     question: (id: string) => get<{ question: Question & { answer: string; analysis: string }; stat: { n: number; c: number; ok: number } }>(`/api/catalog/questions/${id}`),
+  },
+
+  /* 自建题（录题）。内置题改不了也删不了，服务端一律回 404。 */
+  questions: {
+    create: (body: QuestionDraft) =>
+      post<{ ok: boolean; question: Question & { answer: string; analysis: string } }>('/api/questions', body),
+    /** 部分更新：没传的字段沿用原值 */
+    update: (id: string, body: Partial<QuestionDraft>) =>
+      put<{ ok: boolean; question: Question & { answer: string; analysis: string } }>(`/api/questions/${id}`, body),
+    remove: (id: string) => del<{ ok: boolean }>(`/api/questions/${id}`),
   },
 
   study: {

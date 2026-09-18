@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import {
   LayoutDashboard, Network, PenLine, RotateCcw, CircleAlert, FlaskConical,
   Zap, Layers, MessagesSquare, Users, ChartNoAxesColumn, Trophy, Settings,
-  Menu, X, Volume2, VolumeX, Flame, ChevronsUpDown, LogOut, ShieldCheck,
+  Menu, X, Volume2, VolumeX, Flame, ChevronsUpDown, LogOut, ShieldCheck, SquarePen,
 } from 'lucide-react';
 import { CyberGrid } from '@/components/fx/CyberGrid';
 import { Starfield } from '@/components/fx/Starfield';
@@ -34,6 +34,7 @@ function navGroups(isAdmin: boolean) {
         { to: '/quiz', icon: PenLine, label: '每日一练' },
         { to: '/review', icon: RotateCcw, label: '复习队列', badge: 'due' },
         { to: '/mistakes', icon: CircleAlert, label: '错题本', badge: 'wrong' },
+        { to: '/questions', icon: SquarePen, label: '我的题库' },
       ],
     },
     {
