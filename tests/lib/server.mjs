@@ -28,6 +28,17 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(HERE, '../..');
 
+/* 测试用的引导管理员凭据。
+ *
+ * 必须显式指定，因为服务端现在**没有内置默认密码**了 —— 源码和 README 是公开的，
+ * 写死一个能用的口令等于把钥匙挂在门上（这个仓库以前就犯过：README 里
+ * 明写着某个真实邮箱和一个可用的口令）。
+ *
+ * 这组值只在测试里用，明文写出来没关系：它连的是一次性数据库，
+ * 服务跑完就连库一起删了。 */
+export const TEST_ADMIN_EMAIL = 'admin@test.local';
+export const TEST_ADMIN_PASSWORD = 'test-admin-pw';
+
 /**
  * 要一个当前空闲的端口。
  *
@@ -103,6 +114,10 @@ export async function startServer({ port, dbPath, tag = 'run' } = {}) {
       PORT: String(usePort),
       HOST: '127.0.0.1',
       DB_PATH: useDb,
+      // 显式给一组确定的管理员凭据，否则服务端会现场随机生成一个并打印出来，
+      // 测试没法知道它是什么（也就登不进管理台）。
+      ADMIN_EMAIL: TEST_ADMIN_EMAIL,
+      ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
       // 日志只留警告以上 —— 之前用 info 级别，一次全量测试的日志有 1.5MB，
       // 全在刷「incoming request」，真正有用的那行反而被埋了。
       LOG_LEVEL: 'warn',

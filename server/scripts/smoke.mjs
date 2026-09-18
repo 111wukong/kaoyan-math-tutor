@@ -14,8 +14,19 @@
  * 用假模型而不是真模型：CI 上拉不起 12G 的 GGUF，而且真模型输出不确定、没法断言。
  * 要验的是我们自己的代码（提示词拼装 / SSE 中转 / 错误解释），上游越假，失败越指向我们。 */
 import { startLlmStub } from '../../tests/lib/llm-stub.mjs';
+import { TEST_ADMIN_EMAIL, TEST_ADMIN_PASSWORD } from '../../tests/lib/server.mjs';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5180';
+
+/* 引导管理员的凭据。
+ *
+ * 以前这里写死了某个真实邮箱和一个可用的口令 —— 和源码、README 里那份一样。
+ * 现在服务端不再有内置默认密码（现场随机生成并打印一次），
+ * 所以测试必须自己指定；`npm test` 起的临时服务会用同一组值。
+ *
+ * 对着别的服务跑时，用 ADMIN_EMAIL / ADMIN_PASSWORD 覆盖。 */
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || TEST_ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || TEST_ADMIN_PASSWORD;
 
 let pass = 0;
 let fail = 0;
@@ -980,7 +991,8 @@ section('16. 管理员与权限');
  * 前端把管理入口藏掉只是不碍眼 —— 手敲 /admin、直接 curl 接口都绕得过去，
  * 所以每一条都必须打到服务端上验。
  *
- * 引导管理员（wukong@qq.com）由服务端启动时自动创建，见 db/migrate.js。 */
+ * 引导管理员由服务端启动时自动创建，见 db/migrate.js。
+ * 凭据取 ADMIN_EMAIL / ADMIN_PASSWORD（npm test 起的临时服务会用同一组）。 */
 {
   /* ---------- 16.1 普通用户越权 ----------
    * 此刻 jar 里还是上一个普通用户的会话（第 15 节末尾恢复的）。
@@ -1005,10 +1017,10 @@ section('16. 管理员与权限');
 
   /* ---------- 16.2 管理员登录 ---------- */
   jar.clear();
-  const badPwd = await POST('/api/auth/login', { email: 'wukong@qq.com', password: '肯定不是这个' });
+  const badPwd = await POST('/api/auth/login', { email: ADMIN_EMAIL, password: '肯定不是这个' });
   ok('管理员错误密码被拒 401', badPwd.status === 401, `实得 ${badPwd.status}`);
 
-  const adm = await POST('/api/auth/login', { email: 'wukong@qq.com', password: 'wgh123456' });
+  const adm = await POST('/api/auth/login', { email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
   ok('引导管理员能登录', adm.status === 200, JSON.stringify(adm.data).slice(0, 120));
   ok('★ /me 里带 role=admin', adm.data?.user?.role === 'admin', `实得 ${adm.data?.user?.role}`);
   const adminId = adm.data?.user?.id;
@@ -1036,9 +1048,11 @@ section('16. 管理员与权限');
   ok('★ 列表不泄露任何人的 API Key', !listRaw.includes('cloud_key') && !listRaw.includes('sk-'));
   ok('列表不含聊天记录正文', !listRaw.includes('"history"'));
 
-  const search = await GET('/api/admin/users?q=wukong');
+  /* 搜索词从管理员邮箱里取，别写死 —— 写死的话换个引导邮箱这条就废了
+   * （以前写的是某个真实邮箱的片段）。 */
+  const search = await GET(`/api/admin/users?q=${encodeURIComponent(ADMIN_EMAIL)}`);
   ok('按邮箱/昵称搜索生效', (search.data?.users || []).length === 1
-    && search.data.users[0].email === 'wukong@qq.com', JSON.stringify(search.data?.users?.map((u) => u.email)));
+    && search.data.users[0].email === ADMIN_EMAIL, JSON.stringify(search.data?.users?.map((u) => u.email)));
   const noHit = await GET('/api/admin/users?q=绝对搜不到的东西zzz');
   ok('搜不到时返回空列表而非报错', noHit.status === 200 && noHit.data?.users?.length === 0, `实得 ${noHit.data?.users?.length}`);
 
@@ -1087,7 +1101,7 @@ section('16. 管理员与权限');
   ok('非法角色被拒 400', badRole.status === 400, `实得 ${badRole.status}`);
   const badStatus = await PATCH(`/api/admin/users/${tid}`, { status: 'frozen' });
   ok('非法状态被拒 400', badStatus.status === 400, `实得 ${badStatus.status}`);
-  const emailTaken = await PATCH(`/api/admin/users/${tid}`, { email: 'wukong@qq.com' });
+  const emailTaken = await PATCH(`/api/admin/users/${tid}`, { email: ADMIN_EMAIL });
   ok('改成已占用的邮箱 409', emailTaken.status === 409, `实得 ${emailTaken.status}`);
 
   /* ---------- 16.7 护栏：不能把系统搞成"没有管理员" ---------- */

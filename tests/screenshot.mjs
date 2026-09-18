@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { TEST_ADMIN_EMAIL, TEST_ADMIN_PASSWORD } from './lib/server.mjs';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5180';
 const OUT = process.env.OUT || '/tmp/yanshu-shots';
@@ -416,12 +417,13 @@ try {
    * 少了这一张的话，「新建的管理台在亮色主题下长什么样」就永远没人看过 ——
    * 而这个项目已经因为「只验证了默认主题」漏过好几次。
    *
-   * 凭据和 server/src/db/migrate.js 的引导管理员保持一致。
+   * 凭据取 ADMIN_EMAIL / ADMIN_PASSWORD，默认值见 tests/lib/server.mjs
+   * （服务端不再有内置默认密码了，所以这里也不能写死一组）。
    * 登录失败**不算错**（你可能已经改过管理员密码了），跳过并出声即可。 */
   console.log('⑥ 管理台');
   const adminJar = new Map();
-  const adminEmail = (process.env.ADMIN_EMAIL || 'wukong@qq.com').trim().toLowerCase();
-  const adminPassword = process.env.ADMIN_PASSWORD || 'wgh123456';
+  const adminEmail = (process.env.ADMIN_EMAIL || TEST_ADMIN_EMAIL).trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD || TEST_ADMIN_PASSWORD;
   const adminLogin = await api('POST', '/api/auth/login', { email: adminEmail, password: adminPassword }, adminJar);
 
   if (adminLogin.status !== 200) {

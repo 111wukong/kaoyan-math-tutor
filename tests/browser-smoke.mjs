@@ -14,8 +14,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { TEST_ADMIN_EMAIL, TEST_ADMIN_PASSWORD } from './lib/server.mjs';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5180';
+
+/* 引导管理员凭据。服务端不再有内置默认密码（公开仓库里不能有能用的口令），
+ * 测试得自己指定 —— npm test 起的临时服务用的是同一组值。 */
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || TEST_ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || TEST_ADMIN_PASSWORD;
 const WIDTH = 1440;
 const HEIGHT = 900;
 
@@ -1061,7 +1067,7 @@ try {
     const login = await ev(`fetch('/api/auth/login', {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'wukong@qq.com', password: 'wgh123456' })
+      body: JSON.stringify(${JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })})
     }).then(function (r) { return r.status })`);
     ok('能在页面上下文里登录引导管理员', login.value === 200, String(login.value));
 
@@ -1091,7 +1097,7 @@ try {
       await probe(`
         var el = document.querySelector('input[aria-label="搜索用户"]');
         if (!el) return 'NO_INPUT';
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'wukong');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(ADMIN_EMAIL)});
         el.dispatchEvent(new Event('input', { bubbles: true }));
         return 'ok';`);
       await sleep(1200);

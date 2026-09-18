@@ -14,7 +14,7 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 
 import { initSchema, health, DB_PATH, db } from './db/index.js';
-import { migrate, ensureAdmin, usingDefaultAdminCredentials, ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD } from './db/migrate.js';
+import { migrate, ensureAdmin } from './db/migrate.js';
 import { seed } from './db/seed.js';
 import { COOKIE_NAME, readSession, touchSession, cleanupSessions } from './lib/session.js';
 
@@ -49,16 +49,27 @@ seed({ quiet: true });
 
 /* ---------- 引导管理员 ---------- */
 const bootAdmin = await ensureAdmin();
-if (bootAdmin.action === 'created') {
-  app.log.info(`已创建管理员账号 ${bootAdmin.email}（id ${bootAdmin.id}）`);
-} else if (bootAdmin.action === 'promoted') {
-  app.log.warn(`已把既有账号 ${bootAdmin.email} 提为管理员，并重置为引导密码 —— 请尽快改密`);
-}
-if (usingDefaultAdminCredentials()) {
-  app.log.warn(
-    `管理员 ${ADMIN_EMAIL} 正在使用内置默认密码「${DEFAULT_ADMIN_PASSWORD}」。` +
-    '自托管请立刻改密，或用 ADMIN_EMAIL / ADMIN_PASSWORD 环境变量覆盖。',
-  );
+if (bootAdmin.action === 'created' || bootAdmin.action === 'promoted') {
+  const how = bootAdmin.action === 'created' ? '已创建' : '已把既有账号提为';
+  app.log.info(`${how}管理员 ${bootAdmin.email}（id ${bootAdmin.id}）`);
+
+  if (bootAdmin.generated) {
+    /* ★ 随机密码只在这里出现这一次。
+     *
+     * 库里存的是 scrypt 哈希，事后谁也取不出来 —— 这一行没看到，
+     * 就只能删号重建或者手改数据库了。所以用 warn 级别 + 框起来，
+     * 别让它淹在启动日志里。
+     *
+     * 为什么不用「内置默认密码」：源码和 README 是公开的，
+     * 写死一个能用的口令等于把门钥匙挂在门上。 */
+    app.log.warn('─'.repeat(58));
+    app.log.warn(`  管理员初始密码：${bootAdmin.password}`);
+    app.log.warn('  ↑ 只打印这一次。请立刻保存，并登录后改掉。');
+    app.log.warn('  想自己指定：ADMIN_EMAIL=… ADMIN_PASSWORD=… npm run start');
+    app.log.warn('─'.repeat(58));
+  } else {
+    app.log.info('（密码取自 ADMIN_PASSWORD 环境变量）');
+  }
 }
 
 /* ---------- 插件 ---------- */
