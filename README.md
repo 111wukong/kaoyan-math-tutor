@@ -236,7 +236,7 @@ kaoyan-math-tutor/
     ├── theme-gallery.mjs       主题画廊（npm run gallery），8 套主题各一张
     ├── latex-coverage.mjs      公式渲染全量检查
     ├── pipeline-leak.mjs       渲染管线漏屏检查（真 katex 跑完整 renderRich）
-    ├── graph.mjs               ★ 知识图谱与根因诊断（73 项，自建临时库，不走 HTTP）
+    ├── graph.mjs               ★ 知识图谱与根因诊断（78 项，自建临时库，不走 HTTP）
     ├── day-boundary.mjs        日期口径检查（时区跨日）
     ├── banding.mjs             近黑渐变色带检测
     ├── lib/server.mjs          测试用的服务生命周期（空闲端口 + 一次性库）
@@ -573,7 +573,7 @@ npm run seed      # 写库（seed 会整表重建边，保证库与文件一致�
 ## 测试
 
 ```bash
-npm test               # 跑全部：13 + 23 + 73 + 14 + 337 + 167 + 1 = 628 项
+npm test               # 跑全部：13 + 23 + 78 + 14 + 337 + 167 + 1 = 633 项
 npm run test:api       # 只跑接口
 npm run test:browser   # 只跑浏览器
 npm run test:latex     # 只跑公式渲染全量检查
@@ -615,6 +615,18 @@ W=820 H=900 OUT=/tmp/shots-t npm run shots            # 平板 / 窄桌面
 ```bash
 BASE=http://127.0.0.1:5180 npm test
 ```
+
+> ⚠️ **别把这个指向你的开发服务**（那个连的是 `server/data/app.db`）。
+> 测试会往库里灌账号（`browser_*@test.local`）、灌作答记录、改设置，跑完不清理 ——
+> 实测污染过一次，一个真实账号旁边躺了 17 个测试账号。
+>
+> 现在有硬门禁：`BASE` 指向的服务如果连的不是临时库，**直接拒绝执行**并告诉你该怎么起。
+> 想对着服务测，让它用一次性库：
+>
+> ```bash
+> DB_PATH=/tmp/yanshu-test.db PORT=5199 npm run start
+> BASE=http://127.0.0.1:5199 npm test
+> ```
 
 > 这个设计是踩坑换来的。两个套件以前都假设「5180 上已经有人把服务起好了」，于是测试结果不取决于代码，而取决于**当时那个服务是谁起的、连的哪个库、有没有被改过**。实际代价：本机残留的旧服务占着端口，新服务绑不上，满屏「等待超时」，报出 44 项失败 —— 而代码一行没错。反过来更阴：残留服务恰好是好的，测试全绿，但你验证的其实是几分钟前编译的旧产物。
 

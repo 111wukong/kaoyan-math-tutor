@@ -27,6 +27,7 @@ const {
 } = await import('../server/src/lib/graph.js');
 const { diagnoseRoots, nextToLearn, graphHealth } = await import('../server/src/lib/diagnose.js');
 const { getTree, nodeMastery, masteryBoard } = await import('../server/src/lib/game.js');
+const { isTempDbPath } = await import('./lib/server.mjs');
 
 let pass = 0;
 let fail = 0;
@@ -310,6 +311,23 @@ ok(after === actual, `重建后聚合应等于明细：${after} vs ${actual}`);
 /* 重建之后诊断结论必须一致 —— 否则说明诊断偷偷依赖了聚合表的某种偶然状态 */
 const dA2 = diagnoseRoots(uA, { limit: 10 });
 ok(dA2.roots.some((r) => r.nodeId === 'c2n2'), '重建聚合表后根因结论应保持不变');
+
+/* ── 临时库判定 ────────────────────────────────────────────────────
+ * 这个函数决定「BASE=… npm test 时要不要拒绝执行」。
+ * 判错了的后果不对称：
+ *   误判成真实库 → 挡掉合法用法（烦躁，但无害）
+ *   误判成临时库 → 测试数据永久写进真实库（17 个测试账号就是这么来的）
+ * 所以宁可保守，但也不能保守到把 /tmp 也挡了。 */
+ok(isTempDbPath(path.join(os.tmpdir(), 'x.db')) === true,
+  'os.tmpdir() 下的库应判为临时');
+/* ★ macOS 上 /tmp 是指向 /private/tmp 的软链，而 os.tmpdir() 返回
+ * /var/folders/…/T —— 两者谁都不是谁的前缀。第一版用字符串前缀比，
+ * 把 /tmp/xxx.db 误判成了真实库。这条断言就是钉住那个修复。 */
+ok(isTempDbPath('/tmp/yanshu-test.db') === true, '★ /tmp 下的库应判为临时（macOS 软链）');
+ok(isTempDbPath('/private/tmp/yanshu-test.db') === true, '/private/tmp 下的库应判为临时');
+ok(isTempDbPath('/Users/someone/project/server/data/app.db') === false,
+  '项目目录下的库应判为真实');
+ok(isTempDbPath('') === false, '空路径返回 false（信息不足，交给调用方定）');
 
 /* ══════════════════════════════════════════════════════════════════ */
 section('六、自建题与掌握度');

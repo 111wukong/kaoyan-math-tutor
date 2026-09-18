@@ -25,7 +25,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ROOT, startServer } from './lib/server.mjs';
+import { ROOT, startServer, isTempDbPath } from './lib/server.mjs';
 
 const SUITES = [
   /* 这两个放最前面：纯静态、不用浏览器、1 秒出结果，而且都是**确定性全量**检查。
@@ -95,11 +95,46 @@ let base = process.env.BASE;
 
 if (base) {
   console.log(`\x1b[36m使用已有的服务：${base}\x1b[0m`);
-  const alive = await fetch(`${base}/api/health`).then((r) => r.ok).catch(() => false);
-  if (!alive) {
+  let h = null;
+  try {
+    const res = await fetch(`${base}/api/health`);
+    if (res.ok) h = await res.json();
+  } catch { /* 下面统一报「没响应」 */ }
+
+  if (!h?.ok) {
     console.log(`\x1b[31m✗ ${base} 上没有响应 —— 检查一下服务是不是没起。\x1b[0m\n`);
     process.exit(1);
   }
+
+  /* ★ 拒绝把测试跑在真实数据库上。
+   *
+   * 测试会往库里灌账号（browser_*@test.local、smoke_*@test.local）、
+   * 灌作答记录、改设置。以前只检查「服务活着没」，于是
+   * `BASE=http://127.0.0.1:5180 npm test` 这种对着 dev 服务测的用法
+   * 会把测试数据永久写进 server/data/app.db —— 实测就这么污染过，
+   * 一个真实账号旁边躺了 17 个测试账号。
+   *
+   * 判据用「数据库路径在不在临时目录里」而不是比对某个写死的路径：
+   * 临时库是 os.tmpdir() 下的，真实库不会在那儿。这样换机器、
+   * 换 DB_PATH 都不会误判。判据本体在 tests/lib/server.mjs 的 isTempDbPath，
+   * 那样它才能被单测覆盖（macOS 的 /tmp 软链坑就是在那儿记的）。 */
+  const dbPath = String(h.db?.path || '');
+  const looksReal = !!dbPath && !isTempDbPath(dbPath);
+
+  if (looksReal) {
+    console.log(`\x1b[31m✗ 拒绝执行：${base} 连的是真实数据库。\x1b[0m`);
+    console.log(`  数据库 ${dbPath}`);
+    console.log('');
+    console.log('  测试会往库里灌账号和作答记录，跑完不会自己清理。');
+    console.log('  想对着服务测，请让它用一个一次性数据库：');
+    console.log('    \x1b[36mDB_PATH=/tmp/yanshu-test.db PORT=5199 npm run start\x1b[0m');
+    console.log('    \x1b[36mBASE=http://127.0.0.1:5199 npm test\x1b[0m');
+    console.log('');
+    console.log('  不加 BASE 直接 \x1b[36mnpm test\x1b[0m 的话，会自己起一个临时服务，最省事。\n');
+    process.exit(1);
+  }
+
+  console.log(`  \x1b[90m数据库 ${dbPath}（临时库，可以放心跑）\x1b[0m`);
 } else {
   try {
     server = await startServer({ tag: 'all' });
