@@ -56,10 +56,11 @@ const SUITES = [
    * 挂了的话能一眼看出是「时区」问题而不是业务逻辑问题。 */
   { name: '日期口径检查', file: 'tests/day-boundary.mjs' },
   { name: '接口冒烟', file: 'server/scripts/smoke.mjs' },
-  /* 限流与存量数据兜底要**自己起服务**：它得把 RATE_LIMIT_MAX 压到很小
-   * 才能验「闸门真的会拦」，而共享那台被刻意开到很大（见 lib/server.mjs）。
+  /* 加固回归要**自己起服务**：限流上限得压到很小才能验「闸门真的会拦」，
+   * 注册开关得用一台设了 REGISTRATION_ENABLED=false 的服务，
+   * 存量坏地址要绕过接口直接改库 —— 共享那台一个都不能动。
    * 也因为它不碰共享服务，放在这里不会影响后面的套件。 */
-  { name: '限流与地址兜底', file: 'server/scripts/rate-limit.mjs' },
+  { name: '加固回归', file: 'server/scripts/hardening.mjs' },
   { name: '浏览器冒烟', file: 'tests/browser-smoke.mjs' },
   { name: '近黑渐变色带检测', file: 'tests/banding.mjs' },
 ];

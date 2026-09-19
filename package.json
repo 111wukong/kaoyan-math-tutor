@@ -19,7 +19,7 @@
     "test:pipeline": "node tests/pipeline-leak.mjs",
     "test:graph": "node tests/graph.mjs",
     "test:api": "node server/scripts/smoke.mjs",
-    "test:ratelimit": "node server/scripts/rate-limit.mjs",
+    "test:hardening": "node server/scripts/hardening.mjs",
     "test:browser": "node tests/browser-smoke.mjs",
     "test:day": "node tests/day-boundary.mjs",
     "banding": "node tests/banding.mjs",

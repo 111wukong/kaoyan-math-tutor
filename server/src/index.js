@@ -329,6 +329,37 @@ try {
   await app.listen({ port: PORT, host: HOST });
   app.log.info(`研数服务已启动  http://${HOST}:${PORT}`);
   app.log.info(`数据库: ${DB_PATH}`);
+
+  /* ---------- 上线前的两条提醒 ----------
+   *
+   * 这两件事都只在**对外可达**时才成立，而它们各自的后果都很直接：
+   * 一个让会话 token 走明文 HTTP，一个让陌生人能自己建号。
+   * 光写在 README 里没用 —— 出事之后回来看日志，这几行就是答案。
+   *
+   * 判断「对外可达」用的是监听地址而不是请求来源：绑 127.0.0.1 时
+   * 只有本机能连，绑 0.0.0.0 或具体网卡地址时外面就够得着。
+   */
+  const loopbackOnly = ['127.0.0.1', 'localhost', '::1'].includes(HOST);
+  const registrationOpen = process.env.REGISTRATION_ENABLED !== 'false';
+
+  if (!loopbackOnly) {
+    if (process.env.NODE_ENV !== 'production') {
+      app.log.warn('─'.repeat(58));
+      app.log.warn(`  服务监听在 ${HOST}（对外可达），但 NODE_ENV 不是 production。`);
+      app.log.warn('  → cookie 没有 Secure 标记，会话 token 会走明文 HTTP 发出去，');
+      app.log.warn('    同一个网络里谁都能抓走，然后就是 30 天的完整账号权限。');
+      app.log.warn('  修：NODE_ENV=production（并且前面挂 HTTPS 反向代理）');
+      app.log.warn('─'.repeat(58));
+    }
+    if (registrationOpen) {
+      app.log.warn('─'.repeat(58));
+      app.log.warn(`  服务监听在 ${HOST}（对外可达），而注册是开着的。`);
+      app.log.warn('  → 任何人访问这个地址都能自己建号。配合「自定义模型地址」，');
+      app.log.warn('    等于把服务端借出去当出网代理用。');
+      app.log.warn('  修：REGISTRATION_ENABLED=false（账号改由管理员在后台建）');
+      app.log.warn('─'.repeat(58));
+    }
+  }
 } catch (err) {
   app.log.error(err);
   process.exit(1);

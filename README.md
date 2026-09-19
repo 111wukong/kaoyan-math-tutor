@@ -218,13 +218,22 @@ kaoyan-math-tutor/
 │   │   │   ├── judge.js        判题器（归一化 + 数值容差）
 │   │   │   ├── password.js     scrypt 哈希
 │   │   │   ├── session.js      会话（库里只存 token 的 sha256）
+│   │   │   ├── llmUrl.js       ★ 上游地址校验（SSRF 防线）+ 不跟随重定向的 fetch
+│   │   │   ├── dbPath.js        临时库判定（run-all 的安全闸门靠它）
 │   │   │   └── themes.js       ★ 主题 id 白名单
 │   │   ├── routes/             auth / admin / catalog / study / cards / game / graph / misc / ai
 │   │   └── data/               3 科 19 章 68 考点 204 题 + edges.json（102 条图谱边）
 │   └── scripts/
 │       ├── extract-seed.mjs    用 node:vm 沙箱从原 window.KDATA/QDATA 提取
 │       ├── gen-edges.mjs       ★ 图谱校验 + 导入（环检测是硬门禁）
-│       └── smoke.mjs           接口端到端测试（337 项）
+│       ├── backup.mjs          ★ 在线备份（WAL 下别用 cp）
+│       ├── hardening.mjs       ★ 加固回归：限流 / 注册开关 / 存量坏地址（自起服务）
+│       └── smoke.mjs           接口端到端测试（370 项）
+├── deploy/                     现成的部署配置
+│   ├── Caddyfile               HTTPS + 反代 + 压缩
+│   └── yanshu.service          systemd 单元（那三个必设变量写在里面）
+├── Dockerfile                  ⚠️ 未在本机验证过（这台机器没装 Docker）
+├── .env.example                环境变量模板（注意：项目不读 .env，只是给你记录）
 ├── web/                        Vite 8 + React 19 + TS + Tailwind 4
 │   └── src/
 │       ├── styles/index.css    设计系统（8 套主题 / 玻璃面 / 光谱强调色 / HUD）
@@ -237,8 +246,9 @@ kaoyan-math-tutor/
 │       │   │   ├── Hud.tsx             仪器感装饰（角标/刻度/读数/扫描线）
 │       │   │   └── Motion.tsx          数字滚动 / 倾斜卡 / 进度环 / 进度条
 │       │   ├── ui/             Primitives、Math（渲染管线）、Modal、Toaster、ThemePicker
+│       │   ├── ErrorBoundary.tsx ★ 全局错误边界 + 异步异常兜底（否则整站白屏）
 │       │   └── layout/         AppShell、AuthLayout
-│       ├── lib/                api / utils / hooks / sfx / achievements / deckExport / themes
+│       ├── lib/                api / utils / hooks / sfx / achievements / deckExport / themes / siteConfig
 │       ├── stores/             app / auth / theme
 │       └── pages/              17 个页面
 └── tests/
@@ -247,7 +257,7 @@ kaoyan-math-tutor/
     ├── theme-gallery.mjs       主题画廊（npm run gallery），8 套主题各一张
     ├── latex-coverage.mjs      公式渲染全量检查
     ├── pipeline-leak.mjs       渲染管线漏屏检查（真 katex 跑完整 renderRich）
-    ├── graph.mjs               ★ 知识图谱与根因诊断（78 项，自建临时库，不走 HTTP）
+    ├── graph.mjs               ★ 知识图谱与根因诊断（79 项，自建临时库，不走 HTTP）
     ├── fsrs.mjs                ★ FSRS 调度器 + 老库迁移回填（35 项，自建临时库）
     ├── no-secrets.mjs          ★ 凭据扫描（源码/文档里不许出现可用口令）
     ├── day-boundary.mjs        日期口径检查（时区跨日）
@@ -628,9 +638,9 @@ npm run seed      # 写库（seed 会整表重建边，保证库与文件一致�
 ## 测试
 
 ```bash
-npm test               # 跑全部：16 + 13 + 23 + 79 + 35 + 14 + 370 + 8 + 167 + 1 = 726 项
+npm test               # 跑全部：16 + 13 + 23 + 79 + 35 + 14 + 370 + 17 + 167 + 1 = 735 项
 npm run test:api       # 只跑接口
-npm run test:ratelimit # 只跑限流与上游地址兜底（自己起一台限值很小的服务）
+npm run test:hardening # 只跑加固回归（自己起服务验限流 / 注册开关 / 存量坏地址）
 npm run test:browser   # 只跑浏览器
 npm run test:latex     # 只跑公式渲染全量检查
 npm run test:pipeline  # 只跑渲染管线漏屏检查
@@ -936,11 +946,12 @@ CSS 绘制顺序（CSS 2.1 附录 E）：
 npm run check && npm run start
 ```
 
-### 上线前必须设的两个环境变量
+### 上线前必须决定的三个环境变量
 
 ```bash
 NODE_ENV=production
 TRUST_PROXY=127.0.0.1
+REGISTRATION_ENABLED=false
 ```
 
 **`NODE_ENV=production` 只有一个作用，但是关键的：cookie 的 `Secure` 标记。**
@@ -962,6 +973,32 @@ TRUST_PROXY=172.16.0.0/12    # 容器网络
 > 反过来也要注意：代理后面**不设**它，所有请求的来源都会变成 `127.0.0.1`，
 > 于是全站共用一份限流计数 —— 一个人刷得凶会把别人一起锁住。
 
+**`REGISTRATION_ENABLED=false` 关掉自助注册。** 默认是开着的，因为单机自用
+时那最方便。但只要这个地址是公网可达的，开着它就意味着**任何陌生人都能建号** ——
+而「有账号」正是「用户可自定义模型上游地址」这个功能的前提条件，
+两者叠在一起，服务端就变成了一个可被陌生人使用的出网代理。
+关掉之后，暴露面从「互联网」缩到「你认识的几个人」。
+
+> **只有字符串 `false` 才算关。** 写 `0` / `no` / `off` 这种「看起来像关闭」
+> 的值，实际是开着的 —— 那是最危险的一类配置误解。宁可严格，也不猜。
+
+关掉不会把人锁在外面：库里一个管理员都没有时，启动会按 `ADMIN_EMAIL` /
+`ADMIN_PASSWORD` 引导一个出来；之后账号由管理员在**管理台 → 用户管理**
+里建（也能在那里重置密码、停用、删号）。
+
+服务端启动时会在日志里提醒这两件事（`NODE_ENV` 不是 production、注册开着），
+但**只在监听地址不是环回时**才提醒 —— 绑 `127.0.0.1` 时只有本机能连，
+没什么可担心的：
+
+```
+⚠ ──────────────────────────────────────────────────────────
+⚠   服务监听在 0.0.0.0（对外可达），而注册是开着的。
+⚠   → 任何人访问这个地址都能自己建号。配合「自定义模型地址」，
+⚠     等于把服务端借出去当出网代理用。
+⚠   修：REGISTRATION_ENABLED=false（账号改由管理员在后台建）
+⚠ ──────────────────────────────────────────────────────────
+```
+
 ### 完整环境变量
 
 | 变量 | 默认 | 说明 |
@@ -973,6 +1010,7 @@ TRUST_PROXY=172.16.0.0/12    # 容器网络
 | `LOG_LEVEL` | `info` | `fatal`/`error`/`warn`/`info`/`debug`/`trace` |
 | `DB_PATH` | `server/data/app.db` | 数据库位置 |
 | `RATE_LIMIT_MAX` | `600` | 全站每分钟上限（登录注册与 AI 接口各有更紧的一档） |
+| `REGISTRATION_ENABLED` | 开 | ★ 设成 `false` 关闭注册（只有这一个值算关，见下）。对外部署建议关 |
 | `ALLOW_PRIVATE_LLM_HOST` | 关闭 | 见下面「模型接入的地址限制」 |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` | 见「管理员账号」 | 只在库里没有管理员时生效 |
 
@@ -983,19 +1021,24 @@ TRUST_PROXY=172.16.0.0/12    # 容器网络
 set -a && . ./.env && set +a && npm run start
 ```
 
-### 反向代理
+### 现成的部署文件
 
-Node 只听 `127.0.0.1`，HTTPS 交给代理终结。Caddy 最省事（自动签证书）：
+`deploy/` 里有两份可以直接抄的配置，外加一个 Dockerfile：
 
-```
-yanshu.example.com {
-    reverse_proxy 127.0.0.1:5180
-}
-```
+| 文件 | 干什么 | 备注 |
+|---|---|---|
+| `deploy/Caddyfile` | HTTPS + 反向代理 + 压缩 | 自动签证书，不用配 certbot |
+| `deploy/yanshu.service` | systemd 守护进程 | 里面写好了那三个必设的环境变量 |
+| `Dockerfile` | 容器镜像 | ⚠️ **没在本机验证过**（这台机器没装 Docker），第一次用请先本地 build 一次 |
 
-代理这一层要**把真实来源传给后端**（Caddy 的 `reverse_proxy` 默认就带
-`X-Forwarded-For` / `X-Forwarded-Proto`），然后后端这边用 `TRUST_PROXY`
-收窄到 `127.0.0.1` 来认它。两边都做对，限流才按真实 IP 计数。
+**Node 只听 `127.0.0.1`，HTTPS 交给代理终结。** 代理这一层要把真实来源传给
+后端（Caddy 的 `reverse_proxy` 默认就带 `X-Forwarded-For` /
+`X-Forwarded-Proto`），后端再用 `TRUST_PROXY` 收窄到 `127.0.0.1` 来认它 ——
+两边都做对，按来源计数的限流才按真实 IP 计。
+
+压缩也放在代理这一层（Caddyfile 里的 `encode zstd gzip`），
+所以后端不需要引 `@fastify/compress`：前端产物里 charts 是 417KB、
+math 是 259KB，压完分别到 118KB / 78KB。
 
 ### 数据与备份
 
@@ -1089,11 +1132,13 @@ ALLOW_PRIVATE_LLM_HOST=1
   硬塞进来只会得到「我明明做对了它说错」。
   真要支持，可行的方向是「手写/拍照 → AI 判卷 → 人工确认」，
   `attempts` 表已经有 `error_type` 字段，接得上。
-- **注册是开放的**：任何人访问都能自己建号。单人自用/给朋友用没问题；
-  要放到公网上，建议先把注册关掉（目前需要自己加一道开关，
-  或者用反向代理在 `/api/auth/register` 上做限制）。
-  开放注册 + 用户可自定义上游地址这两件事叠在一起时，
-  服务端会变成一个可被陌生人使用的出网代理 —— 所以地址校验是默认拒绝的。
+- **注册默认是开放的**：任何人访问都能自己建号。单人自用 / 给朋友用没问题；
+  要放到公网上，用 `REGISTRATION_ENABLED=false` 关掉（见「部署」一节），
+  账号改由管理员在后台建。关掉之后登录页不再显示注册入口，
+  直接访问 `/register` 会看到「本站已关闭注册」而不是一张填了会被拒的表。
+  > 开放注册 + 用户可自定义上游地址这两件事叠在一起时，服务端会变成一个
+  > 可被陌生人使用的出网代理 —— 所以地址校验是默认拒绝的，
+  > 但**环回是有意放行的**（本地模型靠它），那个残留面在「模型接入的地址限制」里写了。
 - 本机无 PostgreSQL 也无 Docker，所以选了 SQLite；真要多人在线再换。
 
 ---

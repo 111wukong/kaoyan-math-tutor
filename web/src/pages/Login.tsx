@@ -6,9 +6,11 @@ import { AuthLayout } from '@/components/layout/AuthLayout';
 import { Button, Input } from '@/components/ui/Primitives';
 import { useAuth } from '@/stores/auth';
 import { ApiError } from '@/lib/api';
+import { useRegistrationOpen } from '@/lib/siteConfig';
 
 export default function Login() {
   const login = useAuth((s) => s.login);
+  const registrationOpen = useRegistrationOpen();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -88,12 +90,20 @@ export default function Login() {
         </Button>
       </form>
 
-      <div className="mt-6 text-center text-[13px] text-fg-mute">
-        还没有账号？
-        <Link to="/register" className="ml-1.5 font-medium text-cyan transition-colors hover:text-cyan-200">
-          注册一个
-        </Link>
-      </div>
+      {/* 注册关掉时**不显示**这个入口，而不是显示一个点了会被拒的链接 ——
+          能注册的人看不到入口会以为系统坏了，比「不允许」更让人困惑。 */}
+      {registrationOpen ? (
+        <div className="mt-6 text-center text-[13px] text-fg-mute">
+          还没有账号？
+          <Link to="/register" className="ml-1.5 font-medium text-cyan transition-colors hover:text-cyan-200">
+            注册一个
+          </Link>
+        </div>
+      ) : (
+        <div className="mt-6 text-center text-[12.5px] leading-relaxed text-fg-faint">
+          本站已关闭注册，需要账号请联系管理员开通。
+        </div>
+      )}
     </AuthLayout>
   );
 }

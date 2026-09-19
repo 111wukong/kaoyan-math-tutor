@@ -6,6 +6,7 @@ import { AuthLayout } from '@/components/layout/AuthLayout';
 import { Button, Input } from '@/components/ui/Primitives';
 import { useAuth } from '@/stores/auth';
 import { ApiError } from '@/lib/api';
+import { useRegistrationOpen } from '@/lib/siteConfig';
 import { cn } from '@/lib/utils';
 
 /* 密码强度：与服务端 checkPasswordStrength 的口径保持一致，
@@ -39,6 +40,7 @@ function strengthOf(pwd: string): Strength {
 
 export default function Register() {
   const register = useAuth((s) => s.register);
+  const registrationOpen = useRegistrationOpen();
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -77,6 +79,30 @@ export default function Register() {
       setLoading(false);
     }
   };
+
+  /* 注册关掉时整张表都不渲染。
+   * 显示表单再让提交失败，会让人以为是自己填错了 —— 而这件事
+   * 他无论怎么填都改不了。说清楚比让人反复试要体面。 */
+  if (!registrationOpen) {
+    return (
+      <AuthLayout mode="register">
+        <div className="mb-6">
+          <h2 className="text-[21px] font-semibold tracking-tight text-fg">本站已关闭注册</h2>
+          <p className="mt-2 text-[13.5px] leading-relaxed text-fg-mute">
+            这是一个私人学习系统，账号由管理员开通。
+            需要账号请联系站点管理员，或者在管理台里直接建一个。
+          </p>
+        </div>
+
+        <div className="mt-6 text-center text-[13px] text-fg-mute">
+          已经有账号了？
+          <Link to="/login" className="ml-1.5 font-medium text-cyan transition-colors hover:text-cyan-200">
+            直接登录
+          </Link>
+        </div>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout mode="register">
