@@ -28,6 +28,9 @@ import path from 'node:path';
 import { ROOT, startServer, isTempDbPath } from './lib/server.mjs';
 
 const SUITES = [
+  /* 凭据扫描放最前面：它最快，而且挂掉的话其他都不用看了 ——
+   * 源码和 README 是公开的，那里出现凭据是比任何功能 bug 都严重的事。 */
+  { name: '凭据扫描', file: 'tests/no-secrets.mjs' },
   /* 这两个放最前面：纯静态、不用浏览器、1 秒出结果，而且都是**确定性全量**检查。
    *
    * 分工：
@@ -46,6 +49,9 @@ const SUITES = [
   /* 图谱套件也是**确定性全量**检查，而且自己建临时库、不走 HTTP ——
    * 放在这里跑得最快，挂了能立刻看出是数据问题还是接口问题。 */
   { name: '图谱与诊断', file: 'tests/graph.mjs' },
+  /* FSRS 也是纯函数 + 临时库，不走 HTTP。调度算法错了不会报错，
+   * 只会让间隔一天天变离谱 —— 所以必须靠断言钉住。 */
+  { name: 'FSRS 调度器', file: 'tests/fsrs.mjs' },
   /* 日期口径放在接口套件之前：它自己起一个 TZ 特殊的服务，
    * 挂了的话能一眼看出是「时区」问题而不是业务逻辑问题。 */
   { name: '日期口径检查', file: 'tests/day-boundary.mjs' },

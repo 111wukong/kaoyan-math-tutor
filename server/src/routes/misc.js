@@ -2,6 +2,7 @@
 import { db } from '../db/index.js';
 import { checkAchievements, buildSnapshot, invalidateTree } from '../lib/game.js';
 import { THEME_IDS, DEFAULT_THEME, normalizeTheme } from '../lib/themes.js';
+import { insertCard, updateCardSchedule, cardFromExport } from '../lib/cardStore.js';
 
 export default async function miscRoutes(fastify) {
   /* ============ 设置 ============ */
@@ -222,11 +223,10 @@ export default async function miscRoutes(fastify) {
   fastify.post('/api/deck/:id/to-card', async (req, reply) => {
     const d = db.prepare('SELECT * FROM card_deck WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
     if (!d) return reply.code(404).send({ error: '卡片不存在' });
-    const { newCard } = await import('../lib/sm2.js');
+    const { newCard } = await import('../lib/fsrs.js');
+    const { insertCard } = await import('../lib/cardStore.js');
     const c = newCard(d.kid, null, 'knowledge');
-    db.prepare(`INSERT INTO cards (id,user_id,type,knowledge_id,question_id,due,interval,reps,ef,lapses,last_review,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(c.id, req.userId, c.type, c.knowledgeId, c.questionId, c.due, c.interval, c.reps, c.ef, c.lapses, c.lastReview, c.createdAt);
+    insertCard(db, req.userId, c);
     return { ok: true, cardId: c.id };
   });
 
@@ -343,13 +343,23 @@ export default async function miscRoutes(fastify) {
       (d.cards || []).forEach((c) => {
         const cur = db.prepare('SELECT * FROM cards WHERE id = ? AND user_id = ?').get(c.id, uid);
         if (!cur) {
-          db.prepare(`INSERT INTO cards (id,user_id,type,knowledge_id,question_id,due,interval,reps,ef,lapses,last_review,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-            .run(c.id, uid, c.type, c.knowledge_id, c.question_id, c.due, c.interval, c.reps, c.ef, c.lapses, c.last_review, c.created_at);
+          insertCard(db, uid, cardFromExport(c));
           summary.cards += 1;
         } else if ((c.reps || 0) > (cur.reps || 0)) {
-          db.prepare('UPDATE cards SET due=?, interval=?, reps=?, ef=?, lapses=?, last_review=? WHERE id=?')
-            .run(c.due, c.interval, c.reps, c.ef, c.lapses, c.last_review, c.id);
+          /* 导入包里的进度更新。老导出包没有 FSRS 三列，cardFromExport 会用
+           * interval 兜底；万一还是空，就保留库里已有的值 ——
+           * 直接写 null 会把稳定度抹掉，下次复习又当成新卡。 */
+          const inc = cardFromExport(c);
+          updateCardSchedule(db, uid, c.id, {
+            due: inc.due,
+            interval: inc.interval,
+            state: inc.state,
+            stability: inc.stability ?? cur.stability,
+            difficulty: inc.difficulty ?? cur.difficulty,
+            reps: inc.reps,
+            lapses: inc.lapses,
+            lastReview: inc.lastReview,
+          });
           summary.cards += 1;
         }
       });

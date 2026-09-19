@@ -1,10 +1,11 @@
-/* 复习队列（SM-2）
+/* 复习队列（FSRS-6，见 lib/fsrs.js）
  *
  * 评分接口是「一次复习」的唯一写入口，事务内完成：
  *   卡片状态推进 → 若关联题目则记一次作答 → 发 XP → 判成就 → 检查队列是否清空
  */
 import { db } from '../db/index.js';
-import { grade as sm2Grade, newCard } from '../lib/sm2.js';
+import { grade as fsrsGrade, newCard, currentRetrievability } from '../lib/fsrs.js';
+import { insertCard, updateCardSchedule } from '../lib/cardStore.js';
 import { awardXp, checkAchievements, XP, buildSnapshot } from '../lib/game.js';
 import { parseOptions } from '../lib/judge.js';
 
@@ -20,6 +21,17 @@ const shape = (c) => ({
   questionId: c.question_id,
   due: c.due,
   interval: c.interval,
+  /* FSRS 状态。老库迁移过来的卡这两列是 NULL，前端要能处理「还没有稳定度」。 */
+  state: c.state || 'new',
+  stability: c.stability == null ? null : Number(c.stability),
+  difficulty: c.difficulty == null ? null : Number(c.difficulty),
+  /* 当前还记得的概率。用来在界面上提示「这张卡现在大概还剩多少印象」——
+   * 比单纯显示「还有 3 天到期」信息量大得多。 */
+  retrievability: currentRetrievability({
+    stability: c.stability,
+    interval: c.interval,
+    lastReview: c.last_review,
+  }) ?? null,
   reps: c.reps,
   ef: Number(c.ef),
   lapses: c.lapses,
@@ -93,9 +105,11 @@ export default async function cardRoutes(fastify) {
     const today = todayStr();
 
     const run = db.transaction(() => {
-      const next = sm2Grade({ ef: card.ef, interval: card.interval, reps: card.reps, lapses: card.lapses }, rating);
-      db.prepare('UPDATE cards SET due=?, interval=?, reps=?, ef=?, lapses=?, last_review=? WHERE id=?')
-        .run(next.due, next.interval, next.reps, next.ef, next.lapses, next.lastReview, card.id);
+      /* 把整张卡交给 grade()，而不是挑几个字段 —— FSRS 要用到 state /
+       * stability / difficulty / last_review 才能算「现在还记得多少」。
+       * 老卡这几列可能是 NULL，grade() 内部会用 interval 反推。 */
+      const next = fsrsGrade(card, rating);
+      updateCardSchedule(db, req.userId, card.id, next);
 
       // 复习也计入作答统计（自评「记得」以上视为答对）
       if (card.question_id || card.knowledge_id) {
@@ -135,8 +149,12 @@ export default async function cardRoutes(fastify) {
     });
 
     const r = run();
+    /* 重新读一次再交给 shape()，而不是手工拼 grade() 的返回值 ——
+     * shape 会补上 retrievability 这类**派生**字段，手工拼一定会漏
+     * （加 FSRS 时就是这么漏掉的：接口返回里没有可回忆概率）。 */
+    const saved = db.prepare('SELECT * FROM cards WHERE id = ?').get(card.id);
     return {
-      card: { id: card.id, ...r.next },
+      card: shape(saved),
       xp: r.xp,
       achievements: r.fresh,
       remaining: r.remaining,
@@ -158,9 +176,7 @@ export default async function cardRoutes(fastify) {
   }, async (req) => {
     const { knowledgeId = null, questionId = null, type = 'knowledge' } = req.body || {};
     const c = newCard(knowledgeId, questionId, type);
-    db.prepare(`INSERT INTO cards (id,user_id,type,knowledge_id,question_id,due,interval,reps,ef,lapses,last_review,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(c.id, req.userId, c.type, c.knowledgeId, c.questionId, c.due, c.interval, c.reps, c.ef, c.lapses, c.lastReview, c.createdAt);
+    insertCard(db, req.userId, c);
     return { ok: true, card: c };
   });
 

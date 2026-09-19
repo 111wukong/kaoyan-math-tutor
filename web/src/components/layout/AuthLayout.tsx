@@ -81,7 +81,7 @@ export function AuthLayout({ children, mode }: { children: ReactNode; mode: 'log
           >
             {[
               { icon: Brain, title: '主动回忆，而不是重读', desc: '苏格拉底式追问，逼你自己检索出答案' },
-              { icon: CalendarCheck, title: 'SM-2 间隔重复', desc: '在你快忘掉的那一刻，把知识推回来' },
+              { icon: CalendarCheck, title: 'FSRS 间隔重复', desc: '在你快忘掉的那一刻，把知识推回来' },
               { icon: LineChart, title: '每个考点都有掌握概率', desc: '知道你到底哪不会，而不是凭感觉' },
             ].map((f, i) => (
               <div key={f.title} className="flex items-start gap-3">

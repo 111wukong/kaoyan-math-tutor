@@ -216,7 +216,7 @@ CREATE TABLE IF NOT EXISTS stats_daily (
   PRIMARY KEY (user_id, date)
 );
 
--- 复习卡片（SM-2）
+-- 复习卡片（FSRS-6，见 lib/fsrs.js）
 CREATE TABLE IF NOT EXISTS cards (
   id           TEXT    PRIMARY KEY,
   user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -225,8 +225,14 @@ CREATE TABLE IF NOT EXISTS cards (
   question_id  TEXT,
   due          TEXT    NOT NULL,
   interval     INTEGER NOT NULL DEFAULT 0,
+  /* ---- FSRS 状态 ----
+   * 旧库迁移过来的卡这两列是 NULL，由 interval 反推（保留率 90% 时两者相等），
+   * 之后几次复习会自己收敛。别在代码里假设它们一定有值。 */
+  state        TEXT    NOT NULL DEFAULT 'new',   -- new | learning | review | relearning
+  stability    REAL,                             -- 保留率降到 90% 所需的天数
+  difficulty   REAL,                             -- 这张卡对这个人的难度（1–10）
   reps         INTEGER NOT NULL DEFAULT 0,
-  ef           REAL    NOT NULL DEFAULT 2.5,
+  ef           REAL    NOT NULL DEFAULT 2.5,     -- SM-2 遗留，已不参与调度（留着供导出兼容）
   lapses       INTEGER NOT NULL DEFAULT 0,
   last_review  TEXT,
   created_at   TEXT    NOT NULL

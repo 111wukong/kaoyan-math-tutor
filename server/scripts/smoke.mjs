@@ -322,12 +322,12 @@ section('6b. 知识图谱与根因诊断');
     !learnItem || pathItems.length === 0 || Array.isArray(learnItem.nodes));
 }
 
-section('7. 复习卡（SM-2）');
+section('7. 复习卡（FSRS）');
 {
   const sum0 = await GET('/api/cards/summary');
   ok('汇总 200', sum0.status === 200);
   ok('答过的题已建卡', sum0.data?.total > 0, `实得 total=${sum0.data?.total}`);
-  ok('新卡首刷排在明天（SM-2 标准：首轮间隔 1 天）',
+  ok('新卡首刷排在明天（首轮间隔 1 天）',
     sum0.data?.due === 0 && (sum0.data?.upcoming?.length || 0) > 0,
     `due=${sum0.data?.due} upcoming=${JSON.stringify(sum0.data?.upcoming)}`);
 
@@ -343,9 +343,23 @@ section('7. 复习卡（SM-2）');
   if (card) {
     const g = await POST(`/api/cards/${card.id}/grade`, { rating: 3 });
     ok('评分 200', g.status === 200, `实得 ${g.status} ${JSON.stringify(g.data)?.slice(0, 120)}`);
-    ok('SM-2 更新了间隔', g.data?.card?.interval >= 1, `interval=${g.data?.card?.interval}`);
-    ok('SM-2 更新了 EF 且不低于下限 1.3',
-      typeof g.data?.card?.ef === 'number' && g.data.card.ef >= 1.3, `ef=${g.data?.card?.ef}`);
+    ok('FSRS 更新了间隔', g.data?.card?.interval >= 1, `interval=${g.data?.card?.interval}`);
+    /* FSRS 的核心状态：稳定度（保留率降到 90% 所需天数）与难度（1–10）。
+     * 新卡第一次评分后这两列必须落地 —— 否则下次复习算不出「现在还记得多少」，
+     * 调度会退化成「每次都当新卡」。 */
+    ok('★ 评分写入了 FSRS 稳定度',
+      typeof g.data?.card?.stability === 'number' && g.data.card.stability > 0,
+      `stability=${g.data?.card?.stability}`);
+    ok('★ 评分写入了 FSRS 难度且在 1–10',
+      typeof g.data?.card?.difficulty === 'number'
+      && g.data.card.difficulty >= 1 && g.data.card.difficulty <= 10,
+      `difficulty=${g.data?.card?.difficulty}`);
+    ok('卡片状态已离开 new',
+      !!g.data?.card?.state && g.data.card.state !== 'new', `state=${g.data?.card?.state}`);
+    ok('★ 返回可回忆概率（0–1）',
+      typeof g.data?.card?.retrievability === 'number'
+      && g.data.card.retrievability > 0 && g.data.card.retrievability <= 1,
+      `retrievability=${g.data?.card?.retrievability}`);
     ok('评分给了 XP', (g.data?.xp?.gained ?? 0) >= 1, `实得 ${g.data?.xp?.gained}`);
     ok('评分后 reps 递增', (g.data?.card?.reps ?? 0) > (card.reps ?? 0), `${card.reps} → ${g.data?.card?.reps}`);
     ok('评分后到期日不早于原值', String(g.data?.card?.due) >= String(card.due), `${card.due} → ${g.data?.card?.due}`);

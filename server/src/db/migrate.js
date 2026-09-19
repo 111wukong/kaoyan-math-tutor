@@ -72,6 +72,14 @@ const ADD_COLUMNS = {
   attempts: {
     error_type: "TEXT NOT NULL DEFAULT ''",
   },
+  /* cards 的 FSRS 状态（见 lib/fsrs.js）。
+   * 老库的卡是 SM-2 调度的，只有 interval/reps/ef —— 补上这三列之后
+   * 还要回填一次（见 migrate() 末尾），否则会被当成新卡重来。 */
+  cards: {
+    state: "TEXT NOT NULL DEFAULT 'new'",
+    stability: 'REAL',
+    difficulty: 'REAL',
+  },
 };
 
 /**
@@ -100,6 +108,26 @@ export function migrate() {
    * 但手工改过库的情况存在，收敛一次成本极低。 */
   db.exec("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''");
   db.exec("UPDATE users SET status = 'active' WHERE status IS NULL OR status = ''");
+
+  /* ---------- FSRS 状态回填 ----------
+   *
+   * 老库的卡是 SM-2 调度的，只有 interval / reps / ef。补上 FSRS 三列之后
+   * 它们全是默认值（state='new'、stability/difficulty=NULL），
+   * 不回填的话会被当成**新卡**重走初始稳定度 —— 之前积累的复习历史白费，
+   * 而且用户会看到自己明明复习过很多次的卡突然变成「新卡」。
+   *
+   * 回填口径：
+   *   state      reps > 0 说明复习过 → 'review'
+   *   stability  ≈ interval。这不是拍脑袋：稳定度的定义就是「保留率降到 90%
+   *              所需的天数」，而 SM-2 的 interval 正是在保留率约 90% 时给的，
+   *              两者量纲一致。
+   *   difficulty 取中性值 5，之后几次复习会自己收敛到合适的值。
+   *
+   * 幂等：WHERE 条件保证只动「还没回填过」的行。
+   * 新建的 FSRS 卡 state='new' 且 reps=0，不会被误伤。 */
+  db.exec("UPDATE cards SET state = 'review' WHERE reps > 0 AND state = 'new'");
+  db.exec('UPDATE cards SET stability = max(CAST(interval AS REAL), 0.1) WHERE stability IS NULL AND interval > 0');
+  db.exec('UPDATE cards SET difficulty = 5 WHERE difficulty IS NULL AND interval > 0');
 
   return added;
 }

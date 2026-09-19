@@ -472,7 +472,7 @@ export default function KnowledgeDetail() {
           <Panel className="p-4">
             <div className="flex items-start gap-2.5 text-[11.5px] leading-relaxed text-fg-mute">
               <PenLine size={13} className="mt-0.5 shrink-0 text-fg-faint" />
-              <span>做错的题会自动进错题本；每答一次，SM-2 都会重新计算这个考点下次该什么时候复习。</span>
+              <span>做错的题会自动进错题本；每答一次，FSRS 都会重新估算这个考点下次该什么时候复习。</span>
             </div>
           </Panel>
         </div>

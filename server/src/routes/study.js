@@ -17,7 +17,8 @@ import {
   getTree, inTrack, nodeMastery, XP,
 } from '../lib/game.js';
 import { diagnoseRoots, nextToLearn } from '../lib/diagnose.js';
-import { newCard } from '../lib/sm2.js';
+import { newCard } from '../lib/fsrs.js';
+import { insertCard } from '../lib/cardStore.js';
 
 const todayStr = () => {
   const d = new Date();
@@ -87,9 +88,7 @@ export default async function studyRoutes(fastify) {
         .get(req.userId, q.kid, 'knowledge');
       if (!has) {
         const c = newCard(q.kid, null, 'knowledge');
-        db.prepare(`INSERT INTO cards (id,user_id,type,knowledge_id,question_id,due,interval,reps,ef,lapses,last_review,created_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-          .run(c.id, req.userId, c.type, c.knowledgeId, c.questionId, c.due, c.interval, c.reps, c.ef, c.lapses, c.lastReview, c.createdAt);
+        insertCard(db, req.userId, c);
         cardCreated = c;
       }
 
@@ -446,7 +445,7 @@ export default async function studyRoutes(fastify) {
 
 /* ---------- 今日计划生成 ----------
  * 三类任务：
- *   review —— 到期复习卡（SM-2 决定）
+ *   review —— 到期复习卡（FSRS 决定）
  *   new    —— 未学过的新知识点，数量取用户设置 dailyNew
  *   quiz   —— 每日一练 5 题，优先「掌握度低 + 错题多」的节点
  */

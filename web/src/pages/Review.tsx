@@ -279,7 +279,7 @@ export default function Review() {
 
       <div className="flex items-center justify-center gap-1.5 text-[11.5px] text-fg-faint">
         <Zap size={11} />
-        SM-2 会按你的评分决定下次出现的时间：忘了→明天，很熟→间隔翻倍
+        FSRS 会按你的评分，结合这张卡的记忆稳定度算出下次出现的时间
       </div>
     </div>
   );

@@ -323,7 +323,7 @@ export default function Deck() {
           <FileText size={13} className="mt-0.5 shrink-0 text-fg-faint" />
           <span>
             导出的 A4 是两栏排版、按类型配色，卡片不会被分页切断 —— 打印出来直接能夹进书里。
-            也可以点卡片右上角的闪电图标，把它加进 SM-2 复习队列。
+            也可以点卡片右上角的闪电图标，把它加进 FSRS 复习队列。
           </span>
         </div>
       </Panel>
