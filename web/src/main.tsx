@@ -13,10 +13,21 @@ import './styles/index.css';
  * import 顺序在这里是有语义的，不是随手排的。 */
 import './stores/theme';
 import App from './App';
+import { ErrorBoundary, installGlobalErrorHandlers } from './components/ErrorBoundary';
+import { useApp } from './stores/app';
+
+/* 异步异常的兜底必须在 render 之前装上 —— 首屏那几个请求就是最早
+ * 可能 reject 的东西，装晚了它们就漏过去了。 */
+installGlobalErrorHandlers(useApp.getState().pushToast);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {/* ★ ErrorBoundary 必须包在 App 外面，而且要在 StrictMode 里侧 ——
+        它是唯一能阻止「一个页面抛错 → 整棵树卸载 → 用户看到白屏」的东西。
+        放在 App 里侧的话，Router 自己崩掉时它也一起没了。 */}
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );
 

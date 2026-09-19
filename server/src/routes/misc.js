@@ -3,6 +3,7 @@ import { db } from '../db/index.js';
 import { checkAchievements, buildSnapshot, invalidateTree } from '../lib/game.js';
 import { THEME_IDS, DEFAULT_THEME, normalizeTheme } from '../lib/themes.js';
 import { insertCard, updateCardSchedule, cardFromExport } from '../lib/cardStore.js';
+import { checkLlmBase, llmFetch } from '../lib/llmUrl.js';
 
 export default async function miscRoutes(fastify) {
   /* ============ 设置 ============ */
@@ -114,8 +115,25 @@ export default async function miscRoutes(fastify) {
         },
       },
     },
-  }, async (req) => {
+  }, async (req, reply) => {
     const b = req.body || {};
+
+    /* ★ 校验用户填的 Base URL —— 就在这里拦，不要等到发请求时才拦。
+     *
+     * 服务端会拿这个地址发请求，所以它是一个 SSRF 入口：地址填成
+     * http://127.0.0.1:xxxx 或者 http://169.254.169.254，服务端就会
+     * 替用户去访问，然后把响应体回传（实测过，内网服务返回的原文
+     * 会直接出现在 /api/settings/llm/test 的响应里）。
+     * 写入口拒掉，比每个调用点各拦一次可靠得多 —— 调用点有六个。
+     *
+     * 云端那一栏额外要求 https：明文发 API Key 是不能接受的。
+     * 本地模型那一栏放行环回（LM Studio / Ollama 就在环回上）。 */
+    for (const [field, forCloud] of [['cloudBase', true], ['localBase', false]]) {
+      if (b[field] === undefined) continue;
+      const err = await checkLlmBase(b[field], { forCloud });
+      if (err) return reply.code(400).send({ error: err, code: 'BAD_LLM_BASE' });
+    }
+
     const map = {
       kind: 'kind', localBase: 'local_base', localModel: 'local_model',
       cloudBase: 'cloud_base', cloudModel: 'cloud_model',
@@ -149,11 +167,17 @@ export default async function miscRoutes(fastify) {
     if (!cfg.base) return reply.code(400).send({ error: '还没填 Base URL' });
     if (!cfg.model) return reply.code(400).send({ error: '还没填模型名' });
 
+    /* 再校验一次。写入时已经拦过，但库里可能存着**这次改动之前**
+     * 就已经填好的内网地址 —— 只在写入口拦的话，老数据照样能打出去。
+     * 这里多花一次 DNS 查询，换「存量数据也安全」。 */
+    const baseErr = await checkLlmBase(cfg.base, { forCloud: l.kind === 'cloud' });
+    if (baseErr) return reply.code(400).send({ error: baseErr, code: 'BAD_LLM_BASE' });
+
     const started = Date.now();
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 20000);
-      const res = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+      const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
         body: JSON.stringify({

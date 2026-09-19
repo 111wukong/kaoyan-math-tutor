@@ -108,12 +108,24 @@ section('0. 健康检查与鉴权边界');
 {
   const h = await GET('/api/health');
   ok('健康检查 200', h.status === 200);
-  /* 27 = 原来的 25 张 + admin_log + knowledge_edges。
-   * 这个数字是**故意钉死的**：它盯的是「建表脚本有没有被误改」。
-   * 加表时同步改这里，是让改动者被迫确认一次「我知道我加了一张表」。
-   * 最近一次：knowledge_edges（知识图谱的有向前置依赖边）。 */
-  ok('数据库 27 张表', h.data?.db?.tables === 27, `实得 ${h.data?.db?.tables}`);
   ok('数据库连接正常', h.data?.db?.ok === true);
+  /* ★ 这个接口是**公开**的，所以它只能回「活着没有」。
+   *
+   * 以前它把整个 health() 返回了，里面有 DB_PATH 的绝对路径、用户数、
+   * 作答数 —— 等于匿名告诉全世界「你的服务器装在哪、有多少人在用」。
+   * 下面两条就是钉住这件事，免得哪天又被加回去。 */
+  ok('公开健康检查不回数据库路径',
+    h.data?.db?.path === undefined, `实得 ${h.data?.db?.path}`);
+  ok('公开健康检查不回表数/用户数',
+    h.data?.db?.tables === undefined && h.data?.db?.users === undefined);
+  /* isTemp 是唯一保留的库信息：run-all 靠它拦住
+   * 「BASE=… 指着一个真实库跑测试」。布尔值不泄露路径。 */
+  ok('公开健康检查标明库是一次性的', h.data?.db?.isTemp === true,
+    `实得 ${h.data?.db?.isTemp}`);
+
+  /* 「建表脚本有没有被误改」的哨兵搬到了 tests/graph.mjs ——
+   * 那里直接开库数表，不用 HTTP，也不用先拿到管理员会话。
+   * 表数这个信息本身属于内部细节，不该从公开接口拿。 */
 
   const guarded = await GET('/api/study/snapshot');
   ok('未登录访问受保护接口返回 401', guarded.status === 401, `实得 ${guarded.status}`);
@@ -142,6 +154,96 @@ let userId = null;
 
   const dup = await POST('/api/auth/register', { email: EMAIL, username: '别的名字', password: 'Kaoyan2027!' });
   ok('重复邮箱被拒', dup.status === 400 || dup.status === 409, `实得 ${dup.status}`);
+}
+
+/* ============================================================
+   1b. 上线加固回归
+   ============================================================
+   下面这几条守的都是「读代码看不出来、只有真发请求才知道」的加固 ——
+   代码就在那儿、长得完全正确，但顺序或配置一错就静默失效：
+
+     · 统一错误处理器写在路由注册之后 → 从未生效，
+       表现是中文界面弹英文的 "Bad Request"；
+     · 上游地址没做校验 → 服务端会替用户访问任意地址。
+
+   放在接口套件里而不是单开一个：都是 HTTP 断言，复用这里的服务、
+   cookie jar 和 PUT/GET 包装，没必要再起一台。
+   ============================================================ */
+section('1b. 加固：安全响应头 / 错误格式 / 上游地址');
+{
+  /* ---------- 安全响应头 ---------- */
+  const home = await fetch(`${BASE}/`);
+  const need = [
+    ['content-security-policy', /frame-ancestors 'none'/],
+    ['x-content-type-options', /nosniff/],
+    ['x-frame-options', /DENY/],
+    ['referrer-policy', /strict-origin-when-cross-origin/],
+    ['permissions-policy', /camera=\(\)/],
+  ];
+  for (const [h, re] of need) {
+    const v = home.headers.get(h) || '';
+    ok(`响应头 ${h} 正确`, re.test(v), `实得 ${JSON.stringify(v)}`);
+  }
+  /* HSTS 只该在 https 下发。本地 http 开发时发它，
+   * 浏览器会把 127.0.0.1 也升级成 https，把自己锁在门外。 */
+  ok('http 下不发 HSTS', !home.headers.get('strict-transport-security'));
+  const apiRes = await fetch(`${BASE}/api/health`);
+  ok('接口响应也带 nosniff', apiRes.headers.get('x-content-type-options') === 'nosniff');
+
+  /* ---------- 统一错误格式 ---------- */
+  const bad = await POST('/api/auth/register', {});
+  ok('缺参数回 400', bad.status === 400, `实得 ${bad.status}`);
+  ok('★ 校验错误是中文文案', bad.data?.error === '请求参数不正确',
+    `实得 ${JSON.stringify(bad.data?.error)}`);
+  ok('不是框架默认错误体',
+    bad.data?.error !== 'Bad Request' && bad.data?.code !== 'FST_ERR_VALIDATION');
+
+  /* ---------- 上游地址校验 ---------- */
+  const { checkLlmBase } = await import('../src/lib/llmUrl.js');
+
+  const mustReject = [
+    ['http://169.254.7.7', '链路本地地址'],
+    ['http://10.1.2.3/v1', '10/8 私有网段'],
+    ['http://172.16.5.5/v1', '172.16/12 私有网段'],
+    ['http://192.168.1.9:1234/v1', '192.168/16 私有网段'],
+    ['http://100.64.1.1/v1', '运营商级 NAT 段'],
+    ['http://[fd00::1]:1234/v1', 'IPv6 唯一本地地址'],
+    ['file:///tmp/x', 'file:// 协议'],
+    ['ftp://1.1.1.1/v1', 'ftp:// 协议'],
+    ['not a url', '非 URL'],
+  ];
+  for (const [url, why] of mustReject) {
+    ok(`拒绝${why}`, (await checkLlmBase(url, {})) !== null, url);
+  }
+  /* 环回必须放行 —— 本地模型（LM Studio / Ollama）就跑在这儿。
+   * 拦掉它等于把「本地模型」这个功能一起废了。 */
+  ok('环回放行（本地模型靠它）', (await checkLlmBase('http://127.0.0.1:1234/v1', {})) === null);
+  ok('公网 https 放行', (await checkLlmBase('https://1.1.1.1/v1', {})) === null);
+  /* 云端那栏额外要求 https：明文发 API Key 是不能接受的。 */
+  ok('★ 云端填 http 被拒（密钥会明文发出去）',
+    (await checkLlmBase('http://1.1.1.1/v1', { forCloud: true })) !== null);
+  ok('空值放行（交给「没配模型」提示）', (await checkLlmBase('', {})) === null);
+
+  /* 写入口也要真的拒，而且要带可识别的 code —— 只在发请求时拦的话，
+   * 用户填完点保存会「成功」，直到某次提问才炸，且报错指向别处。 */
+  const putMeta = await PUT('/api/settings/llm', {
+    cloudBase: 'http://169.254.7.7', cloudModel: 'x', cloudKey: 'x'.repeat(12),
+  });
+  ok('写入口拒绝链路本地地址', putMeta.status === 400, `实得 ${putMeta.status}`);
+  ok('带 code=BAD_LLM_BASE', putMeta.data?.code === 'BAD_LLM_BASE',
+    `实得 ${JSON.stringify(putMeta.data?.code)}`);
+
+  const putLan = await PUT('/api/settings/llm', { localBase: 'http://192.168.1.9:1234/v1', localModel: 'x' });
+  ok('写入口拒绝内网地址', putLan.status === 400, `实得 ${putLan.status}`);
+
+  /* 用公网 IP 字面量而不是域名：域名要过 DNS，解析不了也会回 400，
+   * 于是这条断言会因为「解析失败」而通过 —— 绿得没有意义。
+   * IP 字面量不依赖网络，验的确实是「云端必须 https」这条规则。 */
+  const putPlain = await PUT('/api/settings/llm', { cloudBase: 'http://1.1.1.1/v1', cloudModel: 'x' });
+  ok('云端填 http 被拒', putPlain.status === 400, `实得 ${putPlain.status}`);
+
+  const putLoop = await PUT('/api/settings/llm', { localBase: 'http://127.0.0.1:1234/v1', localModel: 'qwen' });
+  ok('本地模型填环回被接受', putLoop.status === 200, `实得 ${putLoop.status}`);
 }
 
 section('2. 会话');

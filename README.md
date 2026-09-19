@@ -55,15 +55,13 @@
 
 ```bash
 npm install
-npm run start          # 后端会托管 web/dist，打开 http://127.0.0.1:5180
+npm run check          # 类型检查 + 构建前端
+npm run start          # 后端托管 web/dist，打开 http://127.0.0.1:5180
 ```
 
-第一次跑之前要先构建前端（`npm run start` 找不到 `web/dist` 时只提供 API）：
-
-```bash
-npm run check          # 类型检查 + 构建
-npm run start
-```
+`npm run check` 那步不能省。`web/dist` 是构建产物、不在仓库里，没有它后端会
+退化成「只提供 API」—— 打开 `http://127.0.0.1:5180` 看到的是 404，
+而服务本身是正常的，很容易误以为装错了。
 
 macOS 上可以直接双击 `启动.command`，它会自动装依赖、构建、起服务、开浏览器。
 
@@ -605,10 +603,15 @@ npm run seed      # 写库（seed 会整表重建边，保证库与文件一致�
 |---|---|
 | 密码 | scrypt（N=16384, r=8, p=1）+ 每用户 16 字节随机盐 + `timingSafeEqual` |
 | 会话 token | 32 字节随机值，**库里只存 `sha256(token)`**，原文仅存在于 httpOnly cookie |
-| Cookie | `httpOnly` + `sameSite=Lax`（生产环境自动加 `secure`），30 天 TTL |
+| Cookie | `httpOnly` + `sameSite=Lax` + `secure`，30 天 TTL。**`secure` 由 `NODE_ENV=production` 决定** —— 不设这个变量，会话 token 会走明文 HTTP 发出去，同一个 WiFi 下谁都能抓走 |
 | 账号探测 | 登录时即使用户不存在也走一次哈希计算，响应时间不泄露账号是否存在 |
 | API Key | **服务端存库，永不回传原文**。`GET /api/settings/llm` 只返回 `hasKey` 布尔 + `keyPreview`（前 6 后 4 位）。`/api/export` 默认剥掉 Key |
-| 限流 | 注册 / 登录 10–12 次每 10 分钟 |
+| 限流 | 三层。全站 600/分钟（`RATE_LIMIT_MAX` 可调）；**AI 六个接口 30/分钟**（每次调用都要打上游，花用户的额度）；注册 / 登录 10–12 次每 10 分钟。<br>★ 全站那层必须是 `global: true`。写成 `false` 时那组 max/timeWindow **不会被任何路由继承**，实际只有显式挂了 `config.rateLimit` 的登录注册受限，其余接口完全裸奔 —— 而配置项存在、数字也在，读代码看不出来 |
+| 代理信任 | `trustProxy` **默认关闭**。打开它意味着「相信 `X-Forwarded-For`」，而那个头客户端可以随便写：裸奔时开着它，按 IP 计数的限流就形同虚设（换一个头换一个身份，登录接口可以无限次试密码）。要开就用 `TRUST_PROXY` 收窄到代理自己的地址，别写 `true` |
+| 响应头 | CSP（`frame-ancestors 'none'` 防点击劫持、`object-src 'none'`、`base-uri 'self'`、`form-action 'self'`、`connect-src 'self'`）+ `X-Content-Type-Options` + `X-Frame-Options` + `Referrer-Policy` + `Permissions-Policy`。<br>HSTS **只在 https 下发** —— 本地 http 开发时发它，浏览器会把 `127.0.0.1` 也升级成 https，把自己锁在门外 |
+| 上游地址 | 用户填的模型 Base URL 会被服务端拿去发请求，所以**写入时校验、读取时再校验一次**（库里存着的旧数据也要挡）：环回放行（本地模型 LM Studio / Ollama 靠它），其余私有 / 保留 / 链路本地网段默认拒绝，云端那一栏额外要求 https，并且**不跟随重定向** —— 一个 `302 → 内网地址` 就能绕过写入时的校验 |
+| 错误响应 | 统一格式必须挂在**插件与路由注册之前**。写在之后不会生效，表现是中文界面弹英文的 `Bad Request` / `Too Many Requests`（前端读 `body.error` 当提示文案），而且 5xx 会把 `err.message` 原文回给客户端。5xx 现在只回通用文案 + `requestId`，真实错误留在服务端日志里 |
+| 公开接口的信息边界 | `/api/health` 是匿名可读的，所以只回「活着没有」和「库是不是一次性的」，不回数据库路径 / 用户数 / 表数 —— 那是「你的服务器装在哪、有多少人在用」。详细的走 `/api/admin/health`（要管理员） |
 | 鉴权闸门 | 全局 `onRequest` 钩子，白名单之外所有 `/api/*` 都必须带有效会话 —— 挂在每个路由上迟早漏一个 |
 | 管理员鉴权 | `/api/admin/*` 每条路由**逐条**挂 `requireAdmin`，且每次都回库读 `role`。不信会话里的快照 —— 会话 30 天有效，缓存 role 会让「撤掉某人的管理员」要等他重新登录才生效 |
 | 权限护栏 | 不能取消自己的管理员权限 / 不能停用自己 / 不能删除自己 / 不能把最后一个管理员降级、停用或删除。都在服务端，前端置灰只是体验 |
@@ -625,8 +628,9 @@ npm run seed      # 写库（seed 会整表重建边，保证库与文件一致�
 ## 测试
 
 ```bash
-npm test               # 跑全部：13 + 23 + 78 + 14 + 337 + 167 + 1 = 633 项
+npm test               # 跑全部：16 + 13 + 23 + 79 + 35 + 14 + 370 + 8 + 167 + 1 = 726 项
 npm run test:api       # 只跑接口
+npm run test:ratelimit # 只跑限流与上游地址兜底（自己起一台限值很小的服务）
 npm run test:browser   # 只跑浏览器
 npm run test:latex     # 只跑公式渲染全量检查
 npm run test:pipeline  # 只跑渲染管线漏屏检查
@@ -932,11 +936,119 @@ CSS 绘制顺序（CSS 2.1 附录 E）：
 npm run check && npm run start
 ```
 
-环境变量：`PORT`（默认 5180）、`HOST`（默认 127.0.0.1）、`LOG_LEVEL`。
+### 上线前必须设的两个环境变量
 
-数据落在 `server/data/app.db`，**已在 `.gitignore` 里** —— 那里有账号和全部作答记录，绝不能入库。备份就是复制这个文件（连同 `-wal` / `-shm`，或先 `sqlite3 app.db "PRAGMA wal_checkpoint(TRUNCATE);"`）。
+```bash
+NODE_ENV=production
+TRUST_PROXY=127.0.0.1
+```
 
-想换台机器：`npm install && npm run check`，然后把 `app.db` 拷过去，或者用页面上的导出 / 导入。
+**`NODE_ENV=production` 只有一个作用，但是关键的：cookie 的 `Secure` 标记。**
+不设它，`Set-Cookie` 里就没有 `Secure`，会话 token 会走明文 HTTP 发出去 ——
+同一个 WiFi 下谁都能抓走，然后就是 30 天的完整账号权限。这一条最容易漏，
+后果也最直接。
+
+**`TRUST_PROXY` 默认关闭，不要写成 `true`。** 打开它意味着「相信
+`X-Forwarded-For`」，而那个头客户端可以随便写。裸奔时开着它，按 IP 计数的
+限流就形同虚设：每换一个头就换一个身份，登录接口可以无限次试密码。
+实测过 —— 固定头打到第 13 次被限流，轮换头打 16 次一次都没被拦。
+只有确实跑在反向代理后面时才设，并收窄到代理自己的地址（认 CIDR，逗号分隔）：
+
+```bash
+TRUST_PROXY=127.0.0.1        # 代理与 Node 同机（Caddy / nginx 的常见场景）
+TRUST_PROXY=172.16.0.0/12    # 容器网络
+```
+
+> 反过来也要注意：代理后面**不设**它，所有请求的来源都会变成 `127.0.0.1`，
+> 于是全站共用一份限流计数 —— 一个人刷得凶会把别人一起锁住。
+
+### 完整环境变量
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `NODE_ENV` | 未设 | ★ 设成 `production` 才会给 cookie 加 `Secure` |
+| `PORT` | `5180` | |
+| `HOST` | `127.0.0.1` | 要直接对外提供服务才改成 `0.0.0.0`；配了反向代理就保持默认 |
+| `TRUST_PROXY` | 关闭 | ★ 见上。别写 `true` |
+| `LOG_LEVEL` | `info` | `fatal`/`error`/`warn`/`info`/`debug`/`trace` |
+| `DB_PATH` | `server/data/app.db` | 数据库位置 |
+| `RATE_LIMIT_MAX` | `600` | 全站每分钟上限（登录注册与 AI 接口各有更紧的一档） |
+| `ALLOW_PRIVATE_LLM_HOST` | 关闭 | 见下面「模型接入的地址限制」 |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` | 见「管理员账号」 | 只在库里没有管理员时生效 |
+
+`.env.example` 里有一份带注释的模板。注意这个项目**不读 `.env` 文件**
+（没引 dotenv），它只是给你记录用的：
+
+```bash
+set -a && . ./.env && set +a && npm run start
+```
+
+### 反向代理
+
+Node 只听 `127.0.0.1`，HTTPS 交给代理终结。Caddy 最省事（自动签证书）：
+
+```
+yanshu.example.com {
+    reverse_proxy 127.0.0.1:5180
+}
+```
+
+代理这一层要**把真实来源传给后端**（Caddy 的 `reverse_proxy` 默认就带
+`X-Forwarded-For` / `X-Forwarded-Proto`），然后后端这边用 `TRUST_PROXY`
+收窄到 `127.0.0.1` 来认它。两边都做对，限流才按真实 IP 计数。
+
+### 数据与备份
+
+数据落在 `server/data/app.db`，**已在 `.gitignore` 里** —— 那里有账号和全部
+作答记录，绝不能入库。
+
+**别用 `cp` 备份。** 库开的是 WAL 模式，刚写完的事务可能还在 `app.db-wal` 里
+没合并回主库 —— 这时候 `cp app.db` 拿到的是一份**陈旧快照**，丢掉最近的
+作答记录，而且 `cp` 不会报任何错。用自带的在线备份：
+
+```bash
+npm run backup                 # 备份一次，保留最近 7 份
+npm run backup -- --keep 30    # 改保留份数
+npm run backup -- --out /mnt/backup   # 换目录（默认 server/data/backups）
+```
+
+挂个定时任务，别指望自己记得：
+
+```cron
+0 3 * * * cd /path/to/kaoyan-math-tutor && /usr/bin/env node server/scripts/backup.mjs >> /var/log/yanshu-backup.log 2>&1
+```
+
+想换台机器：`npm install && npm run check`，然后把 `app.db` 拷过去，
+或者用页面上的导出 / 导入。
+
+### 模型接入的地址限制
+
+用户填的 Base URL 会被**服务端**拿去发请求，所以做了地址校验（否则它就是一个
+SSRF 入口：填个内网地址，服务端替你访问，响应体还能读回来）。规则：
+
+| 地址 | 结果 |
+|---|---|
+| 环回（`127.0.0.1` / `::1`） | ✅ 放行 —— 本地模型（LM Studio / Ollama）靠它 |
+| 其它私有 / 保留 / 链路本地网段 | ❌ 默认拒绝（云元数据地址就在链路本地段里） |
+| 公网地址 | ✅ 放行；**云端那一栏额外要求 `https`**，否则 API Key 会明文发出去 |
+| `file://` / `ftp://` 等 | ❌ 拒绝 |
+
+> 环回是**有意放行**的，代价要说清楚：注册用户仍然能借服务端去访问宿主机
+> 环回上的其它端口（比如同机的数据库或面板）。这是为了不把「本地模型」
+> 这个功能一起废掉而做的取舍 —— 本地模型和环回地址是同一件事。
+> 所以**开放注册 + 自定义地址**这两条同时成立时，要接受这个残留面；
+> 只给认识的人用、或者干脆关掉注册，就没有这个问题。
+
+校验在**写入时和读取时各做一次** —— 库里可能存着这次改动之前就填好的内网地址，
+只在写入口拦的话那些老数据照样能打出去。另外不跟随重定向：一个
+`302 → 内网地址` 就能绕过写入时的校验。
+
+模型跑在同一局域网的另一台机器上（台式机跑 Ollama、笔记本用），
+才打开这个开关。打开等于放弃这层防护，请确认站点不是开放注册的：
+
+```bash
+ALLOW_PRIVATE_LLM_HOST=1
+```
 
 ### 为什么不用 GitHub Pages
 
@@ -970,6 +1082,18 @@ npm run check && npm run start
   要 3 道可能只拿到 1~2 道。接口会返回 `skippedUnjudgeable` 说明丢了几道，前端也会提示。
   这是有意的：混进判不了的题，用户答对了系统说错，比不出题还糟。
 - 生成的题存在 `questions` 表里（`owner_id` = 你，id 前缀 `g_`）。它们不会被 `seed` 覆盖，但会跟着账号一起导出 / 删除。
+- **只覆盖客观题：204 道内置题全是选择题（173）和填空题（31），没有解答题。**
+  判题器 `judge.js` 也只实现了这两个分支。而考研数学的解答题占 70/150 分 ——
+  所以这个系统现在是一个**客观题训练器**，大题请用纸笔做，错题记进错题本。
+  这不是遗漏，是「自动判分」这条线划到哪儿的问题：解答题没法自动判分，
+  硬塞进来只会得到「我明明做对了它说错」。
+  真要支持，可行的方向是「手写/拍照 → AI 判卷 → 人工确认」，
+  `attempts` 表已经有 `error_type` 字段，接得上。
+- **注册是开放的**：任何人访问都能自己建号。单人自用/给朋友用没问题；
+  要放到公网上，建议先把注册关掉（目前需要自己加一道开关，
+  或者用反向代理在 `/api/auth/register` 上做限制）。
+  开放注册 + 用户可自定义上游地址这两件事叠在一起时，
+  服务端会变成一个可被陌生人使用的出网代理 —— 所以地址校验是默认拒绝的。
 - 本机无 PostgreSQL 也无 Docker，所以选了 SQLite；真要多人在线再换。
 
 ---

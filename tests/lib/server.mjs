@@ -99,8 +99,11 @@ async function waitForHealth(base, { proc, logPath, timeoutMs = 30000 }) {
  * @param {number} [opts.port]    不传就自动挑空闲端口
  * @param {string} [opts.dbPath]  不传就在临时目录建一次性库
  * @param {string} [opts.tag]     日志文件名用的标记
+ * @param {object} [opts.env]     额外/覆盖的环境变量。
+ *                                用途：tests/security.mjs 要一台限值很小的
+ *                                服务来验限流，而默认那台把闸门开到很大。
  */
-export async function startServer({ port, dbPath, tag = 'run' } = {}) {
+export async function startServer({ port, dbPath, tag = 'run', env: extraEnv } = {}) {
   const usePort = port || (await freePort());
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `yanshu-${tag}-`));
   const useDb = dbPath || path.join(tmpDir, 'test.db');
@@ -121,6 +124,17 @@ export async function startServer({ port, dbPath, tag = 'run' } = {}) {
       // 日志只留警告以上 —— 之前用 info 级别，一次全量测试的日志有 1.5MB，
       // 全在刷「incoming request」，真正有用的那行反而被埋了。
       LOG_LEVEL: 'warn',
+      /* ★ 把限流闸门开到很大。
+       *
+       * 功能套件不是来测限流的：接口冒烟 340 项、浏览器冒烟 167 项，
+       * 几十次页面导航各自触发一串 /api 请求，叠起来很容易在 1 分钟内
+       * 超过默认的 600 次 —— 然后报出一堆看不懂的 429 失败，
+       * 而代码一行没错。这正是「假红」的典型来源。
+       *
+       * 限流本身由 tests/security.mjs 验：它自己起一台限值很小的私有服务，
+       * 专门确认「这个闸门真的会拦」。要测的东西分开测，互不干扰。 */
+      RATE_LIMIT_MAX: '100000',
+      ...(extraEnv || {}),
     },
     // 直接写文件，不走管道：Chromium 之类的孙进程会继承 fd，
     // 嵌套管道会让外层 `| tail` 等不到 EOF（这个坑在 run-all 里已经踩过一次）。
@@ -161,30 +175,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * 测试会灌账号（browser_*@test.local）和作答记录，跑完不清理。
  * 实测污染过一次：一个真实账号旁边躺了 17 个测试账号。
  *
- * ★ 不能直接拿 os.tmpdir() 做字符串前缀比较。
- *   macOS 上 os.tmpdir() 返回 /var/folders/xx/…/T，而 /tmp 是指向
- *   /private/tmp 的软链 —— 谁都不是谁的前缀。直接比的话
- *   DB_PATH=/tmp/xxx.db 会被误判成真实库，把 README 里推荐的用法也挡掉。
- *   所以先把候选根目录 realpath 化再比。这个坑第一次就踩了。
+ * ★ 判据本体已经搬到 server/src/lib/dbPath.js。
+ *   原因：服务端的 /api/health 以前把 DB_PATH 整个报出来，客户端拿它判断 ——
+ *   但那是个**公开**接口，等于匿名告诉全世界「你的服务器装在哪」。
+ *   现在改成服务端自己判断、只回一个布尔（health.db.isTemp），
+ *   这个函数就跟着搬过去了，放在服务端才用得上。
  *
- * @param {string} dbPath 数据库文件的绝对路径
- * @returns {boolean} 路径为空时返回 false（信息不足时按「不确定」处理，由调用方决定）
+ *   这里保留 re-export，是为了两件事：
+ *     1. tests/graph.mjs 一直在测它（macOS 的 /tmp 软链坑就是在那儿记的）；
+ *     2. run-all 的报错文案要引用它。
+ *   两处引用同一个实现，不会各测各的。
  */
-export function isTempDbPath(dbPath) {
-  const p = String(dbPath || '');
-  if (!p) return false;
-
-  const roots = [os.tmpdir(), '/tmp', '/private/tmp', '/var/tmp']
-    .map((r) => { try { return fs.realpathSync(r); } catch { return null; } })
-    .filter(Boolean);
-
-  /* 数据库文件可能还不存在，所以拿它的**目录**去 realpath。 */
-  const dir = (() => {
-    try { return fs.realpathSync(path.dirname(p)); } catch { return path.dirname(p); }
-  })();
-
-  return roots.some((r) => dir === r || dir.startsWith(r + path.sep));
-}
+export { isTempDbPath } from '../../server/src/lib/dbPath.js';
 
 function safeRead(p) {
   try { return fs.readFileSync(p, 'utf8'); } catch { return '(读不到日志)'; }

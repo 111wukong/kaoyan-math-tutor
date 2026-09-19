@@ -25,7 +25,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ROOT, startServer, isTempDbPath } from './lib/server.mjs';
+import { ROOT, startServer } from './lib/server.mjs';
 
 const SUITES = [
   /* 凭据扫描放最前面：它最快，而且挂掉的话其他都不用看了 ——
@@ -56,6 +56,10 @@ const SUITES = [
    * 挂了的话能一眼看出是「时区」问题而不是业务逻辑问题。 */
   { name: '日期口径检查', file: 'tests/day-boundary.mjs' },
   { name: '接口冒烟', file: 'server/scripts/smoke.mjs' },
+  /* 限流与存量数据兜底要**自己起服务**：它得把 RATE_LIMIT_MAX 压到很小
+   * 才能验「闸门真的会拦」，而共享那台被刻意开到很大（见 lib/server.mjs）。
+   * 也因为它不碰共享服务，放在这里不会影响后面的套件。 */
+  { name: '限流与地址兜底', file: 'server/scripts/rate-limit.mjs' },
   { name: '浏览器冒烟', file: 'tests/browser-smoke.mjs' },
   { name: '近黑渐变色带检测', file: 'tests/banding.mjs' },
 ];
@@ -120,16 +124,20 @@ if (base) {
    * 会把测试数据永久写进 server/data/app.db —— 实测就这么污染过，
    * 一个真实账号旁边躺了 17 个测试账号。
    *
-   * 判据用「数据库路径在不在临时目录里」而不是比对某个写死的路径：
-   * 临时库是 os.tmpdir() 下的，真实库不会在那儿。这样换机器、
-   * 换 DB_PATH 都不会误判。判据本体在 tests/lib/server.mjs 的 isTempDbPath，
-   * 那样它才能被单测覆盖（macOS 的 /tmp 软链坑就是在那儿记的）。 */
-  const dbPath = String(h.db?.path || '');
-  const looksReal = !!dbPath && !isTempDbPath(dbPath);
+   * ★ 判据从「服务端报出 DB_PATH，客户端判断在不在临时目录」
+   *   改成了「服务端自己判断，只回一个布尔 health.db.isTemp」。
+   *   原因是 DB_PATH 是绝对路径，而 /api/health 是**公开**接口 ——
+   *   匿名可读等于把「你的服务器装在哪」挂在公网上。
+   *   判断逻辑本身在 server/src/lib/dbPath.js（macOS 的 /tmp 软链坑
+   *   记在那儿），tests/lib/server.mjs 只是 re-export 一下给
+   *   graph.mjs 的单测用。
+   *
+   * 缺 `db.isTemp` 时**按真实库处理**（fail closed）——
+   * 对着一个不肯报自己库位置的旧服务跑测试，本来就该拒绝。 */
+  const isTemp = h.db?.isTemp === true;
 
-  if (looksReal) {
-    console.log(`\x1b[31m✗ 拒绝执行：${base} 连的是真实数据库。\x1b[0m`);
-    console.log(`  数据库 ${dbPath}`);
+  if (!isTemp) {
+    console.log(`\x1b[31m✗ 拒绝执行：${base} 连的不是一次性数据库。\x1b[0m`);
     console.log('');
     console.log('  测试会往库里灌账号和作答记录，跑完不会自己清理。');
     console.log('  想对着服务测，请让它用一个一次性数据库：');
@@ -140,15 +148,14 @@ if (base) {
     process.exit(1);
   }
 
-  console.log(`  \x1b[90m数据库 ${dbPath}（临时库，可以放心跑）\x1b[0m`);
+  console.log('  \x1b[90m数据库是一次性的，可以放心跑\x1b[0m');
 } else {
   try {
     server = await startServer({ tag: 'all' });
     base = server.base;
-    const h = server.health;
     console.log(`\x1b[36m起了一个一次性服务：${base}\x1b[0m`);
     console.log(`  数据库 ${server.dbPath}`);
-    console.log(`  （表 ${h.db?.tables} 张 / 用户 ${h.db?.users} 个 —— 空的，跑完就删）`);
+    console.log('  （空的，跑完就删）');
   } catch (e) {
     console.log(`\x1b[31m✗ 起服务失败\x1b[0m\n${e.message}\n`);
     process.exit(1);

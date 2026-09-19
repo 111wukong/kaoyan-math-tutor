@@ -8,7 +8,8 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "seed": "node src/db/seed.js",
-    "edges": "node scripts/gen-edges.mjs --stats"
+    "edges": "node scripts/gen-edges.mjs --stats",
+    "backup": "node scripts/backup.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

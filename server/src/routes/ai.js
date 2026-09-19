@@ -10,9 +10,24 @@
  */
 import { db } from '../db/index.js';
 import { resolveLlm } from './misc.js';
+import { checkLlmBase, llmFetch } from '../lib/llmUrl.js';
 import { buildSnapshot, nodeMastery, getTree } from '../lib/game.js';
 import { ancestors } from '../lib/graph.js';
 import { answerIssue, normalizeAnswer } from '../lib/judge.js';
+
+/* ---------- AI 接口的限流档位 ----------
+ *
+ * 这六个接口每次调用都要打上游 —— 花的是用户的额度，或者占本地模型的算力。
+ * 它们比只读接口贵几个数量级，所以不跟全局那档（默认 600/分钟）共用，
+ * 单独收紧到 30/分钟。
+ *
+ * 30 够用吗：一次提问在界面上是「一个流式请求」，只在开始时建连一次，
+ * 不是每个字一个请求。连续追问 30 次/分钟已经远超正常复习节奏。
+ * 真的被卡住，429 的文案是中文的（走 index.js 的统一错误处理器），
+ * 用户知道自己在被限流，而不是「点不动了」。
+ *
+ * error-stats 和 personas 不加：它们只读本地库，不打上游。 */
+const AI_LIMIT = { max: 30, timeWindow: '1 minute' };
 
 /* ---------- 错因分类 ----------
  *
@@ -146,7 +161,7 @@ function buildSystemPrompt(userId, { kid, stage = 'explain', persona = 'strict' 
  *
  * @returns {{cfg: object}|{error: object}} 有 error 就直接 reply.code(400).send(error)
  */
-function llmOrError(req) {
+async function llmOrError(req) {
   const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
   const cfg = l ? resolveLlm(l) : null;
   /* 云端必须带密钥；本地（LM Studio / Ollama）不需要。 */
@@ -162,12 +177,26 @@ function llmOrError(req) {
       },
     };
   }
+
+  /* ★ 上游地址再校验一次（见 lib/llmUrl.js）。
+   *
+   * 写入口（PUT /api/settings/llm）已经拦过内网地址，但库里可能存着
+   * **那次改动之前**就填好的地址 —— 只在写入口拦，存量数据照样能打出去。
+   * 这是六个 AI 接口共用的唯一闸门，所以拦在这里一处就够。
+   *
+   * 代价是每次 AI 调用多一次 DNS 查询（有系统缓存，量级是微秒）。 */
+  const baseErr = await checkLlmBase(cfg.base, { forCloud: l.kind === 'cloud' });
+  if (baseErr) {
+    return { error: { error: baseErr, code: 'BAD_LLM_BASE' } };
+  }
+
   return { cfg };
 }
 
 export default async function aiRoutes(fastify) {
   /* ---------- 流式对话 ---------- */
   fastify.post('/api/ai/chat', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -188,7 +217,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const { kid, stage = 'explain', persona = 'strict', messages } = req.body;
@@ -202,7 +231,7 @@ export default async function aiRoutes(fastify) {
 
     let upstream;
     try {
-      upstream = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+      upstream = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -272,6 +301,7 @@ export default async function aiRoutes(fastify) {
 
   /* ---------- 从对话里提取知识点 ---------- */
   fastify.post('/api/ai/extract', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -280,7 +310,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const { text, kid } = req.body;
@@ -295,7 +325,7 @@ export default async function aiRoutes(fastify) {
     ].join('\n');
 
     try {
-      const res = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+      const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
         body: JSON.stringify({
@@ -332,6 +362,7 @@ export default async function aiRoutes(fastify) {
    * { board, turns, prompt }，半截 JSON 在前端没法用。
    */
   fastify.post('/api/ai/classroom', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -346,7 +377,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const { kid, mode = 'lesson', userInput = '', history = [], round = 0 } = req.body;
@@ -389,7 +420,7 @@ export default async function aiRoutes(fastify) {
      * 这类错误也说成「连不上」，反而误导。 */
     let res;
     try {
-      res = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+      res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
         body: JSON.stringify({
@@ -444,6 +475,7 @@ export default async function aiRoutes(fastify) {
    * 所以做成按需触发（错题本里点「分析错因」），以及批量版本。
    */
   fastify.post('/api/ai/error-type', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -456,7 +488,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const { qid, save = true } = req.body;
@@ -508,6 +540,7 @@ export default async function aiRoutes(fastify) {
    * 上限 8 题：再多的话题干会把上下文撑爆，判得反而更糊。
    */
   fastify.post('/api/ai/error-types', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -515,7 +548,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const limit = Math.min(8, Math.max(1, Number(req.body?.limit) || 5));
@@ -658,6 +691,7 @@ export default async function aiRoutes(fastify) {
    * 题型必须是 choice / blank —— 判题器只认这两种（见 sanitizeGenerated）。
    */
   fastify.post('/api/ai/generate', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -671,7 +705,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const { kid, fromQid, save = true } = req.body;
@@ -850,7 +884,7 @@ function parseJsonObject(content) {
 
 /** 非流式调用一次模型，只取文本。三处（extract / 课堂 / 错因）共用。 */
 async function callLlm(cfg, prompt, { temperature = 0.2 } = {}) {
-  const res = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+  const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
     body: JSON.stringify({
