@@ -324,7 +324,20 @@ ok(isTempDbPath(path.join(os.tmpdir(), 'x.db')) === true,
  * /var/folders/…/T —— 两者谁都不是谁的前缀。第一版用字符串前缀比，
  * 把 /tmp/xxx.db 误判成了真实库。这条断言就是钉住那个修复。 */
 ok(isTempDbPath('/tmp/yanshu-test.db') === true, '★ /tmp 下的库应判为临时（macOS 软链）');
-ok(isTempDbPath('/private/tmp/yanshu-test.db') === true, '/private/tmp 下的库应判为临时');
+/* /private/tmp 是 macOS 上 /tmp 的真实路径 —— 这条断言盯的是那个软链。
+ *
+ * ★ 但它只在 macOS 上成立：Linux runner 上根本没有 /private/tmp 这个目录，
+ *   硬断言会必然失败。CI 已经因此红了两次（本机绿、CI 红，最难查的那类），
+ *   而失败信息是「/private/tmp 下的库应判为临时」—— 看起来像逻辑错了，
+ *   其实是测试写成了平台相关的。
+ *
+ *   所以只在目录确实存在时验。这不是把断言放宽，是把「验什么」说准：
+ *   要验的是「软链路径也能被判成临时」，而软链只在 macOS 上存在。 */
+if (fs.existsSync('/private/tmp')) {
+  ok(isTempDbPath('/private/tmp/yanshu-test.db') === true, '/private/tmp 下的库应判为临时');
+} else {
+  console.log('  \x1b[33m·\x1b[0m 跳过 /private/tmp 用例（本机没有这个目录 —— Linux 上是正常的）');
+}
 ok(isTempDbPath('/Users/someone/project/server/data/app.db') === false,
   '项目目录下的库应判为真实');
 ok(isTempDbPath('') === false, '空路径返回 false（信息不足，交给调用方定）');
