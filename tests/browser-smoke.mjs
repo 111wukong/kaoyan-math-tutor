@@ -626,6 +626,89 @@ try {
     const bn = JSON.parse(backNodes);
     ok('★ 切回星系后节点与画布尺寸都回来了', bn !== -1 && bn.n > 50 && bn.cw > 100,
       `节点 ${bn.n} 个 / 画布宽 ${bn.cw}px`);
+
+    /* ============================================================
+       ★★ 真鼠标点节点必须能跳转
+       ============================================================
+       这一条是用户报上来的：「知识树星系下，为什么点不动？」
+
+       根因：组件在容器上调了 setPointerCapture，于是 pointerup 被重定向到容器。
+       而 click 的落点按规范是「pointerdown 目标与 pointerup 目标的**最近公共祖先**」——
+       按下落在节点的 <span> 上、抬起被挪到容器上，公共祖先就成了容器，
+       节点上的 <Link> 永远收不到 click。**控制台一声不响、页面不报错。**
+
+       为什么原来那一堆星系断言全都没抓到：
+         · 「节点存在」「画布有尺寸」「拖动会转」—— 这些在点不动的情况下**全部成立**；
+         · el.click()（JS 直接点）是好的，所以拿 JS 点击去测也会绿。
+       只有**用 CDP 发真鼠标事件**才复现得出来。所以下面刻意不用 JS 点击。
+
+       顺带钉住两件事：
+         · 从节点上起手拖动，仍然要能转（不能为了修点击把拖动修坏）；
+         · 拖完不能误触发跳转（moved > 6 的那道闸）。
+       ============================================================ */
+    const frontNode = async () => {
+      const raw = await probe(`
+        var ns = Array.from(document.querySelectorAll('[data-galaxy=node]'));
+        var best = null, bo = -1;
+        ns.forEach(function (n) { var o = parseFloat(n.style.opacity || '0'); if (o > bo) { bo = o; best = n; } });
+        if (!best) return 'NO_NODE';
+        var r = best.getBoundingClientRect();
+        return JSON.stringify({
+          href: best.getAttribute('href'),
+          x: Math.round(r.left + r.width / 2),
+          y: Math.round(r.top + r.height / 2),
+        });`);
+      try { return JSON.parse(String(raw)); } catch { return { href: '', x: 0, y: 0 }; }
+    };
+
+    /* 先记下 click 到底落在谁身上 —— 万一将来回归，报错信息直接指出机制 */
+    await probe(`
+      window.__clickTarget = null;
+      document.addEventListener('click', function (e) {
+        var t = e.target;
+        window.__clickTarget = t.tagName + '|' + (t.closest && t.closest('[data-galaxy=node]') ? 'in-node' : 'NOT-in-node');
+      }, true);
+      return 1;`);
+
+    /* ---------- ① 从节点上起手拖动：要转，但不许跳 ---------- */
+    const dn = await frontNode();
+    const tBefore = await probe(`
+      var n = document.querySelectorAll('[data-galaxy=node]')[0];
+      return n ? n.style.transform : '';`);
+    await client.send('Input.dispatchMouseEvent',
+      { type: 'mousePressed', x: dn.x, y: dn.y, button: 'left', clickCount: 1, buttons: 1 });
+    for (const dx of [16, 38, 62]) {
+      await client.send('Input.dispatchMouseEvent',
+        { type: 'mouseMoved', x: dn.x + dx, y: dn.y + 10, button: 'left', buttons: 1 });
+      await sleep(40);
+    }
+    await client.send('Input.dispatchMouseEvent',
+      { type: 'mouseReleased', x: dn.x + 62, y: dn.y + 10, button: 'left', clickCount: 1, buttons: 0 });
+    await sleep(500);
+    const tAfter = await probe(`
+      var n = document.querySelectorAll('[data-galaxy=node]')[0];
+      return n ? n.style.transform : '';`);
+    ok('★ 从节点上起手拖动仍能转动星系（修点击不能把拖动修坏）',
+      !!tAfter && tBefore !== tAfter, `拖动前后都是 ${String(tBefore).slice(0, 44)}`);
+    const stillHere = await probe('return location.pathname');
+    ok('★ 拖动后不会误跳进考点（moved>6 那道闸还在）', stillHere === '/learn', `实得 ${stillHere}`);
+
+    /* ---------- ② 干净的一点：必须跳进去 ---------- */
+    await sleep(300);
+    const cn = await frontNode();
+    await probe(`window.__clickTarget = null; return 1;`);
+    await client.send('Input.dispatchMouseEvent',
+      { type: 'mousePressed', x: cn.x, y: cn.y, button: 'left', clickCount: 1, buttons: 1 });
+    await sleep(60);
+    await client.send('Input.dispatchMouseEvent',
+      { type: 'mouseReleased', x: cn.x, y: cn.y, button: 'left', clickCount: 1, buttons: 0 });
+    await waitFor(`location.pathname === ${JSON.stringify(cn.href)}`, '点节点后跳进考点', 6000);
+    const after = await probe('return location.pathname');
+    ok('★★ 真鼠标点星系节点能跳进考点', after === cn.href, `点了 ${cn.href}，落在 ${after}`);
+    const target = await probe('return window.__clickTarget');
+    ok('★ click 的落点确实在节点内部（不是被指针捕获挪到容器上）',
+      String(target || '').indexOf('in-node') >= 0,
+      `实得 ${target}（若是 "DIV|NOT-in-node" 就是 setPointerCapture 又回来了）`);
   }
 
   /* 窄屏。桌面 1440 下一切正常，不代表 390 下也正常 ——
@@ -1092,7 +1175,17 @@ try {
 
     await nav('/admin');
     const gotTable = await waitFor('!!document.querySelector("#main-scroll table")', '管理台用户表格出现', 15000);
-    await sleep(900);
+    /* ★ 表格出现 ≠ 页面渲染完。
+     *   管理台同时打三个接口（overview / users / logs），表格是 users 先回来的产物，
+     *   此刻「总览」那几张卡还是骨架屏 —— innerText 里一个字都没有。
+     *   原来这里固定 sleep 900ms 就断言字数，机器一忙就报出
+     *   「管理台渲染出内容 276 字」这种假红：实测撞到过一次，同一份代码重跑就绿。
+     *   假红的代价不是"多看一眼"，是让人开始不信任测试。
+     *   改成等条件成立（最多 8 秒）：慢不再等于错，真的渲染不出来照样红。 */
+    await waitFor(
+      'document.getElementById("main-scroll").innerText.replace(/\\s/g,"").length > 300',
+      '管理台内容渲染完成', 8000,
+    );
 
     if (gotTable) {
       const ad = JSON.parse(await probe(`return JSON.stringify({

@@ -354,15 +354,29 @@ export function KnowledgeGalaxy({
     };
   }, [nodes, links, visible]);
 
-  /* ---- 拖动 ---- */
-  const onPointerDown = (e: React.PointerEvent) => {
-    /* 只认主键；右键/中键留给浏览器 */
-    if (e.button !== 0) return;
-    drag.current = { active: true, moved: 0, lastX: e.clientX, lastY: e.clientY };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const onPointerMove = (e: React.PointerEvent) => {
+  /* ---- 拖动 ----
+   *
+   * ★ 这里**不能**用 setPointerCapture。曾经用了，代价是节点完全点不动。
+   *
+   * 机制：指针捕获会把 pointerup 重定向到捕获元素（也就是这个容器）。
+   * 而 click 的落点按规范是「pointerdown 目标与 pointerup 目标的**最近公共祖先**」——
+   * pointerdown 落在节点的 <span> 上、pointerup 被挪到了容器上，
+   * 最近公共祖先就成了容器本身。于是 click 永远打不到节点上的 <Link>，
+   * 症状是「球能转、但点不进任何考点」，而且**控制台一声不响、测试也不会红**。
+   *
+   * 实测的事件流（CDP 真鼠标点在「反常积分」上）：
+   *   pointerdown → SPAN(节点内)
+   *   pointerup   → DIV[data-galaxy=host]     ← 被捕获重定向
+   *   click       → DIV[data-galaxy=host]     ← 链接收不到，不跳转
+   * 同一个节点用 el.click()（JS 直接点）却能正常跳 —— 说明链接本身没问题，
+   * 坏的只有「真鼠标」这条路。用户就是这么点的。
+   *
+   * 改成拖拽期间把 move / up 挂到 window 上：
+   *   · 效果一样（更好：拖出容器也不丢），拖完照样有惯性；
+   *   · pointerup 落在哪就是哪，节点上的 click 恢复原生行为 ——
+   *     Cmd/Ctrl+点击新标签页、中键这些也不用自己模拟。
+   */
+  const onPointerMove = useCallback((e: PointerEvent) => {
     const d = drag.current;
     if (!d.active) return;
     const dx = e.clientX - d.lastX;
@@ -377,13 +391,29 @@ export function KnowledgeGalaxy({
     /* 存速度而不是位移：松手后惯性延续的就是这个 */
     v.yawVel = dx * 0.0062 * 0.55;
     v.pitchVel = dy * 0.0052 * 0.55;
+  }, []);
+
+  const endDrag = useCallback(() => {
+    drag.current.active = false;
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', endDrag);
+    window.removeEventListener('pointercancel', endDrag);
+  }, [onPointerMove]);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    /* 只认主键；右键/中键留给浏览器（中键是"新标签页打开"） */
+    if (e.button !== 0) return;
+    /* moved 每次按下都归零。不归零的话，上一次「拖完松在容器外」留下的
+     * 大位移会把下一次真正的点击也吞掉 —— onClickCapture 只看这个数。 */
+    drag.current = { active: true, moved: 0, lastX: e.clientX, lastY: e.clientY };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
   };
 
-  const endDrag = (e: React.PointerEvent) => {
-    if (!drag.current.active) return;
-    drag.current.active = false;
-    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* 已释放 */ }
-  };
+  /* 卸载时兜底摘监听 —— 拖到一半切走页面（或路由保活把它藏起来），
+   * 监听会留在 window 上，下一次在别的页面动鼠标还在转这颗球。 */
+  useEffect(() => endDrag, [endDrag]);
 
   /* 拖完手指一松，浏览器还会补一个 click。
    * 不拦的话"拖着转一圈"会顺手点进某个考点 —— 阈值 6px 是手感调出来的。 */
@@ -403,10 +433,9 @@ export function KnowledgeGalaxy({
       data-galaxy="host"
       className={cn('relative h-[520px] select-none overflow-hidden sm:h-[640px]', className)}
       style={{ cursor: 'grab', touchAction: 'none' }}
+      /* 只有 down 挂在这儿：move / up 在拖拽期间挂到 window 上（见上面的注释）。
+       * 挂在容器上的话，指针一拖出容器就丢事件，而且会引回 setPointerCapture 那套。 */
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
       onClickCapture={onClickCapture}
     >
       {/* 连线的画布：不参与命中测试，事件全部落到节点或容器上 */}
