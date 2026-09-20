@@ -289,12 +289,27 @@ export interface ErrorStat {
 /* ---- 多智能体课堂 ---- */
 export type ClassRole = 'teacher' | 'xiaoming' | 'xiaohong' | 'xiaogang';
 
+/** 课堂阶段。由**服务端**决定（见 server/src/routes/ai.js 的阶段状态机），
+ *  前端只负责照着渲染 —— 两边各判一次的话，迟早出现「界面说在答疑、
+ *  提示词却按练习在拼」这种自相矛盾。 */
+export type ClassPhase = 'lecture' | 'explain' | 'clarify' | 'practice' | 'discuss';
+
+/** 老师这一轮结尾留的那一问是什么性质。
+ *  check = 理解确认（别动笔），practice = 一道题（要动笔）——
+ *  这个区别必须在界面上看得出来，否则用户不知道该不该拿草稿纸。 */
+export type PromptKind = 'recall' | 'check' | 'practice' | 'explore';
+
+/** 对用户这一句输入的判定 */
+export type ClassIntent = 'confused' | 'understood' | 'question' | 'other' | 'none';
+
 export interface ClassroomTurn {
   role: ClassRole;
   name: string;
   text: string;
   /** 本地标注：第几轮产生的（后端不返回，前端补） */
   round?: number;
+  /** 本地标注：这一句是在回答老师的哪个问题（留痕用，后端不返回） */
+  replyTo?: { text: string; round: number };
 }
 
 export interface ClassroomRound {
@@ -302,6 +317,13 @@ export interface ClassroomRound {
   board: string[];
   prompt: string;
   round: number;
+  phase: ClassPhase;
+  promptKind: PromptKind;
+  intent: ClassIntent;
+  /** prompt 被服务端兜底换过（原本是一道算题，在答疑阶段被拦下来了） */
+  promptAdjusted?: boolean;
+  /** 被静默掉的学生发言条数（答疑阶段学生该安静） */
+  silenced?: number;
   raw?: string;
   parseFailed?: boolean;
 }
@@ -312,6 +334,11 @@ export interface ClassroomRoundBody {
   userInput?: string;
   history?: { role?: string; name: string; text: string }[];
   round?: number;
+  /** 上一轮老师留的问题 —— 带上它，老师才知道自己在回答哪一问 */
+  lastPrompt?: string;
+  lastPromptRound?: number;
+  /** 上一轮所处的阶段，用来承接（比如「答疑中又追问了一句」） */
+  prevPhase?: ClassPhase | '';
 }
 
 /* ============ 接口 ============ */

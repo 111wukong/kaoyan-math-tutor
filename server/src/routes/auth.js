@@ -8,6 +8,27 @@ import {
   cleanupSessions, cookieOptions, COOKIE_NAME, logAuth,
 } from '../lib/session.js';
 
+/* ---------- 注册开关 ----------
+ *
+ * 默认**开着**（不制造意外），但公开部署时建议关掉。
+ *
+ * 为什么要给这个开关：开放注册意味着任何陌生人都能建号，而「有账号」
+ * 正是「用户可自定义模型上游地址」这个功能的前提条件 ——
+ * 两者叠在一起，服务端就变成了一个可被陌生人使用的出网代理
+ * （细节见 lib/llmUrl.js 开头那段）。关掉注册，暴露面从「互联网」
+ * 缩到「你认识的几个人」。
+ *
+ * 关掉不会把人锁在外面：库里一个管理员都没有时，启动会按
+ * ADMIN_EMAIL / ADMIN_PASSWORD 引导一个出来（见 db/migrate.js 的
+ * ensureAdmin），之后账号由管理员在后台建（POST /api/admin/users）。
+ *
+ * ★ 只有字符串 'false' 才算关。
+ *   写成 '0' / 'no' / 'off' 这种「看起来像关闭」的值，实际是开着的 ——
+ *   那是最危险的一类配置误解：运维以为关掉了，其实没有。
+ *   宁可严格，也不要猜。
+ */
+const REGISTRATION_OPEN = process.env.REGISTRATION_ENABLED !== 'false';
+
 /* 对外的用户对象。
  *
  * 白名单式：只列该给的字段。password_hash / password_salt 绝不出现在这里 ——
@@ -32,6 +53,17 @@ function initUserRows(userId) {
 }
 
 export default async function authRoutes(fastify) {
+  /* ---------- 站点配置（公开）----------
+   * 前端登录 / 注册页要据此决定是「显示注册表单」还是「显示已关闭」——
+   * 让人填完一整张表再被 403 顶回来，是很糟的体验，而且看起来像坏了。
+   * 只暴露这一个布尔，不含任何内部信息。
+   *
+   * 它落在 /api/auth/ 前缀里，所以自动走全局鉴权白名单（见 index.js），
+   * 未登录也能读 —— 这是必须的，注册页本来就还没登录。 */
+  fastify.get('/api/auth/config', async () => ({
+    registrationEnabled: REGISTRATION_OPEN,
+  }));
+
   /* ---------- 注册 ---------- */
   fastify.post('/api/auth/register', {
     config: { rateLimit: { max: 10, timeWindow: '10 minutes' } },
@@ -47,6 +79,17 @@ export default async function authRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
+    /* 关掉注册时直接 403，不再往下走。
+     * 注意它排在 schema 校验之后（Fastify 的生命周期如此）——
+     * 所以畸形请求会先拿到 400。这没关系：正常前端提交的是完整表单，
+     * 而这里挡的是「拿脚本硬试」的人。 */
+    if (!REGISTRATION_OPEN) {
+      return reply.code(403).send({
+        error: '本站已关闭注册，需要账号请联系管理员开通。',
+        code: 'REGISTRATION_CLOSED',
+      });
+    }
+
     const email = String(req.body.email || '').trim().toLowerCase();
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');

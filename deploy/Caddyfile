@@ -1,0 +1,30 @@
+# 研数 · 反向代理（Caddy 2）
+#
+# 用法：
+#   1. 把 yanshu.example.com 换成你的域名，A 记录指向这台机器
+#   2. sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   3. sudo systemctl reload caddy
+#
+# 为什么是 Caddy 而不是 nginx：它自动申请并续期 Let's Encrypt 证书。
+# nginx 那边要自己配 certbot 的定时任务，而「忘了续期」这件事不会报错、
+# 不会崩 —— 它只是在某天早上让全站变成证书过期页。少一个能忘的东西。
+
+yanshu.example.com {
+	# Node 只监听 127.0.0.1（见 deploy/yanshu.service），外网只能从这里进。
+	reverse_proxy 127.0.0.1:5180
+
+	# Caddy 默认就会带 X-Forwarded-For / X-Forwarded-Proto，
+	# 所以后端那边用 TRUST_PROXY=127.0.0.1 **收窄着**认它 ——
+	# 两边都做对，按来源计数的限流才按真实 IP 计。
+	#
+	# ★ 别在后端写 TRUST_PROXY=true。那个头客户端可以随便伪造，
+	#   信任范围一宽，限流就形同虚设：换一个头换一个身份，
+	#   登录接口可以无限次试密码（实测过）。
+
+	# 压缩在这一层做，所以后端不需要引 @fastify/compress ——
+	# 前端产物里 charts 是 417KB、math 是 259KB，压完分别到 118KB / 78KB。
+	encode zstd gzip
+
+	# 静态资源的缓存头由后端给（带内容哈希的 immutable 一年，
+	# index.html 每次回源），这里不用重复配置，也别覆盖。
+}

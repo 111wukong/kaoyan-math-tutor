@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { TEST_ADMIN_EMAIL, TEST_ADMIN_PASSWORD } from './lib/server.mjs';
+import { startLlmStub } from './lib/llm-stub.mjs';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5180';
 
@@ -179,6 +180,12 @@ try {
   client = cdp(page.webSocketDebuggerUrl);
   await client.ready;
 
+  /* 记下浏览器发出的每一个请求。
+   * 用来证明「切回一个刚看过的页面时，**没有再打接口**」——
+   * 只断言「DOM 还在」是不够的：DOM 保住了、数据照样重拉一遍，
+   * 用户看到的依然是闪一下。缓存有没有生效只有数请求才知道。 */
+  const requests = [];
+
   client.on((msg) => {
     if (msg.method === 'Runtime.exceptionThrown') {
       const d = msg.params.exceptionDetails;
@@ -189,11 +196,15 @@ try {
       // React 开发构建的提示不算错误
       if (!/Download the React DevTools|DevTools/i.test(text)) consoleErrors.push(text);
     }
+    if (msg.method === 'Network.requestWillBeSent') {
+      requests.push(msg.params.request.url);
+    }
   });
 
   await client.send('Runtime.enable');
   await client.send('Page.enable');
   await client.send('Log.enable');
+  await client.send('Network.enable');
 
   const ev = async (expr) => {
     const r = await client.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
@@ -464,11 +475,19 @@ try {
       const r = await probe(`
         var m = document.getElementById('main-scroll');
         var h1 = document.querySelector('h1');
+        var t = document.body.innerText;
         return JSON.stringify({
           title: h1 ? h1.textContent.trim() : '',
           len: m ? m.innerText.replace(/\\s/g,'').length : 0,
           skel: document.querySelectorAll('.skeleton').length,
-          crash: document.body.innerText.indexOf('应用出错了') >= 0 || document.body.innerText.indexOf('Something went wrong') >= 0
+          /* ★ 「页面出错了」是每页各自的错误边界文案（KeepAlivePages 里包的）。
+             以前只查 '应用出错了'（全局边界），而全局边界一挂整站都没了，
+             根本走不到这条断言 —— 等于这条检查一直是空转。
+             现在按页包了边界，一页崩掉只有那一页显示这句，必须查它。 */
+          crash: t.indexOf('应用出错了') >= 0
+              || t.indexOf('页面出错了') >= 0
+              || t.indexOf('这一页没能渲染出来') >= 0
+              || t.indexOf('Something went wrong') >= 0
         });`);
       const d = JSON.parse(r);
       const newErrs = exceptions.length + consoleErrors.length - before;
@@ -1157,6 +1176,362 @@ try {
       /* 顺带证明"挡住"不是"删成功了但返回 400" */
       const stillMe = await ev(`fetch('/api/auth/me', { credentials: 'include' }).then(function (r) { return r.status })`);
       ok('★ 删自己被拒后账号仍然存在', Number(stillMe.value) === 200, `实得 ${stillMe.value}`);
+    }
+  }
+
+  /* ============================================================
+     8a. 目录导航与面包屑
+     ============================================================
+     这一节验的是「能不能直接跳到某个考点、能不能一眼看出自己在哪」。
+     判据落在**真的点得动、真的跳过去、跳过去之后高亮对**，
+     而不是「侧栏里有个叫目录的东西」。 */
+  section('8a. 目录导航（考点目录）与面包屑');
+  {
+    await nav('/');
+    await waitFor('!!document.querySelector("#main-scroll")', '首页就位（目录节）');
+    await sleep(700);
+
+    /* 目录默认是收起的 —— 这是设计（68 个考点摊开会把侧栏挤爆）。
+     * 所以先断言它收着，再点开。 */
+    const dir = await probe(`return JSON.stringify({
+      nav: !!document.querySelector('nav[aria-label="考点目录"]'),
+      toggle: !!Array.from(document.querySelectorAll('nav[aria-label="考点目录"] button'))
+        .find(function (b) { return b.textContent.indexOf('考点目录') >= 0; }),
+      links: document.querySelectorAll('nav[aria-label="考点目录"] a').length,
+      crumb: !!document.querySelector('nav[aria-label="面包屑"]'),
+      h1: document.querySelector('h1') ? document.querySelector('h1').textContent.trim() : '',
+    })`);
+    const d = JSON.parse(dir);
+    ok('侧栏有「考点目录」这一块', d.nav === true);
+    ok('目录默认收起（不挤占 14 个入口）', d.links === 0, `实得 ${d.links} 条链接`);
+    ok('顶栏有面包屑', d.crumb === true);
+    ok('首页面包屑就是页面标题', d.h1 === '仪表盘', `h1="${d.h1}"`);
+
+    /* 点开目录 —— 顺带证明它是个真能展开的控件 */
+    const opened = await probe(`
+      var bs = Array.from(document.querySelectorAll('nav[aria-label="考点目录"] button'));
+      var b = bs.find(function (x) { return x.textContent.indexOf('考点目录') >= 0; });
+      if (!b) return 'NO_BTN';
+      b.click();
+      return 'ok';`);
+    ok('能展开考点目录', opened === 'ok', String(opened));
+    await sleep(600);
+
+    const chapters = await probe(`return JSON.stringify({
+      chaps: document.querySelectorAll('nav[aria-label="考点目录"] button[aria-expanded]').length,
+      search: !!document.querySelector('input[aria-label="搜索考点"]'),
+    })`);
+    const c = JSON.parse(chapters);
+    ok('展开后列出章节', c.chaps >= 5, `${c.chaps} 个章节`);
+    ok('目录带搜索框', c.search === true);
+
+    /* 搜索 → 点第一条结果 → 应该真的落在那个考点页上 */
+    const typed = await probe(`
+      var el = document.querySelector('input[aria-label="搜索考点"]');
+      if (!el) return 'NO_INPUT';
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '极限');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return 'ok';`);
+    ok('能在目录里搜考点', typed === 'ok', String(typed));
+    await sleep(600);
+
+    const hits = await probe(`return document.querySelectorAll('nav[aria-label="考点目录"] a').length`);
+    ok('搜索出结果', Number(hits) > 0, `${hits} 条`);
+
+    const href = await probe(`
+      var a = document.querySelector('nav[aria-label="考点目录"] a');
+      return a ? a.getAttribute('href') : '';`);
+    ok('结果指向具体考点', /^\/learn\//.test(String(href)), String(href));
+
+    await probe(`document.querySelector('nav[aria-label="考点目录"] a').click(); return 1`);
+    await waitFor(`location.pathname === ${JSON.stringify(String(href))}`, '跳到了那个考点');
+    await sleep(900);
+
+    const landed = await probe(`return JSON.stringify({
+      path: location.pathname,
+      crumb: Array.from(document.querySelectorAll('nav[aria-label="面包屑"] li'))
+        .map(function (li) { return li.textContent.trim(); }),
+      h1: document.querySelector('h1') ? document.querySelector('h1').textContent.trim() : '',
+    })`);
+    const ld = JSON.parse(landed);
+    ok('★ 点目录直接进考点页', ld.path === String(href), ld.path);
+    ok('★ 面包屑是三层（首页 / 知识树 / 考点）', ld.crumb.length === 3, JSON.stringify(ld.crumb));
+    ok('★ 面包屑末段就是考点标题', ld.h1 === ld.crumb[2] && ld.h1.length > 0, `h1="${ld.h1}"`);
+    ok('面包屑里有「知识树」这一层', ld.crumb.indexOf('知识树') >= 0, JSON.stringify(ld.crumb));
+
+    /* 面包屑要能点着往上退 —— 不然它只是个装饰 */
+    const back = await probe(`
+      var a = Array.from(document.querySelectorAll('nav[aria-label="面包屑"] a'))
+        .find(function (x) { return x.textContent.trim() === '知识树'; });
+      if (!a) return 'NO_LINK';
+      a.click();
+      return 'ok';`);
+    ok('面包屑里的「知识树」可点', back === 'ok', String(back));
+    await waitFor('location.pathname === "/learn"', '退回了知识树');
+    ok('★ 点面包屑能退回上一层', true);
+  }
+
+  /* ============================================================
+     8b. 页面切换：保活 + 缓存
+     ============================================================
+     用户的原话是「页面之间切换……切了页面全部刷新了」。这一节把「刷新」
+     拆成两个可测的事实：
+       · DOM 实例还在不在（保活）—— 记号属性还在就是还在；
+       · 有没有重新打接口（缓存）—— 数请求条数。
+     两条都要有：只保 DOM 不缓存，数据照样重拉；只缓存不保活，
+     输入框里打了半截的字照样没。 */
+  section('8b. 页面切换：不卸载、不重拉、滚动还在');
+  {
+    await nav('/mistakes');
+    await waitFor('!!document.querySelector("[data-page=\\"/mistakes\\"]")', '错题本就位');
+    await sleep(1000);
+
+    /* 在页面上打个记号。只有「同一个 DOM 实例」才会留着它 ——
+     * 重新挂载的话属性会跟着新节点一起消失。 */
+    const marked = await probe(`
+      var host = document.querySelector('[data-page="/mistakes"]');
+      if (!host) return 'NO_HOST';
+      host.setAttribute('data-keep-probe', 'alive');
+      return 'ok';`);
+    ok('错题本页面容器就位', marked === 'ok', String(marked));
+
+    const clickNav = async (href) => {
+      const r = await probe(`
+        var a = Array.from(document.querySelectorAll('nav[aria-label="主导航"] a'))
+          .find(function (x) { return x.getAttribute('href') === ${JSON.stringify(href)}; });
+        if (!a) return 'NO_LINK';
+        a.click();
+        return 'ok';`);
+      return r;
+    };
+
+    const before = requests.filter((u) => u.includes('/api/study/mistakes')).length;
+
+    /* 切到统计，再切回来 —— 全程走客户端路由，不是整页刷新 */
+    ok('能从侧栏点进统计', (await clickNav('/stats')) === 'ok');
+    await waitFor('document.querySelector("[data-page=\\"/stats\\"]").style.display !== "none"', '统计页显示出来');
+    await sleep(800);
+
+    const switched = JSON.parse(await probe(`return JSON.stringify({
+      stats: document.querySelector('[data-page="/stats"]').style.display,
+      wrong: document.querySelector('[data-page="/mistakes"]').style.display,
+      probe: !!document.querySelector('[data-keep-probe]'),
+      skel: document.querySelectorAll('#main-scroll .skeleton').length,
+    })`));
+    ok('切走的页面被藏起来（display:none）', switched.wrong === 'none', `实得 ${switched.wrong}`);
+    ok('当前页面显示出来', switched.stats !== 'none', `实得 ${switched.stats}`);
+    ok('★ 切走的页面没有被卸载（DOM 记号还在）', switched.probe === true);
+    ok('★ 切到统计没有闪骨架屏', switched.skel === 0, `${switched.skel} 个骨架屏`);
+
+    ok('能切回错题本', (await clickNav('/mistakes')) === 'ok');
+    await waitFor('document.querySelector("[data-page=\\"/mistakes\\"]").style.display !== "none"', '错题本回到前台');
+    await sleep(700);
+
+    const backState = JSON.parse(await probe(`return JSON.stringify({
+      probe: !!document.querySelector('[data-keep-probe]'),
+      skel: document.querySelectorAll('#main-scroll .skeleton').length,
+      len: document.querySelector('[data-page="/mistakes"]').innerText.replace(/\\s/g,'').length,
+      pages: document.querySelectorAll('[data-page]').length,
+      visible: Array.from(document.querySelectorAll('[data-page]'))
+        .filter(function (p) { return p.style.display !== 'none'; }).length,
+    })`));
+    ok('★ 切回来还是同一个 DOM 实例', backState.probe === true);
+    ok('★ 切回来不闪骨架屏（吃的是缓存）', backState.skel === 0, `${backState.skel} 个骨架屏`);
+    ok('切回来内容还在', backState.len > 30, `${backState.len} 字`);
+    ok('★ 同一时刻只显示一个页面', backState.visible === 1, `${backState.visible} 个可见`);
+    ok('★ 访问过的页面都留在 DOM 里（保活池）', backState.pages >= 3, `${backState.pages} 个容器`);
+
+    /* ★ 这一条才是"不刷新"的硬证据：切回来一次请求都没发。
+     * 只断言"没有骨架屏"是不够的 —— 缓存过期时后台重拉也是没有骨架屏的，
+     * 但那时候确实打了接口。 */
+    const after = requests.filter((u) => u.includes('/api/study/mistakes')).length;
+    ok('★ 切回错题本没有再打接口（缓存命中）', after === before, `${before} → ${after} 次`);
+
+    /* 滚动位置：滚的是 **window**，不是 #main-scroll ——
+     * AppShell 里那个 <main id="main-scroll"> 没有 overflow，
+     * 它自己不滚。断言写错元素的话这条会永远"通过"（两边都是 0）。 */
+    await nav('/learn/c1n1');
+    await waitFor('!!document.querySelector("#main-scroll")', '知识点页就位（滚动节）');
+    await sleep(1200);
+    const scrolled = await probe(`
+      var max = document.documentElement.scrollHeight - innerHeight;
+      var target = Math.min(300, Math.max(0, max));
+      window.scrollTo({ top: target, behavior: 'auto' });
+      return JSON.stringify({ y: window.scrollY, max: max });`);
+    const sc = JSON.parse(scrolled);
+    ok('知识点页可以滚动（够长）', sc.max > 100, `可滚动高度 ${sc.max}px`);
+    ok('已经滚下去了', sc.y > 50, `scrollY=${sc.y}`);
+
+    ok('从知识点页切到统计', (await clickNav('/stats')) === 'ok');
+    await waitFor('document.querySelector("[data-page=\\"/stats\\"]").style.display !== "none"', '统计页再次显示');
+    await sleep(600);
+    await probe(`history.back(); return 1`);
+    await waitFor('location.pathname === "/learn/c1n1"', '回到知识点页');
+    await sleep(800);
+
+    const restored = await probe(`return window.scrollY`);
+    ok('★ 切回知识点页时滚动位置被恢复（不再跳回顶部）',
+      Math.abs(Number(restored) - sc.y) < 60, `scrollY=${restored}（期望 ≈${sc.y}）`);
+  }
+
+  /* ============================================================
+     8c. 课堂：留痕 / 讲透 / 说不知道之后
+     ============================================================
+     这一节是用户报的三条课堂问题的端到端验收，所以必须**对着假模型
+     真点一遍**，而不是只读接口返回：
+       · 第一轮老师有没有把理论讲透（界面上写着"讲授 · 讲透理论"）；
+       · 说「不知道」之后三个同学是不是真的闭嘴了（数气泡）；
+       · 回复有没有留痕（气泡里有没有引用第几轮的问题）；
+       · 「还是没懂 / 懂了」两个按钮能不能把这条链走完。
+     假模型固定每轮回 4 条（老师 + 小明 + 小红 + 小刚），
+     所以「学生静默」这件事在界面上是数得出来的。 */
+  section('8c. 课堂：留痕 / 讲透 / 说不知道之后');
+  {
+    const stub = await startLlmStub();
+    try {
+      /* 在页面上下文里把 stub 配成本用户的本地模型 ——
+       * 走的是真实设置接口，不是改前端 state。 */
+      const cfg = await ev(`fetch('/api/settings/llm', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true, kind: 'local', localBase: ${JSON.stringify(stub.base)}, localModel: 'stub-model' })
+      }).then(function (r) { return r.status })`);
+      ok('能在页面上下文里把课堂接到假模型上', cfg.value === 200, String(cfg.value));
+
+      await nav('/classroom?kid=c1n1');
+      await waitFor('!!document.querySelector("#main-scroll")', '课堂页就位');
+      await sleep(900);
+
+      /* 数「非本人」的气泡。
+       * 不能直接数 [data-anchor^="t-N-"] —— 那一轮里还有**我自己**的那条发言，
+       * 数进去就会把"只剩老师一条"误判成两条。本人气泡的判别特征是
+       * 外层用了 flex-row-reverse（自己的消息靠右）。 */
+      const others = (round) => probe(`
+        return Array.from(document.querySelectorAll('[data-anchor^="t-${round}-"]'))
+          .filter(function (el) { return String(el.className).indexOf('flex-row-reverse') < 0; }).length;`);
+
+      const startBtn = await probe(`
+        var bs = Array.from(document.querySelectorAll('#main-scroll button'));
+        var b = bs.find(function (x) { return x.textContent.indexOf('开始上课') >= 0; });
+        if (!b) return 'NO_BTN';
+        b.click();
+        return 'ok';`);
+      ok('能点「开始上课」', startBtn === 'ok', String(startBtn));
+      await waitFor('document.querySelectorAll("[data-anchor^=\\"t-0-\\"]").length > 0', '第一轮发言上屏', 20000);
+      await sleep(900);
+
+      const first = JSON.parse(await probe(`return JSON.stringify({
+        text: document.querySelector('#main-scroll').innerText,
+      })`));
+      ok('第一轮四个角色都发言了（老师 + 三个同学）', Number(await others(0)) === 4, `实得 ${await others(0)} 条`);
+      ok('★ 第一轮标为「讲透理论」阶段', first.text.indexOf('讲透理论') >= 0, '');
+      ok('★ 提示这一轮老师会把定义/直观/条件讲全',
+        first.text.indexOf('适用条件') >= 0 || first.text.indexOf('常见误区') >= 0, '');
+      ok('首轮结尾的问题标为「老师留了个问题给你」',
+        first.text.indexOf('老师留了个问题给你') >= 0, '');
+      ok('首轮不问用户要答案之外的动笔', first.text.indexOf('不用算') >= 0, '');
+
+      /* ---------- 说「不知道」 ---------- */
+      const said = await probe(`
+        var el = document.querySelector('#main-scroll textarea');
+        if (!el) return 'NO_AREA';
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, '我不知道');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        var bs = Array.from(document.querySelectorAll('#main-scroll button'));
+        var b = bs.find(function (x) { return x.textContent.trim() === '发言'; });
+        if (!b) return 'NO_SEND';
+        b.click();
+        return 'ok';`);
+      ok('能发出「我不知道」', said === 'ok', String(said));
+      await waitFor('document.querySelectorAll("[data-anchor^=\\"t-1-\\"]").length > 0', '第二轮上屏', 20000);
+      await sleep(900);
+
+      const r1others = Number(await others(1));
+      const after = JSON.parse(await probe(`return JSON.stringify({
+        text: document.querySelector('#main-scroll').innerText,
+      })`));
+      ok('★ 说「不知道」后三个同学全部静默（这一轮只剩老师，不含我自己那句）',
+        r1others === 1, `第 2 轮有 ${r1others} 条非本人发言（期望 1）`);
+      ok('★ 阶段切成「只讲给你听」', after.text.indexOf('只讲给你听') >= 0, '');
+      ok('★ 界面上明说了同学已静默',
+        after.text.indexOf('三个同学已静默') >= 0, '');
+      ok('★ 结尾换成「确认你听懂了没有」，不是一道题',
+        after.text.indexOf('老师想确认你听懂了没有') >= 0, '');
+      ok('★ 明确说了这一轮不用动笔',
+        after.text.indexOf('先别动笔') >= 0, '');
+
+      /* ---------- 留痕 ---------- */
+      const trail = JSON.parse(await probe(`return JSON.stringify({
+        quote: document.querySelectorAll('[data-anchor^="t-1-"] [class*="border-l-2"]').length,
+        text: document.querySelector('#main-scroll').innerText,
+      })`));
+      ok('★ 我的发言气泡里引出了在回答哪一问', trail.quote >= 1, `${trail.quote} 处引用`);
+      ok('★ 引用标明了轮次', trail.text.indexOf('回答第 1 轮老师的问题') >= 0, '');
+      ok('★ 有「本课问答留痕」面板', trail.text.indexOf('本课问答留痕') >= 0, '');
+
+      const idx = await probe(`
+        var bs = Array.from(document.querySelectorAll('#main-scroll button'));
+        var b = bs.find(function (x) { return x.textContent.indexOf('本课问答留痕') >= 0; });
+        if (!b) return 'NO_BTN';
+        b.click();
+        return 'ok';`);
+      ok('留痕面板能展开', idx === 'ok', String(idx));
+      await sleep(500);
+      const idxBody = await probe(`return JSON.stringify({
+        rows: document.querySelectorAll('#main-scroll ol > li').length,
+        text: document.querySelector('#main-scroll').innerText,
+      })`);
+      const ib = JSON.parse(idxBody);
+      ok('★ 留痕里列出了「几问几答」', /\d+\s*问\s*·\s*\d+\s*答/.test(ib.text), '');
+      ok('★ 留痕里有问有答两条以上', ib.rows >= 2, `${ib.rows} 行`);
+
+      /* ---------- 理解确认的两个按钮把链走完 ---------- */
+      const quick = await probe(`
+        var bs = Array.from(document.querySelectorAll('#main-scroll button'));
+        var b = bs.find(function (x) { return x.textContent.indexOf('懂了，继续') >= 0; });
+        if (!b) return 'NO_BTN';
+        b.click();
+        return 'ok';`);
+      ok('★ 理解确认有「懂了，继续」这个一键回复', quick === 'ok', String(quick));
+      await waitFor('document.querySelectorAll("[data-anchor^=\\"t-2-\\"]").length > 0', '第三轮上屏', 20000);
+      await sleep(900);
+
+      const practice = JSON.parse(await probe(`return JSON.stringify({
+        text: document.querySelector('#main-scroll').innerText,
+      })`));
+      ok('★ 说懂了之后进「练习 · 验收」', practice.text.indexOf('练习') >= 0, '');
+      ok('★ 这一轮才是「老师留了一道题给你」',
+        practice.text.indexOf('老师留了一道题给你') >= 0, '');
+      const r2others = Number(await others(2));
+      ok('★ 学生恢复发言（不再静默）', r2others === 4, `第 3 轮有 ${r2others} 条非本人发言（期望 4）`);
+
+      /* 切走再切回来，这一课还在 —— 保活 + 存档都要管用 */
+      await probe(`
+        var a = Array.from(document.querySelectorAll('nav[aria-label="主导航"] a'))
+          .find(function (x) { return x.getAttribute('href') === '/stats'; });
+        if (a) a.click();
+        return 1;`);
+      await sleep(700);
+      await probe(`
+        var a = Array.from(document.querySelectorAll('nav[aria-label="主导航"] a'))
+          .find(function (x) { return x.getAttribute('href') === '/classroom'; });
+        if (a) a.click();
+        return 1;`);
+      await sleep(900);
+      const kept = JSON.parse(await probe(`return JSON.stringify({
+        rounds: document.querySelectorAll('[data-anchor^="t-"]').length,
+        text: document.querySelector('#main-scroll').innerText,
+      })`));
+      ok('★ 切走再切回来，这节课的对话还在', kept.rounds >= 6, `${kept.rounds} 条发言`);
+      ok('★ 切回来留痕也还在', kept.text.indexOf('本课问答留痕') >= 0, '');
+    } finally {
+      /* 收干净：把模型配置撤掉，别让它影响后面的全局检查 */
+      await ev(`fetch('/api/settings/llm', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: false, kind: 'local', localBase: '', localModel: '' })
+      }).then(function (r) { return r.status })`).catch(() => {});
+      await stub.stop();
     }
   }
 

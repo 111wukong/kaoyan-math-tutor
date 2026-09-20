@@ -28,10 +28,10 @@ export default function Dashboard() {
   const pushToast = useApp((s) => s.pushToast);
   const refreshSnapshot = useApp((s) => s.refreshSnapshot);
 
-  const next = useAsync(() => api.game.next(), []);
-  const stats = useAsync(() => api.study.stats(), []);
-  const weak = useAsync(() => api.study.weak(6), []);
-  const settings = useAsync(() => api.settings.get(), []);
+  const next = useAsync(() => api.game.next(), [], { key: 'game.next' });
+  const stats = useAsync(() => api.study.stats(), [], { key: 'study.stats' });
+  const weak = useAsync(() => api.study.weak(6), [], { key: 'study.weak:6' });
+  const settings = useAsync(() => api.settings.get(), [], { key: 'settings' });
 
   const snap = next.data?.snapshot;
   /* 根因单独取出来。写成 next.data?.roots?.roots?.length > 0 的话 TS 收窄不了，

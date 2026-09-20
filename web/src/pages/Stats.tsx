@@ -82,10 +82,10 @@ function chartTheme() {
 }
 
 export default function Stats() {
-  const { data, loading } = useAsync(() => api.study.stats(), []);
+  const { data, loading } = useAsync(() => api.study.stats(), [], { key: 'study.stats' });
   /* 错因分布。一道都没判定过时后端返回 judged=0，整块不渲染 ——
    * 显示一个全 0 的图表比不显示更让人困惑。 */
-  const errStats = useAsync(() => api.ai.errorStats(), []);
+  const errStats = useAsync(() => api.ai.errorStats(), [], { key: 'ai.error-stats' });
   const errData = errStats.data;
 
   /* 订阅主题 id —— 它一变这个组件就重渲染，chartTheme() 重新读一遍令牌。

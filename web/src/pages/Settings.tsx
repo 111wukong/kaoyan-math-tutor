@@ -26,10 +26,10 @@ export default function Settings() {
   const user = useAuth((s) => s.user);
   const { theme, setTheme } = useTheme();
 
-  const settings = useAsync(() => api.settings.get(), []);
-  const llm = useAsync(() => api.settings.llm(), []);
-  const storage = useAsync(() => api.data.storage(), []);
-  const sessions = useAsync(() => api.auth.sessions(), []);
+  const settings = useAsync(() => api.settings.get(), [], { key: 'settings' });
+  const llm = useAsync(() => api.settings.llm(), [], { key: 'settings.llm' });
+  const storage = useAsync(() => api.data.storage(), [], { key: 'data.storage' });
+  const sessions = useAsync(() => api.auth.sessions(), [], { key: 'auth.sessions' });
 
   const [savingSettings, setSavingSettings] = useState(false);
   const [form, setForm] = useState<Record<string, any> | null>(null);

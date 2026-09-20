@@ -63,12 +63,15 @@ export default function Admin() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const overview = useAsync(() => api.admin.overview(), []);
+  const overview = useAsync(() => api.admin.overview(), [], { key: 'admin.overview' });
   const list = useAsync(
     () => api.admin.users({ q: debouncedQ, role, status, sort, dir, limit: 100 }),
     [debouncedQ, role, status, sort, dir],
+    /* 筛选条件进 key：来回切「只看管理员 / 只看停用」时结果是现成的。
+     * 缓存有 200 条上限，打字搜出来的中间态会被自动淘汰掉。 */
+    { key: `admin.users:${debouncedQ}|${role}|${status}|${sort}|${dir}`, staleTime: 15_000 },
   );
-  const logs = useAsync(() => api.admin.logs(40), []);
+  const logs = useAsync(() => api.admin.logs(40), [], { key: 'admin.logs:40' });
 
   const reloadAll = useCallback(() => {
     overview.reload();

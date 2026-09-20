@@ -34,7 +34,7 @@ export default function Knowledge() {
     () => (window.innerWidth < 768 ? 'list' : 'galaxy'),
   );
   const [openChapters, setOpenChapters] = useState<Record<string, boolean>>({});
-  const { data, loading } = useAsync(() => api.catalog.tree(track), [track]);
+  const { data, loading } = useAsync(() => api.catalog.tree(track), [track], { key: `catalog.tree:${track}` });
 
   const categories = data?.categories || [];
   const mastery = data?.mastery;

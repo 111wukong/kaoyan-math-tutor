@@ -15,7 +15,7 @@ export default function Mistakes() {
   const nav = useNavigate();
   const pushToast = useApp((s) => s.pushToast);
   const refreshSnapshot = useApp((s) => s.refreshSnapshot);
-  const { data, loading, reload } = useAsync(() => api.study.mistakes(), []);
+  const { data, loading, reload } = useAsync(() => api.study.mistakes(), [], { key: 'study.mistakes' });
 
   const [filterKid, setFilterKid] = useState<string>('');
   const [openId, setOpenId] = useState<string>('');

@@ -10,9 +10,24 @@
  */
 import { db } from '../db/index.js';
 import { resolveLlm } from './misc.js';
+import { checkLlmBase, llmFetch } from '../lib/llmUrl.js';
 import { buildSnapshot, nodeMastery, getTree } from '../lib/game.js';
 import { ancestors } from '../lib/graph.js';
 import { answerIssue, normalizeAnswer } from '../lib/judge.js';
+
+/* ---------- AI 接口的限流档位 ----------
+ *
+ * 这六个接口每次调用都要打上游 —— 花的是用户的额度，或者占本地模型的算力。
+ * 它们比只读接口贵几个数量级，所以不跟全局那档（默认 600/分钟）共用，
+ * 单独收紧到 30/分钟。
+ *
+ * 30 够用吗：一次提问在界面上是「一个流式请求」，只在开始时建连一次，
+ * 不是每个字一个请求。连续追问 30 次/分钟已经远超正常复习节奏。
+ * 真的被卡住，429 的文案是中文的（走 index.js 的统一错误处理器），
+ * 用户知道自己在被限流，而不是「点不动了」。
+ *
+ * error-stats 和 personas 不加：它们只读本地库，不打上游。 */
+const AI_LIMIT = { max: 30, timeWindow: '1 minute' };
 
 /* ---------- 错因分类 ----------
  *
@@ -146,7 +161,7 @@ function buildSystemPrompt(userId, { kid, stage = 'explain', persona = 'strict' 
  *
  * @returns {{cfg: object}|{error: object}} 有 error 就直接 reply.code(400).send(error)
  */
-function llmOrError(req) {
+async function llmOrError(req) {
   const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
   const cfg = l ? resolveLlm(l) : null;
   /* 云端必须带密钥；本地（LM Studio / Ollama）不需要。 */
@@ -162,12 +177,26 @@ function llmOrError(req) {
       },
     };
   }
+
+  /* ★ 上游地址再校验一次（见 lib/llmUrl.js）。
+   *
+   * 写入口（PUT /api/settings/llm）已经拦过内网地址，但库里可能存着
+   * **那次改动之前**就填好的地址 —— 只在写入口拦，存量数据照样能打出去。
+   * 这是六个 AI 接口共用的唯一闸门，所以拦在这里一处就够。
+   *
+   * 代价是每次 AI 调用多一次 DNS 查询（有系统缓存，量级是微秒）。 */
+  const baseErr = await checkLlmBase(cfg.base, { forCloud: l.kind === 'cloud' });
+  if (baseErr) {
+    return { error: { error: baseErr, code: 'BAD_LLM_BASE' } };
+  }
+
   return { cfg };
 }
 
 export default async function aiRoutes(fastify) {
   /* ---------- 流式对话 ---------- */
   fastify.post('/api/ai/chat', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -188,7 +217,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const { kid, stage = 'explain', persona = 'strict', messages } = req.body;
@@ -202,7 +231,7 @@ export default async function aiRoutes(fastify) {
 
     let upstream;
     try {
-      upstream = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+      upstream = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -272,6 +301,7 @@ export default async function aiRoutes(fastify) {
 
   /* ---------- 从对话里提取知识点 ---------- */
   fastify.post('/api/ai/extract', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -280,7 +310,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const { text, kid } = req.body;
@@ -295,7 +325,7 @@ export default async function aiRoutes(fastify) {
     ].join('\n');
 
     try {
-      const res = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+      const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
         body: JSON.stringify({
@@ -330,8 +360,17 @@ export default async function aiRoutes(fastify) {
   /* ---------- 多智能体课堂 ----------
    * 老师 + 三个学生各错各的。这里不用流式：一轮要返回结构化的
    * { board, turns, prompt }，半截 JSON 在前端没法用。
+   *
+   * ★ 2026-09-20 起，这个接口不只是「拼一段提示词」，它跑一个**阶段状态机**。
+   *   起因是三条用户报的实感问题，三条都是同一类毛病：
+   *     1. 说了「不知道」，三个同学还接着提问 —— 学生没有「该安静」的状态；
+   *     2. 说了「不知道」，下一句就甩一道算题 —— 把「没懂」当成了「练过」；
+   *     3. 回复完不知道自己在回哪一问 —— 没有把「上一轮留的问题」当成上下文传下去。
+   *   所以阶段（phase）由**服务端**决定，不由模型决定：模型只负责在给定阶段里说话，
+   *   越界的话有硬过滤（见 guardClassroomResult）。
    */
   fastify.post('/api/ai/classroom', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -342,44 +381,37 @@ export default async function aiRoutes(fastify) {
           userInput: { type: 'string' },
           history: { type: 'array' },
           round: { type: 'integer' },
+          /** 上一轮老师留给学生的问题 —— 有它，老师才知道自己在回答哪一问 */
+          lastPrompt: { type: 'string' },
+          /** 上一轮老师留问题时的轮次（0 基） */
+          lastPromptRound: { type: 'integer' },
+          /** 前端此刻认为处于哪个阶段。用它做承接，避免每轮重新猜 */
+          prevPhase: { type: 'string' },
         },
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
-    const { kid, mode = 'lesson', userInput = '', history = [], round = 0 } = req.body;
+    const {
+      kid, mode = 'lesson', userInput = '', history = [], round = 0,
+      lastPrompt = '', lastPromptRound = 0, prevPhase = '',
+    } = req.body;
+
     const tree = getTree();
     const node = kid ? tree.nodeById.get(kid) : null;
     const snap = buildSnapshot(req.userId);
 
-    const prompt = [
-      '你正在编排一堂考研数学小班课。角色固定为四个人：',
-      '',
-      '- 老师：主讲。一次只讲一个点，绝不超过 120 字，讲完必须抛一个问题给学生。',
-      '- 小明：基础薄弱。他的错误必须是**概念性**的（比如把可导和连续混为一谈）。',
-      '- 小红：中等水平。她的问题必须是**计算细节**上的（比如漏了定义域、符号写错）。',
-      '- 小刚：学得快。他负责**追问本质**（比如「这个定理去掉某个条件还成立吗」）。',
-      '',
-      '铁律：三个人不许都说"我懂了"。必须各错各的，错法互不重复。',
-      '',
-      mode === 'discuss'
-        ? '【课堂形式】研讨课 —— 老师只抛问题、不先给结论；先让三个学生各自尝试，把分歧暴露出来，最后由老师收口。'
-        : '【课堂形式】讲授 + 问答 —— 老师先讲一个点，学生随后提问或犯错，老师再纠正。',
-      '',
-      node ? `【本课知识点】${node.title}\n${String(node.content || '').replace(/\\n\\n/g, '\n').slice(0, 900)}` : '',
-      '',
-      `【学生学情】已学 ${snap.learned}/${snap.total} 个考点，错题 ${snap.wrong} 道，连续打卡 ${snap.streak} 天。`,
-      round > 0 ? `【当前轮次】第 ${round + 1} 轮 —— 承接上一轮，不要重复已讲过的内容。` : '【当前轮次】第 1 轮 —— 先建立直觉。',
-      userInput ? `【学生本人插话】${userInput}\n老师必须回应这句话。` : '',
-      history.length ? `【已有对话】\n${history.slice(-8).map((t) => `${t.name}：${t.text}`).join('\n')}` : '',
-      '',
-      '输出严格的 JSON（不要 markdown 代码块，不要任何解释文字）：',
-      '{"board":["板书步骤1","板书步骤2"],"turns":[{"role":"teacher|xiaoming|xiaohong|xiaogang","name":"老师|小明|小红|小刚","text":"发言内容"}],"prompt":"留给学生本人的问题"}',
-      '',
-      '要求：turns 3-5 条；board 2-4 条且是**数学步骤**（可含 LaTeX，用 $...$ 包裹），不是标题；prompt 是一个具体的问题。',
-    ].filter(Boolean).join('\n');
+    /* 阶段与意图都在服务端算 —— 前端只管照着渲染。
+     * 放前端算的话，两边各写一份正则，迟早会出现「界面说在答疑、
+     * 提示词却按练习在拼」这种自相矛盾。 */
+    const intent = classifyIntent(userInput);
+    const phase = resolvePhase({ round, mode, intent, prevPhase });
+
+    const prompt = buildClassroomPrompt({
+      node, snap, mode, phase, round, userInput, history, lastPrompt, lastPromptRound,
+    });
 
     /* 网络失败要单独 catch：fetch 连不上时 e.message 就是一句
      * "fetch failed"（undici 的原始措辞），直接回给前端等于没说。
@@ -389,7 +421,7 @@ export default async function aiRoutes(fastify) {
      * 这类错误也说成「连不上」，反而误导。 */
     let res;
     try {
-      res = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+      res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
         body: JSON.stringify({
@@ -425,11 +457,32 @@ export default async function aiRoutes(fastify) {
         return { turns: [], board: [], prompt: '', raw: content.slice(0, 800), parseFailed: true };
       }
 
+      /* ★ 阶段约束的硬过滤。写在提示词里的规矩模型不一定听 ——
+       * 实测小模型在「学生安静」这一条上十次有三次会照样让小明插话。
+       * 提示词是请求，这里是保证。 */
+      const guarded = guardClassroomResult(
+        { turns, board: (parsed.board || []).slice(0, 5).map((b) => String(b).slice(0, 400)), prompt: String(parsed.prompt || '') },
+        phase,
+        node,
+      );
+
+      /* clarify 阶段把学生全滤掉之后老师也没说话 —— 这一轮等于空的，如实报失败 */
+      if (!guarded.turns.length) {
+        return { turns: [], board: [], prompt: '', raw: content.slice(0, 800), parseFailed: true };
+      }
+
       return {
-        turns,
-        board: (parsed.board || []).slice(0, 5).map((b) => String(b).slice(0, 400)),
-        prompt: String(parsed.prompt || '').slice(0, 300),
+        turns: guarded.turns,
+        board: guarded.board,
+        prompt: guarded.prompt,
         round,
+        phase,
+        promptKind: PROMPT_KIND[phase] || 'recall',
+        intent,
+        /** prompt 被兜底换过 —— 前端要能说明「这题不是我出的，是系统拦下来的」 */
+        promptAdjusted: guarded.adjusted,
+        /** 被静默掉的学生发言条数。前端拿来显示「同学先安静」 */
+        silenced: guarded.silenced,
       };
     } catch (e) {
       return reply.code(502).send({ error: e.message });
@@ -444,6 +497,7 @@ export default async function aiRoutes(fastify) {
    * 所以做成按需触发（错题本里点「分析错因」），以及批量版本。
    */
   fastify.post('/api/ai/error-type', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -456,7 +510,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const { qid, save = true } = req.body;
@@ -508,6 +562,7 @@ export default async function aiRoutes(fastify) {
    * 上限 8 题：再多的话题干会把上下文撑爆，判得反而更糊。
    */
   fastify.post('/api/ai/error-types', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -515,7 +570,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const limit = Math.min(8, Math.max(1, Number(req.body?.limit) || 5));
@@ -658,6 +713,7 @@ export default async function aiRoutes(fastify) {
    * 题型必须是 choice / blank —— 判题器只认这两种（见 sanitizeGenerated）。
    */
   fastify.post('/api/ai/generate', {
+    config: { rateLimit: AI_LIMIT },
     schema: {
       body: {
         type: 'object',
@@ -671,7 +727,7 @@ export default async function aiRoutes(fastify) {
       },
     },
   }, async (req, reply) => {
-    const { cfg, error } = llmOrError(req);
+    const { cfg, error } = await llmOrError(req);
     if (error) return reply.code(400).send(error);
 
     const { kid, fromQid, save = true } = req.body;
@@ -765,6 +821,273 @@ export default async function aiRoutes(fastify) {
   }));
 }
 
+/* ============================================================
+   课堂阶段状态机
+   ============================================================
+   五个阶段，各有各的「谁能说话」和「结尾留什么」：
+
+     lecture   首轮建地基。老师必须把理论**讲透**（定义 / 直观 / 条件 / 误区），
+               允许长发言；学生错在「听完这段最容易产生的误解」上。
+     explain   常规讲授与答疑。原来那套：老师讲一个点，学生插话，老师纠正。
+     clarify   ★ 学生说了「不知道」。三个学生全部静默，老师换角度重讲，
+               结尾只确认理解、**不出题**。
+     practice  学生说「跟上了」。出一道小题验收。
+     discuss   研讨课。老师只抛问题，学生先各试各的。
+
+   为什么要做成显式状态，而不是每轮重新「看心情」：
+     模型除了对话历史之外不持有任何状态。如果每轮都把全部规则平铺给它，
+     它会在「学生说不知道」的下一轮，按「每轮要留一道题」的惯性继续出题 ——
+     用户看到的就是「我都说不会了，你还让我算」。
+     状态由服务端拿着，提示词只描述**当前这一个状态**该干什么，
+     模型就没有机会把别的状态的规则串过来。
+   ============================================================ */
+
+/* 意图分类用的三个关键词族。
+ *
+ * 顺序有意义，而且不能反：**先判困惑，再判懂了**。
+ * 因为「听不懂」「没听懂」里都带一个「懂」字 —— 先判「懂了」的话，
+ * 「我还是没听懂」会被归成「听懂了」，然后下一轮直接甩一道题出来。
+ * 那正是要修的毛病本身。
+ *
+ * 也不做「整句相等」的匹配：真实输入是「这个我真不知道…」「哎不懂啊」，
+ * 用锚定写法（^…$）会全部漏掉。宁可宽一点 —— 宽了最多是多讲一遍，
+ * 窄了会把「没懂」当成「懂了」。 */
+const CONFUSED_RE = /不知道|不清楚|不明白|不理解|没懂|没听懂|听不懂|不懂|不会做|不会|跟不上|没跟上|太快|再说一遍|再讲一遍|重新讲|重讲|没思路|卡住|卡在|蒙|懵|晕|搞不清|\?\?\?|？？？/;
+const UNDERSTOOD_RE = /懂了|明白了|理解了|会了|清楚了|跟上了|知道了|有感觉|原来如此|可以了|没问题了|继续吧|下一题/;
+const QUESTION_RE = /[?？]|为什么|怎么|如何|是否|能否|是不是|能不能|什么是|什么意思|啥意思|凭什么/;
+
+/**
+ * 判断学生这句话属于哪一类。
+ * @returns {'confused'|'understood'|'question'|'other'|'none'}
+ */
+export function classifyIntent(text) {
+  const s = String(text ?? '').trim();
+  if (!s) return 'none';
+  if (CONFUSED_RE.test(s)) return 'confused';
+  if (UNDERSTOOD_RE.test(s)) return 'understood';
+  /* 提问排在「其他」之前，这一条在 clarify 阶段特别关键：
+   * 「我还是想问一下为什么这里要加条件？」既不含困惑词、也不含「懂了」，
+   * 归成 other 的话阶段机会认为他做出了实质回应，于是推去练习 ——
+   * 又变成「人家还在问，你就让他算」。归成 question 就继续答疑。 */
+  if (QUESTION_RE.test(s)) return 'question';
+  return 'other';
+}
+
+/**
+ * 推演本轮阶段。
+ *
+ * prevPhase 由前端带上来（它手里有完整的对话）。不依赖它也能跑 ——
+ * 只是在「答疑阶段学生又问了一句」这种承接场景下会退化成常规讲授，
+ * 学生就会重新开始提问。
+ */
+export function resolvePhase({ round = 0, mode = 'lesson', intent = 'none', prevPhase = '' }) {
+  if (mode === 'discuss') return 'discuss';
+  if (intent === 'confused') return 'clarify';
+  if (intent === 'understood') return 'practice';
+  if (intent === 'question') return prevPhase === 'clarify' ? 'clarify' : 'explain';
+  /* 在答疑阶段里给出了**实质回应**（既不是提问、也不是「不知道」）——
+   * 这时候才有资格进入练习。
+   *
+   * 注意这里必须是 `intent === 'other'`，不能写成「prevPhase 是 clarify 就推练习」：
+   * 用户点了「继续」但一个字没打（intent = none）时，如果也推进到 practice，
+   * 就变成「他还没说自己懂了，系统已经替他决定了」—— 于是又出一道题。
+   * 没有明确信号就留在原地重讲，这一条是刻意选的保守方向。 */
+  if (prevPhase === 'clarify') return intent === 'other' ? 'practice' : 'clarify';
+  if (round === 0) return 'lecture';
+  return 'explain';
+}
+
+/** 每个阶段结尾留的那一问属于哪种性质。前端靠它决定措辞 ——
+ *  「老师留了个问题给你」和「老师想确认你听懂了没有」是两回事，
+ *  用户得能一眼分清这次要不要动笔算。 */
+export const PROMPT_KIND = {
+  lecture: 'recall',
+  explain: 'recall',
+  clarify: 'check',
+  practice: 'practice',
+  discuss: 'explore',
+};
+
+/* 计算题长什么样。只用来在 clarify 阶段拦「说好的只讲不考，结果又甩一道题」。
+ *
+ * 刻意不写「求导」「求极限」这类光杆词 —— 理解确认问题里出现它们太正常了
+ * （「求极限有哪些方法」），拦下来反而会把好问题换成通用兜底句。
+ * 只认真正带计算动作的说法。 */
+const PROBLEM_RE = /计算|证明|求解|解方程|化简|试求|下列|等于多少|的值是|求\s*[^，。？！]{0,40}的值/;
+
+/**
+ * 兜底的理解确认问题。
+ * 用在 clarify 阶段模型还是出了算题、或者干脆没留问题的时候。
+ * 措辞刻意留出「说不清也没关系」的出口 —— 否则学生会硬撑着说懂了，
+ * 那整个答疑阶段就白跑了。
+ */
+export function fallbackCheckPrompt(node) {
+  const t = node?.title || '这一步';
+  return `先不做题。用自己的话说一遍：「${t}」里最关键的那个条件是什么？`
+    + '说不清也没关系，说不清我就换个说法再讲一次。';
+}
+
+/**
+ * 按阶段拼提示词。
+ *
+ * 导出是为了让 tests/classroom.mjs 能直接断言「提示词里到底写了什么」——
+ * 阶段机的效果全靠提示词落地，不测提示词等于没测。
+ */
+export function buildClassroomPrompt({
+  node, snap, mode = 'lesson', phase = 'explain', round = 0,
+  userInput = '', history = [], lastPrompt = '', lastPromptRound = 0,
+}) {
+  const lines = [
+    '你正在编排一堂考研数学小班课。角色固定为四个人：',
+    '',
+    '- 老师：主讲。一次只讲一个点，讲完必须抛一个问题给学生。',
+    '- 小明：基础薄弱。他的错误必须是**概念性**的（比如把可导和连续混为一谈）。',
+    '- 小红：中等水平。她的问题必须是**计算细节**上的（比如漏了定义域、符号写错）。',
+    '- 小刚：学得快。他负责**追问本质**（比如「这个定理去掉某个条件还成立吗」）。',
+    '',
+    '铁律：三个人不许都说"我懂了"。必须各错各的，错法互不重复。',
+    '',
+  ];
+
+  /* ---------- 各阶段的形态说明 ---------- */
+  if (phase === 'lecture') {
+    lines.push(
+      '【课堂形式】讲授 + 问答（第 1 轮：把理论讲透）',
+      '',
+      '这一轮是**建地基**，不是热身。老师的第一段发言必须把本课知识点讲清楚，',
+      '按下面的顺序讲（可以分成两三条发言，但内容必须齐）：',
+      '  1. 严格表述：定义或定理的完整说法，**包含全部前提条件**；',
+      '  2. 直观解释：它在几何上或生活里对应什么，为什么这个结论成立；',
+      '  3. 适用范围：什么情况下能用、什么情况下**不能用**（这是最容易丢分的地方）；',
+      '  4. 一个最小例子：把定义代进去走一遍，让人看见它确实是这么回事；',
+      '  5. 一句小结：这个考点在考卷上通常以什么形式出现。',
+      '',
+      '★ 第 1 轮老师的总发言可以到 400 字 —— 不受「一次只讲一个点、不超过 120 字」的限制。',
+      '  但必须分条、可读，不许写成一大坨。讲不透的代价是后面每一轮都在补债。',
+      '板书 3-5 条，是**推导骨架**（含 LaTeX），不是标题。',
+      '三个学生仍然各错各的，但错在「听完这段之后最容易产生的误解」上。',
+      '结尾留的问题是**回忆式**的：要求他用自己的话复述定义或条件，不要出计算题。',
+    );
+  } else if (phase === 'clarify') {
+    lines.push(
+      '【课堂形式】一对一答疑 —— 学生说了「不知道」，这一轮只讲给他一个人听',
+      '',
+      '★ 硬性要求（违反即作废）：',
+      '1. **三个学生全部静默**：turns 里只允许出现老师一条发言。',
+      '   他们此刻不许提问、不许插话、不许「我也有同样的问题」—— 学生现在需要的是安静。',
+      '2. **不许出题**。prompt 必须是一个**理解确认**问题，不是算题。',
+      '   要的：「这一步的推理跟得上吗？是卡在定义，还是卡在符号？」',
+      '        「你能用自己的话说说，连续和可导差在哪吗？」',
+      '   禁止的：「求 $\\lim_{x\\to 0}\\frac{\\sin x}{x}$ 的值」「计算下列极限」',
+      '3. **换一个角度重讲**：上一轮用过的那套说法不要原样重复。',
+      '   可以退回更基础的一步、换成几何直观、换一个更小的例子、把符号逐个念清楚。',
+      '4. 开头用一句话承认卡住是正常的（一句就够，不要煽情），然后立刻开始讲。',
+      '5. 老师的发言可以到 250 字，同样要分条。',
+      '板书 2-3 条，只写这一轮真正要用的那几步 —— 别把整章都搬上来。',
+    );
+  } else if (phase === 'practice') {
+    lines.push(
+      '【课堂形式】练习验收 —— 学生表示跟上了，出一道小题验收',
+      '',
+      '1. 老师先用一句话确认上一轮讲的那个点，然后出一道**小题**（一两步就能算完）。',
+      '2. 题目必须针对刚才卡住的那个点，不要换到别的考点去。',
+      '3. 三个学生先各自试，各错各的。',
+      '4. prompt 就是这道题本身，要求学生本人作答。',
+    );
+  } else if (phase === 'discuss') {
+    lines.push('【课堂形式】研讨课 —— 老师只抛问题、不先给结论；先让三个学生各自尝试，把分歧暴露出来，最后由老师收口。');
+  } else {
+    lines.push('【课堂形式】讲授 + 问答 —— 老师先讲一个点，学生随后提问或犯错，老师再纠正。');
+  }
+
+  lines.push('');
+
+  if (node) {
+    lines.push(`【本课知识点】${node.title}`);
+    const body = String(node.content || '').replace(/\\n\\n/g, '\n').slice(0, phase === 'lecture' ? 1800 : 900);
+    if (body) lines.push(body);
+    /* 例题只在讲透那一轮喂进去 —— 后面几轮再喂，模型会倾向于直接讲题，
+     * 而 clarify 阶段要的恰恰是「退回去讲概念」。 */
+    if (phase === 'lecture' && node.example) {
+      lines.push('--- 例题（只作为讲解素材，不要原样抄进发言）---', String(node.example).slice(0, 600));
+    }
+    lines.push('');
+  }
+
+  lines.push(`【学生学情】已学 ${snap.learned}/${snap.total} 个考点，错题 ${snap.wrong} 道，连续打卡 ${snap.streak} 天。`);
+  lines.push(round > 0
+    ? `【当前轮次】第 ${round + 1} 轮 —— 承接上一轮，不要重复已讲过的内容。`
+    : '【当前轮次】第 1 轮 —— 先建立直觉。');
+
+  /* ---------- 留痕：让老师知道自己在回答哪一问 ---------- */
+  if (lastPrompt) {
+    lines.push(
+      '',
+      `【学生正在回答的问题（第 ${lastPromptRound + 1} 轮老师留的）】「${String(lastPrompt).slice(0, 300)}」`,
+      '老师的第一条发言必须**先点明在回应哪一问**（例如「你问的是……，我分两步答」），再展开。',
+      '不许绕开这个问题去讲别的。',
+    );
+  }
+
+  if (userInput) {
+    lines.push(
+      '',
+      `【学生本人插话】${userInput}`,
+      phase === 'clarify'
+        ? '他说的就是「没听懂」。不要重复上一轮的说法，也不要反问他「哪里不懂」就把球踢回去 —— 直接换一种讲法。'
+        : '老师必须回应这句话。',
+    );
+  }
+
+  if (history.length) {
+    lines.push('', `【已有对话】\n${history.slice(-8).map((t) => `${t.name}：${t.text}`).join('\n')}`);
+  }
+
+  lines.push(
+    '',
+    '输出严格的 JSON（不要 markdown 代码块，不要任何解释文字）：',
+    '{"board":["板书步骤1","板书步骤2"],"turns":[{"role":"teacher|xiaoming|xiaohong|xiaogang","name":"老师|小明|小红|小刚","text":"发言内容"}],"prompt":"留给学生本人的问题"}',
+    '',
+    '要求：turns 3-5 条（clarify 阶段除外，那一轮只许老师一条）；',
+    'board 2-5 条且是**数学步骤**（可含 LaTeX，用 $...$ 包裹），不是标题；prompt 是一个具体的问题。',
+  );
+
+  return lines.filter(Boolean).join('\n');
+}
+
+/**
+ * 阶段约束的硬过滤。
+ *
+ * 提示词是请求，这里是保证。三件事：
+ *   1. clarify 阶段把学生发言全部摘掉（他们该静默）；
+ *   2. clarify 阶段如果 prompt 还是一道算题，换成理解确认句；
+ *   3. clarify 阶段没有 prompt 也换成理解确认句 —— 留着空 prompt，
+ *      前端那块「老师留了个问题」的卡片就不会出现，学生就不知道该说什么。
+ *
+ * 为什么不直接报错让前端重试：一次重试就是一次上游调用，花的是用户的钱；
+ * 而这里的每一种越界都有**语义上等价**的兜底，没必要重来。
+ */
+export function guardClassroomResult({ turns = [], board = [], prompt = '' }, phase, node) {
+  let outTurns = turns;
+  let silenced = 0;
+
+  if (phase === 'clarify') {
+    const teacherOnly = turns.filter((t) => t.role === 'teacher');
+    silenced = turns.length - teacherOnly.length;
+    outTurns = teacherOnly;
+  }
+
+  let outPrompt = String(prompt || '').slice(0, 300);
+  let adjusted = false;
+
+  if (phase === 'clarify' && (!outPrompt.trim() || PROBLEM_RE.test(outPrompt))) {
+    outPrompt = fallbackCheckPrompt(node);
+    adjusted = true;
+  }
+
+  return { turns: outTurns, board, prompt: outPrompt, adjusted, silenced };
+}
+
 /* ---------- 课堂发言的归一化 ----------
  * 提示词里把 role 写成了枚举 "teacher|xiaoming|xiaohong|xiaogang"，
  * 但 9B 级别的小模型基本不听这一条，实测会给出：
@@ -850,7 +1173,7 @@ function parseJsonObject(content) {
 
 /** 非流式调用一次模型，只取文本。三处（extract / 课堂 / 错因）共用。 */
 async function callLlm(cfg, prompt, { temperature = 0.2 } = {}) {
-  const res = await fetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+  const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
     body: JSON.stringify({

@@ -12,7 +12,7 @@ const TIER_LABEL = { bronze: '铜', silver: '银', gold: '金' } as const;
 
 export default function Achievements() {
   const snapshot = useApp((s) => s.snapshot);
-  const { data, loading } = useAsync(() => api.game.achievements(), []);
+  const { data, loading } = useAsync(() => api.game.achievements(), [], { key: 'game.achievements' });
   const [filter, setFilter] = useState<'all' | 'unlocked' | 'locked'>('all');
 
   const items = (data?.items || []).filter((a) =>

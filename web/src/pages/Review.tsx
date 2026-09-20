@@ -23,7 +23,7 @@ export default function Review() {
   const nav = useNavigate();
   const pushToast = useApp((s) => s.pushToast);
   const refreshSnapshot = useApp((s) => s.refreshSnapshot);
-  const { data, loading, reload } = useAsync(() => api.cards.due(), []);
+  const { data, loading, reload } = useAsync(() => api.cards.due(), [], { key: 'cards.due' });
 
   const [idx, setIdx] = useState(0);
   const [revealed, setRevealed] = useState(false);

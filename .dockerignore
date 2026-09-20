@@ -1,0 +1,31 @@
+# 构建镜像时不该进去的东西。
+#
+# ★ server/data 必须排除：那里有 app.db —— 全站账号和作答记录。
+#   不排除的话，一次 `docker build` 就会把生产数据烤进镜像层，
+#   而镜像层是**删不掉**的（只能重建镜像），推上去就跟着走了。
+server/data
+
+# 依赖与构建产物：构建阶段会自己装、自己构建
+node_modules
+web/dist
+
+# 测试的中间产物（tests/lib/extract-pipeline.mjs 把 Math.tsx 转译到这里）
+.tmp-pipeline
+
+# 版本控制与编辑器
+.git
+.gitignore
+.github
+
+# 文档截图：10MB 左右，跟运行无关
+docs/screenshots
+
+# 环境变量：里面是真凭据，绝不能进镜像
+.env
+.env.*
+!.env.example
+
+# 系统垃圾
+.DS_Store
+*.log
+npm-debug.log*

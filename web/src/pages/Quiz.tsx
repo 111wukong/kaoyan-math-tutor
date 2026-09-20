@@ -17,7 +17,7 @@ export default function Quiz() {
   const nav = useNavigate();
   const pushToast = useApp((s) => s.pushToast);
   const refreshSnapshot = useApp((s) => s.refreshSnapshot);
-  const { data, loading, reload } = useAsync(() => api.study.daily(), []);
+  const { data, loading, reload } = useAsync(() => api.study.daily(), [], { key: 'study.daily' });
 
   const [idx, setIdx] = useState(0);
   const [answered, setAnswered] = useState<Record<string, boolean>>({});

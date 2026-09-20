@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api, UNAUTHORIZED_EVENT, type User } from '@/lib/api';
+import { clearAsyncCache } from '@/lib/hooks';
 import { useTheme } from '@/stores/theme';
 
 interface AuthState {
@@ -23,6 +24,14 @@ function syncTheme() {
   void useTheme.getState().loadFromServer();
 }
 
+/* 数据缓存（lib/hooks.ts）是**模块级**的，跟账号无关。
+ * 所以换账号时不清它，B 登入后会直接看到 A 的错题本和统计 ——
+ * 那是跨账号的数据泄漏，不是"缓存没刷新"。
+ * 登录、注册、登出、以及任何一次 401，四个口子都要清。 */
+function dropCache() {
+  clearAsyncCache();
+}
+
 export const useAuth = create<AuthState>((set) => ({
   user: null,
   ready: false,
@@ -36,16 +45,19 @@ export const useAuth = create<AuthState>((set) => ({
       syncTheme();
     } catch {
       set({ user: null, ready: true });
+      dropCache();
     }
   },
 
   login: async (email, password) => {
+    dropCache();
     const { user } = await api.auth.login(email, password);
     set({ user, ready: true });
     syncTheme();
   },
 
   register: async (email, username, password) => {
+    dropCache();
     const { user } = await api.auth.register(email, username, password);
     set({ user, ready: true });
     syncTheme();
@@ -54,6 +66,7 @@ export const useAuth = create<AuthState>((set) => ({
   logout: async () => {
     try { await api.auth.logout(); } finally {
       set({ user: null });
+      dropCache();
       /* 退回默认主题。
        * 不这么做的话，A 用户选了宣纸 → 登出 → B 用户登入前的这段空白里，
        * 页面上还是 A 的配色；如果 B 的主题接口又恰好失败，B 就会一直用着
@@ -65,5 +78,8 @@ export const useAuth = create<AuthState>((set) => ({
 
 // 任何接口返回 401 都统一登出，避免每个页面各自处理
 window.addEventListener(UNAUTHORIZED_EVENT, () => {
-  if (useAuth.getState().user) useAuth.setState({ user: null });
+  if (useAuth.getState().user) {
+    useAuth.setState({ user: null });
+    dropCache();
+  }
 });

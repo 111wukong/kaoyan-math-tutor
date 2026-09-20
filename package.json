@@ -19,6 +19,7 @@
     "test:pipeline": "node tests/pipeline-leak.mjs",
     "test:graph": "node tests/graph.mjs",
     "test:api": "node server/scripts/smoke.mjs",
+    "test:hardening": "node server/scripts/hardening.mjs",
     "test:browser": "node tests/browser-smoke.mjs",
     "test:day": "node tests/day-boundary.mjs",
     "banding": "node tests/banding.mjs",
@@ -26,7 +27,8 @@
     "gallery": "node tests/theme-gallery.mjs",
     "start": "npm -w server run start",
     "seed": "npm -w server run seed",
-    "edges": "npm -w server run edges"
+    "edges": "npm -w server run edges",
+    "backup": "npm -w server run backup"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"
