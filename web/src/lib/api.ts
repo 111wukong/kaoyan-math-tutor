@@ -334,6 +334,34 @@ export interface FormulaPayload {
   chapters: number;
 }
 
+/* ---- AI 批改（解答题 / 证明题）---- */
+
+/** 一个评分点的批改结果。`got` 由服务端夹在 [0, pts] 内，总分是各步相加。 */
+export interface GradeStep {
+  i: number;
+  t: string;
+  pts: number;
+  got: number;
+  comment: string;
+}
+
+export interface GradeResult {
+  /** false = 这次没批成（模型输出解析不了），前端应回退到自评 */
+  ok: boolean;
+  parseFailed?: boolean;
+  /** 解析失败时把模型原文带回来，便于排查（也可能直接显示给用户看） */
+  raw?: string;
+  model: string;
+  /** 没有评分点时为 []，此时只有总分 */
+  steps: GradeStep[];
+  score: number;
+  full: number;
+  ratio: number;
+  /** 服务端的建议：ratio ≥ 0.6 记为答对。用户仍可改判。 */
+  correct: boolean;
+  comment: string;
+}
+
 /* ---- 错因归类 ---- */
 
 export type ErrorType = 'concept' | 'calc' | 'condition' | 'method' | 'misread' | 'blank';
@@ -549,21 +577,43 @@ export const api = {
     /**
      * 变式题生成（举一反三）。落库后是当前用户的自建题（id 前缀 `g_`），
      * 会出现在题库里，也参与掌握度计算。
+     *
+     * `mode` 决定出哪一类题：
+     *   objective  客观题（choice / blank）—— 判题器自动判分
+     *   subjective 主观题（solve / proof）—— 判题器不参与，靠 AI 批改或自评
+     *   mixed      各出一半
      */
-    generate: (kid: string, opts: { count?: number; fromQid?: string; save?: boolean } = {}) => post<{
+    generate: (kid: string, opts: { count?: number; fromQid?: string; save?: boolean; mode?: 'objective' | 'subjective' | 'mixed' } = {}) => post<{
       created: {
-        id: string; kid: string; type: 'choice' | 'blank'; difficulty: number;
+        id: string; kid: string; type: QuestionType; difficulty: number;
         stem: string; options: { k: string; t: string }[] | null;
-        answer: string; analysis: string; sourceType: string; saved: boolean;
+        answer: string; analysis: string;
+        steps: QuestionStep[] | null;
+        /** 生成的题会被直接塞进作答卡，所以题型标签和「要不要自评」也得给 */
+        typeLabel: string;
+        selfGraded: boolean;
+        sourceType: string; saved: boolean;
       }[];
       count: number;
       /** 因为和已有题目重复而跳过的道数 */
       skippedDuplicate: number;
-      /** 因为判题器判不了（开放题 / 根号答案 / 多解）而丢掉的道数 */
+      /** 因为判不了分（客观题形态不对 / 主观题没有评分点）而丢掉的道数 */
       skippedUnjudgeable: number;
       parseFailed?: boolean;
       raw?: string;
     }>('/api/ai/generate', { kid, ...opts }),
+
+    /**
+     * AI 批改一道解答题 / 证明题。
+     *
+     * **这个接口不写库** —— 它只返回分数和评语。真正的记账仍然走
+     * `study.answer(..., selfCorrect)` 那条唯一的路，所以 XP、连击、
+     * 掌握度、错题本全都只有一处实现。用户不接受 AI 的判分时可以自己改判。
+     */
+    grade: (qid: string, answer: string) => post<GradeResult>('/api/ai/grade', { qid, answer }),
+
+    /** 单题讲解。带上学生最近一次的作答与错因，所以是「针对你这一步」而不是泛泛而谈。 */
+    explain: (qid: string) => post<{ ok: boolean; text: string; model: string }>('/api/ai/explain', { qid }),
   },
 
   /* 管理台。全部接口服务端都有 requireAdmin，非管理员一律 403。 */

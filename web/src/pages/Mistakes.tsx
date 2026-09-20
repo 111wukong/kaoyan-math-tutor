@@ -8,7 +8,7 @@ import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
 import { Panel, Button, Skeleton, Badge, EmptyState } from '@/components/ui/Primitives';
 import { RichText, InlineMath } from '@/components/ui/Math';
-import { QuestionCard } from '@/components/QuestionCard';
+import { QuestionCard, AiExplain } from '@/components/QuestionCard';
 import { announceAchievements } from '@/components/ui/Toaster';
 import { cn, DIFFICULTY, relTime } from '@/lib/utils';
 
@@ -243,14 +243,24 @@ function MistakeRow({ m, index, open, onToggle }: { m: Mistake; index: number; o
     try {
       /* 带上 fromQid：让模型看着这道错题出变式，而不是泛泛地按考点出。
        * 错因（error_type）也会一起带过去 —— 判过「概念混淆」的，
-       * 出的题就该能戳中那个概念边界。 */
-      const r = await api.ai.generate(m.kid, { fromQid: m.qid, count: 3 });
+       * 出的题就该能戳中那个概念边界。
+       *
+       * mode 跟着**错题本身的题型**走：错的是解答题就出解答题，
+       * 否则会出现「错了一道大题，给你三道选择题」这种不对症的练习。 */
+      const subjective = m.type === 'solve' || m.type === 'proof';
+      const r = await api.ai.generate(m.kid, {
+        fromQid: m.qid,
+        count: 3,
+        mode: subjective ? 'subjective' : 'objective',
+      });
       if (!r.created.length) {
         pushToast({
           kind: 'warn',
           title: '模型这次没给出可用的题',
           desc: r.skippedUnjudgeable
-            ? `有 ${r.skippedUnjudgeable} 道因为判不了分被丢掉了，再点一次试试`
+            ? (subjective
+              ? `有 ${r.skippedUnjudgeable} 道因为没给评分点被丢掉了，再点一次试试`
+              : `有 ${r.skippedUnjudgeable} 道因为判不了分被丢掉了，再点一次试试`)
             : '再点一次试试',
         });
         return;
@@ -272,7 +282,7 @@ function MistakeRow({ m, index, open, onToggle }: { m: Mistake; index: number; o
       transition={{ duration: 0.35, delay: Math.min(index * 0.035, 0.4), ease: [0.16, 1, 0.3, 1] }}
     >
       <Panel className={cn('overflow-hidden transition-colors duration-250', open && 'border-rose/22')}>
-        <button onClick={onToggle} className="flex w-full items-start gap-3 p-4 text-left">
+        <button onClick={onToggle} data-mistake-toggle={m.qid} className="flex w-full items-start gap-3 p-4 text-left">
           <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg border border-rose/28 bg-rose/10 text-[11px] font-semibold text-rose-200 tabular">
             {m.wrongCount}
           </span>
@@ -360,6 +370,11 @@ function MistakeRow({ m, index, open, onToggle }: { m: Mistake; index: number; o
                     </div>
                   </div>
                 )}
+
+                {/* AI 讲透这道题。放在解析下面而不是混进按钮行 ——
+                    它是「内容」不是「动作」，讲出来的东西要占版面。
+                    服务端会带上这次作答和错因，所以讲的是「你卡在哪一步」。 */}
+                <AiExplain qid={m.qid} />
 
                 {/* 举一反三 + 错因分析 ——
                     重做原题只能记住「这道题的答案」，换数字换问法才验证得了方法。 */}

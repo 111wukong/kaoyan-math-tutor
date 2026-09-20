@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Eye, Lightbulb, ListChecks, RotateCcw, X, Zap } from 'lucide-react';
+import { Check, Eye, Lightbulb, ListChecks, RotateCcw, Sparkles, X, Zap } from 'lucide-react';
 import { Badge, Button, Panel } from '@/components/ui/Primitives';
 import { InlineMath, RichText } from '@/components/ui/Math';
 import { cn, DIFFICULTY } from '@/lib/utils';
 import { sfxCorrect, sfxWrong } from '@/lib/sfx';
-import type { AnswerResult, Question } from '@/lib/api';
+import { api, type AnswerResult, type GradeResult, type Question } from '@/lib/api';
 
 /* 单题作答卡
  *
@@ -346,6 +346,7 @@ export function QuestionCard({
           >
             {awaitingSelfGrade ? (
               <SelfGradeReview
+                qid={question.id}
                 result={result}
                 onGrade={(ok) => submit(text, { selfCorrect: ok })}
                 busy={busy}
@@ -386,6 +387,9 @@ export function QuestionCard({
                       </div>
                     </div>
                   )}
+
+                  {/* 「讲透这道题」—— 标准解析是写死的，这一段是针对**你的作答**讲的 */}
+                  <AiExplain qid={question.id} />
 
                   {!result.correct && result.mastery && (
                     <div className="mt-2.5 text-[11.5px] text-fg-mute">
@@ -461,17 +465,31 @@ function OptionButton({
   );
 }
 
-/* ---------- 解答题 / 证明题的自评面板 ----------
+/* ---------- 解答题 / 证明题的判分面板 ----------
  *
- * 摆在这里的东西只有三样，顺序是有讲究的：
+ * 摆在这里的东西顺序是有讲究的：
  *   1. 我的解答（让用户先看见自己写了什么，再去看标准答案 —— 反过来的话
- *      人的记忆会被答案覆盖，自评就变成了「照着答案说自己对」）
- *   2. 参考答案 + 评分点（分步给分，逐条标分值）
- *   3. 两个按钮
+ *      人的记忆会被答案覆盖，判分就变成了「照着答案说自己对」）
+ *   2. 参考答案 + 评分点（分步给分，逐条标分值；AI 批过之后每条还会带上得分与评语）
+ *   3. 判分按钮
+ *
+ * ── AI 批改和自评的关系 ──────────────────────────────────────────
+ * **不是替代，是两层**：
+ *   · AI 批改给一个外部判断（逐条给分 + 指出卡在哪一步）
+ *   · 用户始终保留最终决定权（「我不同意，自己判」）
+ *
+ * 为什么必须保留自评这条退路：
+ *   1. 没配模型时功能不能整个不可用；
+ *   2. 模型输出解析不了时（返回 ok:false）也不能卡住用户；
+ *   3. 数学题的解法可以很野 —— 学生用了完全不同的正确解法，
+ *      AI 判错是有可能的，这时候得让他改判。
+ * 所以三种情况都落到同一排自评按钮上，而**记账始终只有一条路**
+ * （onGrade → /api/study/answer），XP、掌握度、错题本不会分叉。
  */
 function SelfGradeReview({
-  result, onGrade, busy,
+  qid, result, onGrade, busy,
 }: {
+  qid: string;
   result: AnswerResult;
   onGrade: (ok: boolean) => void;
   busy: boolean;
@@ -479,11 +497,38 @@ function SelfGradeReview({
   const steps = result.steps || [];
   const totalPts = useMemo(() => steps.reduce((a, s) => a + (s.pts || 0), 0), [steps]);
 
+  const [grade, setGrade] = useState<GradeResult | null>(null);
+  const [grading, setGrading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  /** 用户点了「我不同意，自己判」—— 把自评按钮放出来 */
+  const [override, setOverride] = useState(false);
+
+  const askAi = async () => {
+    setGrading(true);
+    setAiError('');
+    try {
+      const r = await api.ai.grade(qid, result.myAnswer);
+      if (!r.ok) {
+        /* 解析失败不是错误，是「这次没批成」。说清楚 + 直接给自评，别让用户卡住。 */
+        setAiError('模型这次没按格式回，给不出分数 —— 直接自己判吧。');
+      } else {
+        setGrade(r);
+      }
+    } catch (e: any) {
+      /* NO_LLM 也走这里。服务端的提示文案写得很具体（去设置里补 Key），直接显示。 */
+      setAiError(e?.message || '批改失败');
+    } finally {
+      setGrading(false);
+    }
+  };
+
+  const showSelfGrade = !grade || override;
+
   return (
     <div className="mt-4 space-y-3">
       <div className="rounded-xl border border-cyan/25 bg-cyan/6 px-4 py-3">
         <div className="mb-2 flex items-center gap-1.5 text-[11.5px] font-medium text-cyan-100">
-          <Eye size={12} /> 对答案 —— 这一步不记账，看完自己给自己打分
+          <Eye size={12} /> 对答案 —— 这一步不记账，判完分才算
         </div>
         <div className="mb-3">
           <div className="mb-1 text-[11px] text-fg-mute">我的解答</div>
@@ -508,21 +553,45 @@ function SelfGradeReview({
 
         {steps.length > 0 && (
           <div className="mt-3">
-            <div className="mb-1.5 text-[11px] text-fg-mute">评分点（逐条对照，给自己算个分）</div>
+            <div className="mb-1.5 text-[11px] text-fg-mute">
+              评分点（逐条对照{grade ? ' —— 右侧是 AI 给的得分' : '，给自己算个分'}）
+            </div>
             <ol className="space-y-1.5">
-              {steps.map((s, i) => (
-                <li key={i} className="flex items-start gap-2.5 rounded-lg border border-veil/8 bg-veil/3 px-3 py-2">
-                  <span className="mt-px grid h-5 w-5 shrink-0 place-items-center rounded-md border border-veil/10 bg-veil/6 text-[10.5px] text-fg-mute">
-                    {i + 1}
-                  </span>
-                  <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-fg-soft">
-                    <RichText text={s.t} bareLatex inline />
-                  </span>
-                  {s.pts > 0 && (
-                    <span className="shrink-0 text-[11px] tabular text-amber-200/90">{s.pts} 分</span>
-                  )}
-                </li>
-              ))}
+              {steps.map((s, i) => {
+                const g = grade?.steps.find((x) => x.i === i + 1);
+                return (
+                  <li
+                    key={i}
+                    className={cn(
+                      'rounded-lg border px-3 py-2',
+                      !g ? 'border-veil/8 bg-veil/3'
+                        : g.got >= s.pts ? 'border-emerald/25 bg-emerald/6'
+                          : g.got > 0 ? 'border-amber/25 bg-amber/6'
+                            : 'border-rose/25 bg-rose/6',
+                    )}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <span className="mt-px grid h-5 w-5 shrink-0 place-items-center rounded-md border border-veil/10 bg-veil/6 text-[10.5px] text-fg-mute">
+                        {i + 1}
+                      </span>
+                      <span className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-fg-soft">
+                        <RichText text={s.t} bareLatex inline />
+                      </span>
+                      <span
+                        className={cn(
+                          'shrink-0 text-[11px] tabular',
+                          g ? (g.got >= s.pts ? 'text-emerald-200' : g.got > 0 ? 'text-amber-200' : 'text-rose-200') : 'text-amber-200/90',
+                        )}
+                      >
+                        {g ? `${g.got} / ${s.pts}` : s.pts > 0 ? `${s.pts} 分` : ''}
+                      </span>
+                    </div>
+                    {g?.comment && (
+                      <p className="mt-1 pl-[30px] text-[11.5px] leading-relaxed text-fg-mute">{g.comment}</p>
+                    )}
+                  </li>
+                );
+              })}
             </ol>
           </div>
         )}
@@ -539,17 +608,119 @@ function SelfGradeReview({
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2.5">
-        <Button variant="success" onClick={() => onGrade(true)} loading={busy}>
-          <Check size={14} /> 我做对了
-        </Button>
-        <Button variant="danger" onClick={() => onGrade(false)} loading={busy}>
-          <X size={14} /> 我做错了
-        </Button>
-        <span className="text-[11.5px] text-fg-faint">
-          按「做错了」会进错题本，之后还能重练
-        </span>
-      </div>
+      {/* AI 批改 */}
+      {!grade ? (
+        <div className="rounded-xl border border-violet/25 bg-violet/6 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Button onClick={askAi} loading={grading} disabled={grading}>
+              <Sparkles size={14} /> 让 AI 批改
+            </Button>
+            <span className="text-[11.5px] text-fg-faint">
+              逐条对照评分点给分，并指出卡在哪一步
+            </span>
+          </div>
+          {aiError && (
+            <p className="mt-2 text-[12px] leading-relaxed text-amber-200/90">{aiError}</p>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-violet/30 bg-violet/8 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1.5 text-[13.5px] font-semibold text-violet-100">
+              <Sparkles size={14} /> AI 批改：{grade.score} / {grade.full}
+            </span>
+            <Badge tone={grade.correct ? 'violet' : 'neutral'}>
+              {grade.correct ? '达到及格线' : '未达及格线'}
+            </Badge>
+            <span className="text-[11px] text-fg-faint">
+              {Math.round(grade.ratio * 100)}% · 模型 {grade.model}
+            </span>
+          </div>
+          {grade.comment && (
+            <p className="mt-2 text-[12.5px] leading-relaxed text-fg-soft">{grade.comment}</p>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-2.5">
+            <Button
+              variant={grade.correct ? 'success' : 'danger'}
+              onClick={() => onGrade(grade.correct)}
+              loading={busy}
+            >
+              <Check size={14} /> 接受判分（记作答{grade.correct ? '对' : '错'}）
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setGrade(null); setOverride(true); }}>
+              我不同意，自己判
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 自评：AI 没批过、或者用户不同意 AI 的判分时出现 */}
+      {showSelfGrade && (
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button variant="success" onClick={() => onGrade(true)} loading={busy}>
+            <Check size={14} /> 我做对了
+          </Button>
+          <Button variant="danger" onClick={() => onGrade(false)} loading={busy}>
+            <X size={14} /> 我做错了
+          </Button>
+          <span className="text-[11.5px] text-fg-faint">
+            按「做错了」会进错题本，之后还能重练
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- 「讲透这道题」----------
+ *
+ * 和「AI 对话 / 课堂」的分工：那两个是开放式的，用户得自己组织问题；
+ * 而错题复盘时的问法是固定的 ——「这题为什么这么做、我卡在哪」。
+ * 把问法写死进提示词，用户就只需要点一下。
+ *
+ * ★ 服务端会带上**学生最近一次的作答和错因**，所以讲的是「你这一步错在哪」
+ *   而不是泛泛的题解。这也是它比通用对话有用的地方。
+ */
+export function AiExplain({ qid }: { qid: string }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const ask = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const r = await api.ai.explain(qid);
+      setText(r.text || '模型这次没给出内容，再试一次。');
+    } catch (e: any) {
+      setError(e?.message || '讲解失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-veil/8 pt-3">
+      {!text ? (
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button variant="outline" size="sm" onClick={ask} loading={busy} disabled={busy}>
+            <Sparkles size={13} /> 让 AI 讲透这道题
+          </Button>
+          <span className="text-[11.5px] text-fg-faint">
+            结合你的作答讲：考什么、关键哪一步、你卡在哪
+          </span>
+          {error && <span className="text-[11.5px] text-amber-200/90">{error}</span>}
+        </div>
+      ) : (
+        <div>
+          <div className="mb-1.5 flex items-center gap-1.5 text-[11.5px] font-medium text-violet-100">
+            <Sparkles size={12} /> AI 讲解
+          </div>
+          <div className="rounded-xl border border-violet/20 bg-violet/6 px-3.5 py-3">
+            <RichText text={text} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
