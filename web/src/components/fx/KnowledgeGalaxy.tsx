@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { RotateCcw } from 'lucide-react';
+import { AppLink as Link } from '@/lib/links';
 import { cn, cssVar, withAlpha } from '@/lib/utils';
 import { hexToRgb } from './webgl';
 import { useFxAccents } from './theme-colors';

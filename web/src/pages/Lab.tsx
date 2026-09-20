@@ -1,67 +1,49 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  ArrowUpRight, BookOpen, ChevronDown, FlaskConical, Info, Move3d, Search, Star,
+  ArrowUpRight, BookOpen, ChevronDown, FlaskConical, Info, Move3d, Play, Search, Star,
 } from 'lucide-react';
 import { Panel, SectionTitle, Segmented, Badge } from '@/components/ui/Primitives';
-import { InlineMath, RichText } from '@/components/ui/Math';
+import { InlineMath } from '@/components/ui/Math';
+import { AppLink as Link } from '@/lib/links';
 import { api, type Formula } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
-import { cn, cssVar, MASTERY_STYLE } from '@/lib/utils';
-import { canvasColor } from '@/components/fx/theme-colors';
+import { cn, MASTERY_STYLE } from '@/lib/utils';
+import { FormulaDemo } from '@/components/lab/FormulaDemo';
+import { DEMO_KINDS } from '@/lib/demo';
 
 /* 公式实验室 = 两个东西
  *
- *   ① 交互演示（Playground）：四个"可以拖"的模块，每个都是一张手写的 canvas。
- *      设计原则：先给生活场景钩子再给公式；拖动的效果必须"看得见地"趋向结论；
- *      结论用大白话写，不写成定理。
+ *   ① 交互演示（Playground）：**公式库里每一条都能拖**。
+ *      上一版只有 4 个手写 canvas（割线、黎曼和、泰勒、ε-N），
+ *      而公式手册有 257 条 —— 用户看到的是「怎么就这几个能动」。
  *
- *   ② 公式手册（Handbook）：按考纲整理的公式库（257 条，覆盖 19 章 67 个考点）。
+ *      现在改成「参数化演示引擎」：lib/demo/ 里有一组通用绘图原语
+ *      （曲线、填充、柱、等高线、向量、矩阵…）和 30 多个演示形态，
+ *      再由 classify.ts 把 257 条公式按**分组**映射到这些形态上。
+ *      于是「每条公式都有演示」不再是 257 份工作量。
  *
- * ★ 为什么必须是两个，而不是「把手册也做成可拖的」：
- *   每个交互模块都是**手写的绘图逻辑**（割线的增量三角形、黎曼和的矩形、
- *   泰勒的近似区间、ε-N 的带宽 —— 各写一套）。这种东西不可能对几百条公式
- *   各写一遍。反过来，公式手册需要的是**覆盖面和可检索**，不是每个都动起来。
- *   把两者塞进一个视图，结果是两边都做不好。
+ *   ② 公式手册（Handbook）：按考纲整理的公式库，每条都带成立条件与易错点，
+ *      并且**每张卡片都能就地展开演示** —— 查到了就能立刻动手看。
  *
- *   所以这里的分工是：手册负责「查得到、不漏」，实验室负责「看得懂、记得住」，
- *   手册里的每条公式都挂着它对应的考点，点进去就是知识点详情。
+ * ★ 为什么手册和演示要能互相跳转：
+ *   手册负责「查得到、不漏」，演示负责「看得懂、记得住」。
+ *   查公式时最想做的事就是「看看它长什么样」，所以手册卡片上直接给按钮，
+ *   而不是让用户切到另一个 tab 再自己搜一遍。
  */
 
-type ModuleId = 'secant' | 'riemann' | 'taylor' | 'epsilon';
-
-const MODULES: {
-  id: ModuleId; name: string; hook: string; formula: string; conclusion: string;
-}[] = [
-  {
-    id: 'secant',
-    name: '割线 → 切线',
-    hook: '开车时仪表盘上的「瞬时速度」，其实是把一段很短的平均速度无限缩短得到的。',
-    formula: "f'(a)=\\lim_{h\\to 0}\\frac{f(a+h)-f(a)}{h}",
-    conclusion: '让 h 趋近于 0，割线就变成了切线 —— 这就是导数的几何意义。',
-  },
-  {
-    id: 'riemann',
-    name: '黎曼和逼近面积',
-    hook: '不规则的地块怎么量面积？切成很多细长条，一条条加起来。',
-    formula: '\\int_a^b f(x)\\,dx=\\lim_{n\\to\\infty}\\sum_{i=1}^{n} f(\\xi_i)\\Delta x',
-    conclusion: '切得越细，矩形面积和越接近真实面积。n 取极限，和就变成了积分。',
-  },
-  {
-    id: 'taylor',
-    name: '泰勒展开的局部有效性',
-    hook: '再复杂的曲线，在一点附近都能用多项式「假装」得很好 —— 但只在附近。',
-    formula: 'f(x)=\\sum_{n=0}^{\\infty}\\frac{f^{(n)}(a)}{n!}(x-a)^n',
-    conclusion: '项数越多、离展开点越近，逼近越准；一旦走远，多项式就管不住了。',
-  },
-  {
-    id: 'epsilon',
-    name: 'ε-N 语言的直觉',
-    hook: '「无限接近」是句文学描述，数学需要把它变成一个能验算的陈述。',
-    formula: '\\forall\\varepsilon>0,\\ \\exists N,\\ n>N \\Rightarrow |a_n-A|<\\varepsilon',
-    conclusion: '你随便给多小的 ε，我都能找到一个 N；过了 N 之后所有项都落进那条带子里。',
-  },
+/** 精选：第一次打开时最值得先看的几条（按分组挑，不写死 id —— id 会变） */
+const PICKS: { group: string; name?: RegExp; label: string }[] = [
+  { group: '导数的定义', label: '割线 → 切线' },
+  { group: '定积分', name: /牛顿/, label: '牛顿-莱布尼茨' },
+  { group: '泰勒公式', label: '泰勒展开' },
+  { group: '两个重要极限', label: '重要极限' },
+  { group: '常用连续型分布', name: /^正态分布/, label: '正态分布' },
+  { group: '特征值与特征向量', name: /特征方程/, label: '特征值' },
+  { group: '行列式的性质', name: /转置/, label: '行列式的几何意义' },
+  { group: '概率基本公式', name: /加法/, label: '加法公式' },
+  { group: '方向导数与梯度', name: /梯度/, label: '梯度' },
+  { group: '敛散性判据', name: /p 级数/, label: 'p 级数' },
 ];
 
 export default function Lab() {
@@ -79,8 +61,8 @@ export default function Lab() {
               <h1 className="text-[18px] font-semibold tracking-tight text-fg">公式实验室</h1>
               <p className="mt-0.5 text-[12.5px] text-fg-mute">
                 {tab === 'play'
-                  ? '拖动滑块，看公式怎么「动」起来 —— 四个模块都是可交互的'
-                  : '按考纲整理的公式库 —— 每条都带成立条件与易错点'}
+                  ? '公式库里每一条都能拖 —— 不只是精选的那几个'
+                  : '按考纲整理的公式库 —— 每条都带成立条件，卡片上就能展开演示'}
               </p>
             </div>
           </div>
@@ -104,511 +86,218 @@ export default function Lab() {
    ① 交互演示
    ============================================================ */
 function Playground() {
-  const [mod, setMod] = useState<ModuleId>('secant');
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const [raw, setRaw] = useState('');
+  const [q, setQ] = useState('');
+  const [chapter, setChapter] = useState('');
+  const [pickedId, setPickedId] = useState('');
 
-  // 各模块的参数
-  const [a, setA] = useState(1);
-  const [h, setH] = useState(1.2);
-  const [n, setN] = useState(4);
-  const [terms, setTerms] = useState(1);
-  const [eps, setEps] = useState(0.25);
-
-  const meta = MODULES.find((m) => m.id === mod)!;
-
+  /* 防抖 260ms。每打一个字就重算列表，会让列表一直跳。 */
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const wrap = wrapRef.current;
-    if (!canvas || !wrap) return;
+    const t = setTimeout(() => setQ(raw.trim()), 260);
+    return () => clearTimeout(t);
+  }, [raw]);
 
-    let raf = 0;
-    let cleanup: (() => void) | undefined;
+  /* 一次把整库拉下来，筛选在本地做。
+   * 演示台和手册用的是同一个接口、同一个缓存 key —— 来回切 tab 不重拉。 */
+  const data = useAsync(() => api.catalog.formulas({}), [], {
+    key: 'formulas:all',
+    staleTime: 5 * 60_000,
+  });
 
-    const setup = () => {
-      const rect = wrap.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const W = rect.width;
-      const H = Math.max(300, Math.min(420, rect.width * 0.55));
-      canvas.width = Math.floor(W * dpr);
-      canvas.height = Math.floor(H * dpr);
-      canvas.style.height = `${H}px`;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      draw(ctx, W, H);
-    };
+  const items = useMemo(() => data.data?.items || [], [data.data]);
 
-    const draw = (ctx: CanvasRenderingContext2D, W: number, H: number) => {
-      ctx.clearRect(0, 0, W, H);
-      switch (mod) {
-        case 'secant': return drawSecant(ctx, W, H, a, h);
-        case 'riemann': return drawRiemann(ctx, W, H, n);
-        case 'taylor': return drawTaylor(ctx, W, H, terms);
-        case 'epsilon': return drawEpsilon(ctx, W, H, eps);
-      }
-    };
+  const chapters = useMemo(() => {
+    const out: { id: string; name: string }[] = [];
+    for (const f of items) {
+      if (!out.some((c) => c.id === f.chapterId)) out.push({ id: f.chapterId, name: f.chapterName });
+    }
+    return out;
+  }, [items]);
 
-    setup();
-    const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(setup);
+  const shown = useMemo(() => {
+    const needle = q.toLowerCase();
+    return items.filter((f) => {
+      if (chapter && f.chapterId !== chapter) return false;
+      if (!needle) return true;
+      return `${f.name} ${f.tex} ${f.cond} ${f.note} ${f.group}`.toLowerCase().includes(needle);
     });
-    ro.observe(wrap);
-    cleanup = () => ro.disconnect();
+  }, [items, q, chapter]);
 
-    return () => { cancelAnimationFrame(raf); cleanup?.(); };
-  }, [mod, a, h, n, terms, eps]);
+  const picks = useMemo(() => {
+    const out: { label: string; f: Formula }[] = [];
+    for (const p of PICKS) {
+      const f = items.find((x) => x.group === p.group && (!p.name || p.name.test(x.name)));
+      if (f) out.push({ label: p.label, f });
+    }
+    return out;
+  }, [items]);
+
+  /* 选中的公式。没选过就取筛选结果里的第一条 —— 打开页面就有东西可拖，
+   * 而不是先让用户面对一块空画布。 */
+  const current = useMemo(
+    () => items.find((f) => f.id === pickedId) || shown[0] || items[0] || null,
+    [items, pickedId, shown],
+  );
+
+  const loading = data.loading && !data.data;
 
   return (
-    <div className="space-y-5">
-      {/* 标题在 Lab() 那层统一渲染 —— 这里只放「选哪个模块」。
-          两处都写标题的话，切到手册再切回来会看到两个 h1。 */}
+    <div className="space-y-4">
       <Panel className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Segmented
-            value={mod}
-            onChange={setMod}
-            options={MODULES.map((m) => ({ value: m.id, label: m.name }))}
-          />
-          <Badge tone="violet"><Move3d size={10} /> 可拖动</Badge>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="relative min-w-[220px] flex-1">
+            <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-fg-faint" />
+            <input
+              value={raw}
+              onChange={(e) => setRaw(e.target.value)}
+              aria-label="搜索公式"
+              placeholder={`在 ${items.length || '…'} 条公式里搜 ——「洛必达」「sin x」「AC-B²」「特征值」`}
+              className="h-10 w-full rounded-xl border border-hairline bg-veil/4 pl-10 pr-3.5 text-[13.5px] text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45 focus:bg-veil/6"
+            />
+          </div>
+          <select
+            value={chapter}
+            onChange={(e) => setChapter(e.target.value)}
+            className="h-10 max-w-[260px] rounded-xl border border-hairline bg-veil/4 px-3 text-[12.5px] text-fg-soft outline-none transition-colors hover:border-veil/20 focus:border-cyan/40"
+          >
+            <option value="">全部章节</option>
+            {chapters.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <Badge tone="violet"><Move3d size={10} /> {DEMO_KINDS.length} 类交互</Badge>
         </div>
+
+        {picks.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11.5px] text-fg-faint">精选</span>
+            {picks.map((p) => (
+              <button
+                key={p.f.id}
+                onClick={() => setPickedId(p.f.id)}
+                className={cn(
+                  'flex items-center gap-1 rounded-lg border px-2 py-1 text-[11.5px] transition-colors',
+                  current?.id === p.f.id
+                    ? 'border-cyan/45 bg-cyan/12 text-cyan-100'
+                    : 'border-hairline bg-veil/4 text-fg-mute hover:border-cyan/30 hover:text-fg-soft',
+                )}
+              >
+                <Play size={9} /> {p.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <p className="mt-2.5 text-[11.5px] text-fg-faint">
+          {data.data
+            ? `库里共 ${data.data.total} 条 · 覆盖 ${data.data.coveredKids} 个考点 · ${data.data.chapters} 章`
+              + (q || chapter ? ` · 当前筛选出 ${shown.length} 条` : '')
+            : '加载中…'}
+        </p>
       </Panel>
 
-      <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
-        {/* 画布 */}
-        <Panel className="relative overflow-hidden p-4">
-          <div className="pointer-events-none absolute -left-16 -top-16 h-48 w-48 rounded-full bg-cyan/8 blur-[80px]" />
-          <div ref={wrapRef} className="relative">
-            <canvas ref={canvasRef} className="w-full rounded-xl" aria-label={`${meta.name} 交互演示`} />
+      {loading ? (
+        <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+          <div className="skeleton h-[420px] rounded-2xl" />
+          <div className="skeleton h-[420px] rounded-2xl" />
+        </div>
+      ) : !current ? (
+        <Panel>
+          <div className="px-6 py-12 text-center">
+            <p className="text-[14px] text-fg-soft">没有匹配的公式</p>
+            <p className="mt-1.5 text-[12.5px] text-fg-mute">换个词试试，或者清掉章节筛选。</p>
           </div>
         </Panel>
-
-        {/* 控制 */}
-        <div className="space-y-4">
-          <Panel className="p-5">
-            <SectionTitle title={meta.name} className="mb-3" />
-            <div className="mb-4 text-[12.5px] leading-relaxed text-fg-soft">
-              <span className="text-fg-mute">场景 · </span>{meta.hook}
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+          {/* 公式列表 */}
+          <Panel className="flex max-h-[640px] flex-col overflow-hidden p-0">
+            <div className="border-b border-hairline px-3.5 py-2.5 text-[11.5px] text-fg-mute">
+              {shown.length} 条{q ? '（已搜索）' : ''} —— 点一条就开始拖
             </div>
-
-            <div className="rounded-xl border border-veil/8 bg-veil/3 px-3.5 py-3 text-center">
-              <InlineMath text={`$$${meta.formula}$$`} />
-            </div>
-
-            <div className="mt-5 space-y-4">
-              {mod === 'secant' && (
-                <>
-                  <Slider label="切点 a" value={a} min={-2} max={2.4} step={0.05} onChange={setA} fmt={(v) => v.toFixed(2)} />
-                  <Slider label="增量 h" value={h} min={0.02} max={3} step={0.02} onChange={setH} fmt={(v) => v.toFixed(2)} />
-                  <div className="rounded-lg border border-cyan/22 bg-cyan/6 px-3 py-2.5 text-[12px] text-cyan-100">
-                    当前割线斜率 = <span className="font-mono">{((((a + h) ** 2 - a ** 2) / h) || 0).toFixed(3)}</span>
-                    <span className="ml-2 text-fg-mute">（h→0 时收敛到 {2 * a < 0 ? '-' : ''}{Math.abs(2 * a).toFixed(2)}，即 f'(a)=2a）</span>
-                  </div>
-                </>
-              )}
-
-              {mod === 'riemann' && (
-                <>
-                  <Slider label="分割数 n" value={n} min={1} max={60} step={1} onChange={setN} fmt={(v) => String(v)} />
-                  <div className="rounded-lg border border-cyan/22 bg-cyan/6 px-3 py-2.5 text-[12px] text-cyan-100">
-                    矩形面积和 ≈ <span className="font-mono">{riemannSum(n).toFixed(4)}</span>
-                    <span className="ml-2 text-fg-mute">（精确值 ∫₀² x² dx = {((2 ** 3) / 3).toFixed(4)}）</span>
-                  </div>
-                </>
-              )}
-
-              {mod === 'taylor' && (
-                <>
-                  <Slider label="展开项数 n" value={terms} min={0} max={7} step={1} onChange={setTerms} fmt={(v) => `${v} 项`} />
-                  <div className="rounded-lg border border-cyan/22 bg-cyan/6 px-3 py-2.5 text-[12px] leading-relaxed text-cyan-100">
-                    橙色是 sin x 的 {terms} 项泰勒多项式。
-                    <span className="text-fg-mute"> 项数越多，贴合的范围越宽；但无论多少项，远处都会跑飞。</span>
-                  </div>
-                </>
-              )}
-
-              {mod === 'epsilon' && (
-                <>
-                  <Slider label="ε" value={eps} min={0.02} max={0.5} step={0.01} onChange={setEps} fmt={(v) => v.toFixed(2)} />
-                  <div className="rounded-lg border border-cyan/22 bg-cyan/6 px-3 py-2.5 text-[12px] text-cyan-100">
-                    当 ε = {eps.toFixed(2)} 时，需要 N = <span className="font-mono">{Math.ceil(1 / eps) + 1}</span>
-                    <span className="ml-2 text-fg-mute">（aₙ = 1 + 1/n，n &gt; N 后全部落进 A±ε）</span>
-                  </div>
-                </>
+            <div className="flex-1 overflow-y-auto">
+              {shown.slice(0, 200).map((f, i) => {
+                /* 按「章节 → 分组」插表头，而不是每行都重复一遍
+                 * 「第一章 函数、极限与连续 · 常用等价无穷小（x → 0）」——
+                 * 257 条全列出来时，那种重复会把真正要看的东西淹掉。 */
+                const prev = shown[i - 1];
+                const newChapter = !prev || prev.chapterId !== f.chapterId;
+                const newGroup = newChapter || prev.group !== f.group;
+                return (
+                  <Fragment key={f.id}>
+                    {newChapter && (
+                      <div className="border-y border-hairline bg-veil/6 px-3.5 py-1.5 text-[11px] font-medium text-fg-mute">
+                        {f.chapterName}
+                      </div>
+                    )}
+                    {newGroup && (
+                      <div className="flex items-center gap-2 px-3.5 pb-1 pt-2">
+                        <span className="text-[10.5px] tracking-wide text-cyan/75">{f.group}</span>
+                        <span className="h-px flex-1 bg-hairline" />
+                      </div>
+                    )}
+                    <button
+                      data-formula={f.id}
+                      onClick={() => setPickedId(f.id)}
+                      className={cn(
+                        'flex w-full items-center gap-2 px-3.5 py-2 text-left transition-colors',
+                        current.id === f.id ? 'bg-cyan/10' : 'hover:bg-veil/4',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'h-1.5 w-1.5 shrink-0 rounded-full',
+                          current.id === f.id ? 'bg-cyan' : 'bg-veil/15',
+                        )}
+                      />
+                      <span className={cn('min-w-0 flex-1 truncate text-[12.5px]', current.id === f.id ? 'text-fg' : 'text-fg-soft')}>
+                        {f.name}
+                      </span>
+                      {f.must === 1 && <Star size={10} className="shrink-0 text-amber" />}
+                    </button>
+                  </Fragment>
+                );
+              })}
+              {shown.length > 200 && (
+                <div className="px-3.5 py-3 text-[11.5px] text-fg-faint">
+                  还有 {shown.length - 200} 条 —— 用搜索缩小范围
+                </div>
               )}
             </div>
           </Panel>
 
-          <Panel className="p-4">
-            <div className="flex items-start gap-2.5">
-              <Info size={14} className="mt-0.5 shrink-0 text-cyan" />
-              <p className="text-[12.5px] leading-relaxed text-fg-soft">
-                <span className="text-fg-mute">一句话 · </span>{meta.conclusion}
-              </p>
+          {/* 演示台 */}
+          <Panel className="p-4 sm:p-5">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <SectionTitle title={current.name} className="min-w-0 flex-1" />
+              {current.kid && (
+                <Link
+                  to={`/learn/${current.kid}`}
+                  className="group flex shrink-0 items-center gap-1.5 rounded-lg border border-hairline bg-veil/4 px-2 py-[3px] text-[11px] text-fg-mute transition-colors hover:border-cyan/35 hover:text-fg-soft"
+                >
+                  {current.mastery && (
+                    <span className={cn('h-1.5 w-1.5 rounded-full', MASTERY_STYLE[current.mastery].dot)} />
+                  )}
+                  <span className="max-w-[160px] truncate">{current.kidTitle}</span>
+                  <ArrowUpRight size={10} className="transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                </Link>
+              )}
             </div>
+            <FormulaDemo formula={current} />
           </Panel>
         </div>
-      </div>
+      )}
+
+      <Panel className="p-4">
+        <div className="flex items-start gap-2.5">
+          <Info size={14} className="mt-0.5 shrink-0 text-cyan" />
+          <p className="text-[12px] leading-relaxed text-fg-mute">
+            演示不是「把公式画一遍」，而是把公式里那个**动起来才看得见**的量做成滑块。
+            拖到边界往往最有收获 —— 比如把 ε 拖到最小、把 n 拖到最大、
+            把行列式的两列拖成共线。
+          </p>
+        </div>
+      </Panel>
     </div>
   );
-}
-
-/* ---------- 滑块 ---------- */
-function Slider({
-  label, value, min, max, step, onChange, fmt,
-}: {
-  label: string; value: number; min: number; max: number; step: number;
-  onChange: (v: number) => void; fmt: (v: number) => string;
-}) {
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between text-[12px]">
-        <span className="text-fg-soft">{label}</span>
-        <span className="font-mono text-cyan tabular">{fmt(value)}</span>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        aria-label={label}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-veil/10 outline-none
-          [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none
-          [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-cyan
-          slider-glow
-          [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-115
-          [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full
-          [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-cyan"
-      />
-    </div>
-  );
-}
-
-/* ---------- 画布配色 ----------
- *
- * 一律从主题令牌取，**绘制时**求值（写成函数而不是常量 —— 常量会在
- * import 那一刻冻结，切主题不更新）。
- *
- * 原来这里全是写死的值，两个后果：
- *   1. 标签用 rgba(255,255,255,0.5) —— 亮色主题下白字压白底，**直接看不见**。
- *      而它承载的是「n = 4」「近似有效区间」「A = 1」这种关键信息。
- *   2. 曲线用 #22d3ee / #c084fc 这类浅色 —— 白底上对比度只有 2:1 左右。
- *
- * ⚠️ 透明度走 canvasColor()（内部拼 rgba），不用 lib/utils 的 withAlpha ——
- *   后者产出 color-mix()，canvas 支持得晚且**静默失效**。
- */
-const C = {
-  cyan: (a = 1) => canvasColor('--color-cyan', a, '#22d3ee'),
-  violet: (a = 1) => canvasColor('--color-violet', a, '#a855f7'),
-  emerald: (a = 1) => canvasColor('--color-emerald', a, '#34d399'),
-  amber: (a = 1) => canvasColor('--color-amber', a, '#fbbf24'),
-  rose: (a = 1) => canvasColor('--color-rose', a, '#fb7185'),
-  /* 画布上的说明文字。原来是白色 50% —— 亮色下等于没画。 */
-  text: (a = 0.75) => canvasColor('--color-fg-soft', a, '#a8b0c6'),
-};
-
-/* ---------- 绘图工具 ---------- */
-function makeMapper(W: number, H: number, xr: [number, number], yr: [number, number]) {
-  const pad = 26;
-  const [x0, x1] = xr;
-  const [y0, y1] = yr;
-  return {
-    X: (x: number) => pad + ((x - x0) / (x1 - x0)) * (W - pad * 2),
-    Y: (y: number) => H - pad - ((y - y0) / (y1 - y0)) * (H - pad * 2),
-    xr, yr, W, H, pad,
-  };
-}
-
-function grid(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>) {
-  const { X, Y, xr, yr, W, H, pad } = m;
-  ctx.save();
-  /* 画布只吃具体颜色字符串，塞不进 Tailwind 类名 —— 所以在这里读令牌。
-   * 写死白色的话，亮色主题下网格线是白压白，整片消失（曲线还悬在空中）。 */
-  ctx.strokeStyle = cssVar('--mesh-line', C.text(0.055));
-  ctx.lineWidth = 1;
-  for (let x = Math.ceil(xr[0]); x <= xr[1]; x++) {
-    ctx.beginPath(); ctx.moveTo(X(x), pad); ctx.lineTo(X(x), H - pad); ctx.stroke();
-  }
-  for (let y = Math.ceil(yr[0]); y <= yr[1]; y++) {
-    ctx.beginPath(); ctx.moveTo(pad, Y(y)); ctx.lineTo(W - pad, Y(y)); ctx.stroke();
-  }
-  // 坐标轴
-  ctx.strokeStyle = cssVar('--color-hairline-strong', C.text(0.2));
-  ctx.lineWidth = 1.2;
-  if (yr[0] <= 0 && yr[1] >= 0) {
-    ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(W - pad, Y(0)); ctx.stroke();
-  }
-  if (xr[0] <= 0 && xr[1] >= 0) {
-    ctx.beginPath(); ctx.moveTo(X(0), pad); ctx.lineTo(X(0), H - pad); ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function curve(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>, f: (x: number) => number, color: string, width = 2.4, glow = true) {
-  const { X, Y, xr, W } = m;
-  ctx.save();
-  if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 12; }
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  const steps = Math.max(120, Math.floor(W));
-  for (let i = 0; i <= steps; i++) {
-    const x = xr[0] + (i / steps) * (xr[1] - xr[0]);
-    const y = f(x);
-    if (!Number.isFinite(y)) continue;
-    if (i === 0) ctx.moveTo(X(x), Y(y));
-    else ctx.lineTo(X(x), Y(y));
-  }
-  ctx.stroke();
-  ctx.restore();
-}
-
-function dot(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>, x: number, y: number, color: string, r = 4.5) {
-  ctx.save();
-  ctx.shadowColor = color; ctx.shadowBlur = 14;
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(m.X(x), m.Y(y), r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function label(ctx: CanvasRenderingContext2D, m: ReturnType<typeof makeMapper>, x: number, y: number, text: string, color?: string) {
-  ctx.save();
-  /* 默认色在函数体内解析 —— 写在参数默认值里会冻结在模块加载那一刻 */
-  ctx.fillStyle = color ?? C.text(0.9);
-  ctx.font = '11px "PingFang SC", system-ui, sans-serif';
-  ctx.fillText(text, m.X(x) + 7, m.Y(y) - 7);
-  ctx.restore();
-}
-
-/* ---------- 1. 割线 → 切线 ---------- */
-function drawSecant(ctx: CanvasRenderingContext2D, W: number, H: number, a: number, h: number) {
-  const m = makeMapper(W, H, [-3, 3.6], [-1.4, 9]);
-  const f = (x: number) => x * x;
-  grid(ctx, m);
-  curve(ctx, m, f, C.violet());
-
-  const a2 = a + h;
-  const slope = (f(a2) - f(a)) / (a2 - a);
-  const secLine = (x: number) => f(a) + slope * (x - a);
-  const tanLine = (x: number) => f(a) + 2 * a * (x - a);
-
-  // 切线（参考）
-  ctx.save();
-  ctx.setLineDash([5, 5]);
-  ctx.strokeStyle = C.emerald(0.55);
-  ctx.lineWidth = 1.6;
-  ctx.beginPath();
-  ctx.moveTo(m.X(m.xr[0]), m.Y(tanLine(m.xr[0])));
-  ctx.lineTo(m.X(m.xr[1]), m.Y(tanLine(m.xr[1])));
-  ctx.stroke();
-  ctx.restore();
-
-  // 割线
-  ctx.save();
-  ctx.strokeStyle = C.cyan();
-  ctx.shadowColor = C.cyan();
-  ctx.shadowBlur = 10;
-  ctx.lineWidth = 2.2;
-  ctx.beginPath();
-  ctx.moveTo(m.X(m.xr[0]), m.Y(secLine(m.xr[0])));
-  ctx.lineTo(m.X(m.xr[1]), m.Y(secLine(m.xr[1])));
-  ctx.stroke();
-  ctx.restore();
-
-  // 增量三角形
-  ctx.save();
-  ctx.strokeStyle = C.amber(0.75);
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([3, 3]);
-  ctx.beginPath();
-  ctx.moveTo(m.X(a), m.Y(f(a)));
-  ctx.lineTo(m.X(a2), m.Y(f(a)));
-  ctx.lineTo(m.X(a2), m.Y(f(a2)));
-  ctx.stroke();
-  ctx.restore();
-  ctx.save();
-  ctx.fillStyle = C.amber(0.95);
-  ctx.font = '11px "PingFang SC", system-ui';
-  ctx.fillText('h', (m.X(a) + m.X(a2)) / 2 - 3, m.Y(f(a)) + 14);
-  ctx.fillText('Δy', m.X(a2) + 5, (m.Y(f(a)) + m.Y(f(a2))) / 2);
-  ctx.restore();
-
-  dot(ctx, m, a, f(a), C.emerald());
-  dot(ctx, m, a2, f(a2), C.cyan());
-  label(ctx, m, a, f(a), `A(${a.toFixed(1)}, ${f(a).toFixed(1)})`, C.emerald());
-  label(ctx, m, a2, f(a2), `B`, C.cyan());
-  label(ctx, m, -2.8, 8.2, 'f(x) = x²', C.violet(0.85));
-}
-
-/* ---------- 2. 黎曼和 ---------- */
-function riemannSum(n: number, a = 0, b = 2) {
-  const dx = (b - a) / n;
-  let s = 0;
-  for (let i = 0; i < n; i++) {
-    const x = a + i * dx + dx / 2;   // 中点法
-    s += x * x * dx;
-  }
-  return s;
-}
-
-function drawRiemann(ctx: CanvasRenderingContext2D, W: number, H: number, n: number) {
-  const m = makeMapper(W, H, [-0.5, 2.7], [-0.8, 4.8]);
-  const f = (x: number) => x * x;
-  const a = 0;
-  const b = 2;
-  const dx = (b - a) / n;
-
-  grid(ctx, m);
-
-  // 矩形
-  for (let i = 0; i < n; i++) {
-    const x0 = a + i * dx;
-    const xm = x0 + dx / 2;
-    const yTop = f(xm);
-    const x1 = m.X(x0);
-    const x2 = m.X(x0 + dx);
-    const y0 = m.Y(0);
-    const y1 = m.Y(yTop);
-
-    const grad = ctx.createLinearGradient(0, y1, 0, y0);
-    grad.addColorStop(0, C.cyan(0.42));
-    grad.addColorStop(1, C.cyan(0.06));
-    ctx.fillStyle = grad;
-    ctx.fillRect(x1, y1, Math.max(0.8, x2 - x1), y0 - y1);
-    if (n <= 24) {
-      ctx.strokeStyle = C.cyan(0.7);
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x1, y1, Math.max(0.8, x2 - x1), y0 - y1);
-    }
-  }
-
-  curve(ctx, m, f, C.violet(), 2.6);
-
-  ctx.save();
-  ctx.fillStyle = C.text(0.5);
-  ctx.font = '11px "PingFang SC", system-ui';
-  ctx.fillText(`n = ${n}`, m.X(-0.35), m.Y(4.4));
-  ctx.restore();
-  label(ctx, m, 1.05, 4.2, 'y = x²', C.violet(0.85));
-}
-
-/* ---------- 3. 泰勒展开 ---------- */
-function taylorSin(x: number, terms: number) {
-  // sin x 在 0 处：x - x³/3! + x⁵/5! - ...
-  let sum = 0;
-  for (let k = 0; k <= terms; k++) {
-    const sign = k % 2 === 0 ? 1 : -1;
-    const p = 2 * k + 1;
-    sum += sign * Math.pow(x, p) / factorial(p);
-  }
-  return sum;
-}
-
-function factorial(n: number): number {
-  let r = 1;
-  for (let i = 2; i <= n; i++) r *= i;
-  return r;
-}
-
-function drawTaylor(ctx: CanvasRenderingContext2D, W: number, H: number, terms: number) {
-  const m = makeMapper(W, H, [-8, 8], [-3.2, 3.2]);
-  grid(ctx, m);
-
-  // 真实 sin
-  curve(ctx, m, Math.sin, C.cyan(), 2.4);
-
-  // 泰勒多项式
-  curve(ctx, m, (x) => taylorSin(x, terms), C.amber(), 2.4);
-
-  // 展开点
-  dot(ctx, m, 0, 0, C.emerald(), 4);
-
-  // 有效范围提示
-  const bound = Math.min(7.5, 2.2 + terms * 1.15);
-  ctx.save();
-  ctx.fillStyle = C.emerald(0.08);
-  ctx.fillRect(m.X(-bound), m.Y(3.2), m.X(bound) - m.X(-bound), m.Y(-3.2) - m.Y(3.2));
-  ctx.strokeStyle = C.emerald(0.35);
-  ctx.setLineDash([4, 4]);
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(m.X(-bound), m.Y(3.2)); ctx.lineTo(m.X(-bound), m.Y(-3.2));
-  ctx.moveTo(m.X(bound), m.Y(3.2)); ctx.lineTo(m.X(bound), m.Y(-3.2));
-  ctx.stroke();
-  ctx.restore();
-
-  ctx.save();
-  ctx.fillStyle = C.text(0.5);
-  ctx.font = '11px "PingFang SC", system-ui';
-  ctx.fillText('近似有效区间', m.X(-bound) + 6, m.Y(3.2) + 15);
-  ctx.restore();
-
-  label(ctx, m, -7.6, 2.9, 'sin x', C.cyan());
-  label(ctx, m, -7.6, 2.3, `泰勒 ${terms} 项`, C.amber());
-}
-
-/* ---------- 4. ε-N ---------- */
-function drawEpsilon(ctx: CanvasRenderingContext2D, W: number, H: number, eps: number) {
-  const m = makeMapper(W, H, [-1, 22], [0.7, 2.3]);
-  const a = 1;
-  grid(ctx, m);
-
-  const N = Math.ceil(1 / eps) + 1;
-
-  // ε 带
-  ctx.save();
-  ctx.fillStyle = C.cyan(0.10);
-  ctx.fillRect(m.X(m.xr[0]), m.Y(a + eps), m.X(m.xr[1]) - m.X(m.xr[0]), m.Y(a - eps) - m.Y(a + eps));
-  ctx.strokeStyle = C.cyan(0.5);
-  ctx.setLineDash([5, 4]);
-  ctx.lineWidth = 1.2;
-  ctx.beginPath();
-  ctx.moveTo(m.X(m.xr[0]), m.Y(a + eps)); ctx.lineTo(m.X(m.xr[1]), m.Y(a + eps));
-  ctx.moveTo(m.X(m.xr[0]), m.Y(a - eps)); ctx.lineTo(m.X(m.xr[1]), m.Y(a - eps));
-  ctx.stroke();
-  ctx.restore();
-
-  // 极限线
-  ctx.save();
-  ctx.strokeStyle = C.emerald(0.8);
-  ctx.lineWidth = 1.8;
-  ctx.beginPath();
-  ctx.moveTo(m.X(m.xr[0]), m.Y(a)); ctx.lineTo(m.X(m.xr[1]), m.Y(a));
-  ctx.stroke();
-  ctx.restore();
-
-  // N 竖线
-  ctx.save();
-  ctx.strokeStyle = C.amber(0.75);
-  ctx.lineWidth = 1.6;
-  ctx.setLineDash([4, 3]);
-  ctx.beginPath();
-  ctx.moveTo(m.X(N), m.Y(m.yr[0])); ctx.lineTo(m.X(N), m.Y(m.yr[1]));
-  ctx.stroke();
-  ctx.restore();
-
-  // 数列点
-  for (let i = 1; i <= 21; i++) {
-    const y = 1 + 1 / i;
-    const inside = i > N;
-    dot(ctx, m, i, y, inside ? C.cyan() : C.rose(), 3.4);
-  }
-
-  ctx.save();
-  ctx.fillStyle = C.text(0.55);
-  ctx.font = '11px "PingFang SC", system-ui';
-  ctx.fillText(`A = 1`, m.X(0.2), m.Y(a) - 6);
-  ctx.fillText(`A + ε`, m.X(0.2), m.Y(a + eps) - 6);
-  ctx.fillText(`A − ε`, m.X(0.2), m.Y(a - eps) + 15);
-  ctx.fillStyle = C.amber(0.9);
-  ctx.fillText(`n = N = ${N}`, m.X(N) + 5, m.Y(m.yr[1]) + 14);
-  ctx.restore();
 }
 
 /* ============================================================
@@ -618,7 +307,7 @@ function drawEpsilon(ctx: CanvasRenderingContext2D, W: number, H: number, eps: n
      1. 查得到 —— 搜索同时匹配中文名、LaTeX 符号、条件、备注；
      2. 不漏 —— 每章都能整章展开，章头写着条数和必背数；
      3. 能对上号 —— 每条都挂着它对应的考点，点进去就是知识点详情。
-   外加一个「只看必背」——考前一天真正会翻的是那个视图，不是全部 257 条。
+   外加两个「真正会用的视图」：只看必背、以及**就地展开交互演示**。
    ============================================================ */
 function Handbook() {
   const [raw, setRaw] = useState('');
@@ -627,6 +316,9 @@ function Handbook() {
   /** 章节的展开状态。**没记过**的章节走默认（第一章展开）—— 用一个「只记显式操作」的表，
    *  而不是把 19 个默认值都初始化一遍（那样加章节就得同步改这里）。 */
   const [closed, setClosed] = useState<Record<string, boolean>>({});
+  /** 当前展开演示的公式 id。**同时只开一个** ——
+   *  每个演示都带 canvas + ResizeObserver，全开一遍是几十个画布在同时重绘。 */
+  const [demoId, setDemoId] = useState('');
 
   /* 防抖 260ms。每打一个字就打一次接口，既浪费也让列表一直跳 ——
    * 输入框和「真正用于查询的值」必须分开，不然打「洛必达」会触发三次查询。 */
@@ -706,6 +398,7 @@ function Handbook() {
           {data.data
             ? `库里共 ${data.data.total} 条 · 覆盖 ${data.data.coveredKids} 个考点 · ${data.data.chapters} 章`
               + (searching || mustOnly ? ` · 当前筛选出 ${data.data.count} 条` : '')
+              + ' · 点卡片上的「动手」就地展开演示'
             : '加载中…'}
         </p>
       </Panel>
@@ -757,7 +450,14 @@ function Handbook() {
                         <span className="text-[10.5px] tabular text-fg-faint">{g.items.length}</span>
                       </div>
                       <div className="divide-y divide-veil/5">
-                        {g.items.map((f) => <FormulaCard key={f.id} f={f} />)}
+                        {g.items.map((f) => (
+                          <FormulaCard
+                            key={f.id}
+                            f={f}
+                            open={demoId === f.id}
+                            onToggle={() => setDemoId((v) => (v === f.id ? '' : f.id))}
+                          />
+                        ))}
                       </div>
                     </div>
                   ))}
@@ -782,7 +482,7 @@ function groupRuns(items: Formula[]) {
   return out;
 }
 
-function FormulaCard({ f }: { f: Formula }) {
+function FormulaCard({ f, open, onToggle }: { f: Formula; open: boolean; onToggle: () => void }) {
   const ms = f.mastery ? MASTERY_STYLE[f.mastery] : null;
   return (
     <div className="px-4 py-3">
@@ -794,6 +494,21 @@ function FormulaCard({ f }: { f: Formula }) {
         )}
         <span className="text-[12.5px] font-medium text-fg-soft">{f.name}</span>
         <span className="flex-1" />
+        {/* 「动手」—— 查公式时最想做的事就是看看它长什么样，
+            所以按钮就在卡片上，不用切 tab 再搜一遍。 */}
+        <button
+          onClick={onToggle}
+          data-demo-toggle={f.id}
+          aria-expanded={open}
+          className={cn(
+            'flex shrink-0 items-center gap-1 rounded-lg border px-2 py-[3px] text-[11px] transition-colors',
+            open
+              ? 'border-violet/45 bg-violet/12 text-violet-100'
+              : 'border-hairline bg-veil/4 text-fg-mute hover:border-violet/35 hover:text-fg-soft',
+          )}
+        >
+          <Play size={9} /> {open ? '收起' : '动手'}
+        </button>
         {/* 挂回考点。掌握状态的小圆点用的是和知识树同一套色，
             这样「这条公式我学没学过」不用点进去就知道。 */}
         {f.kid && (
@@ -824,8 +539,12 @@ function FormulaCard({ f }: { f: Formula }) {
           )}
         </div>
       )}
+
+      {open && (
+        <div className="mt-3 border-t border-veil/8 pt-3">
+          <FormulaDemo formula={f} compact />
+        </div>
+      )}
     </div>
   );
 }
-
-export { motion, RichText, cn };

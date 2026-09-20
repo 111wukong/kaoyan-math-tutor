@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown, CircleAlert, Filter, RotateCcw, Search, Sparkles, Trophy } from 'lucide-react';
+import { AppLink as Link } from '@/lib/links';
 import { api, type Mistake } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
@@ -87,15 +88,16 @@ export default function Mistakes() {
         <QuestionCard
           key={cur.qid}
           question={{
-            id: cur.qid, kid: cur.kid, type: cur.type as any, difficulty: cur.difficulty,
+            id: cur.qid, kid: cur.kid, type: cur.type, difficulty: cur.difficulty,
+            typeLabel: cur.typeLabel, selfGraded: cur.selfGraded,
             stem: cur.stem, options: cur.options,
             sourceType: cur.sourceType, sourceYear: cur.sourceYear, source: '',
           }}
           index={retrainIdx}
           total={retrain.length}
           context="mistake"
-          onAnswer={async (ans) => {
-            const r = await api.study.answer(cur.qid, ans, 'mistake');
+          onAnswer={async (ans, opts) => {
+            const r = await api.study.answer(cur.qid, ans, 'mistake', opts?.selfCorrect);
             if (r.achievements?.length) announceAchievements(r.achievements, pushToast);
             return r;
           }}
@@ -399,8 +401,8 @@ function MistakeRow({ m, index, open, onToggle }: { m: Mistake; index: number; o
                     index={vIdx}
                     total={variants.length}
                     context="quiz"
-                    onAnswer={async (ans) => {
-                      const r = await api.study.answer(variants[vIdx].id, ans, 'quiz');
+                    onAnswer={async (ans, opts) => {
+                      const r = await api.study.answer(variants[vIdx].id, ans, 'quiz', opts?.selfCorrect);
                       if (r.achievements?.length) announceAchievements(r.achievements, pushToast);
                       return r;
                     }}

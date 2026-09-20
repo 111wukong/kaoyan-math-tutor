@@ -239,6 +239,51 @@ try {
 
   const bodyText = async () => (await ev('document.body.innerText')) .value || '';
 
+  /* ---------- 标签页 / 客户端路由 ----------
+   *
+   * 站内链接现在**一律 target="_blank"**（需求：「从一个网页进入另一个网页，
+   * 浏览器要新开一个，上一个网页留着」）。于是有两件事要分开测：
+   *
+   *   · 点链接 → 应该**开一个新标签页**，原页面不动。走 HTTP 的 /json/list
+   *     对比点击前后的目标列表来验（CDP 的 Target.getTargets 只在浏览器级
+   *     会话可用，这里连的是 page 会话）。
+   *   · 要在**同一个文档里**换路由（保活 / 缓存 / 滚动恢复那几节的前提），
+   *     就得走 React Router 自己监听的那条路：popstate。
+   */
+  const listPages = async () => {
+    try {
+      const l = await (await fetch(`http://127.0.0.1:${dbgPort}/json/list`)).json();
+      return l.filter((t) => t.type === 'page').map((t) => ({ id: t.id, url: t.url }));
+    } catch { return []; }
+  };
+
+  /** 等一个新标签页出现，且路径正好是 expectPath */
+  const waitForNewTab = async (knownIds, expectPath, timeout = 6000) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const fresh = (await listPages()).filter((p) => !knownIds.includes(p.id));
+      const hit = fresh.find((p) => {
+        try { return new URL(p.url).pathname === expectPath; } catch { return false; }
+      });
+      if (hit) return hit;
+      await sleep(120);
+    }
+    return null;
+  };
+
+  /**
+   * 同一个文档内的客户端路由切换。
+   *
+   * pushState 本身**不触发**任何事件，React Router 监听的是 popstate，
+   * 所以必须手动补一发。state 里带上自增的 idx ——
+   * 不带的话 React Router 会把这次跳转算成 delta 为负的 POP，
+   * 行为虽然也是导航，但语义上不对（这一条是 PUSH）。
+   */
+  const spaNav = async (p) => probe(`
+    history.pushState({ idx: ((history.state && history.state.idx) || 0) + 1 }, '', ${JSON.stringify(p)});
+    window.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+    return location.pathname;`);
+
   /* ============================================================ */
   section('0. 页面可达');
   {
@@ -693,18 +738,21 @@ try {
     const stillHere = await probe('return location.pathname');
     ok('★ 拖动后不会误跳进考点（moved>6 那道闸还在）', stillHere === '/learn', `实得 ${stillHere}`);
 
-    /* ---------- ② 干净的一点：必须跳进去 ---------- */
+    /* ---------- ② 干净的一点：必须**在新标签页里**打开考点 ---------- */
     await sleep(300);
     const cn = await frontNode();
     await probe(`window.__clickTarget = null; return 1;`);
+    const known = (await listPages()).map((p) => p.id);
     await client.send('Input.dispatchMouseEvent',
       { type: 'mousePressed', x: cn.x, y: cn.y, button: 'left', clickCount: 1, buttons: 1 });
     await sleep(60);
     await client.send('Input.dispatchMouseEvent',
       { type: 'mouseReleased', x: cn.x, y: cn.y, button: 'left', clickCount: 1, buttons: 0 });
-    await waitFor(`location.pathname === ${JSON.stringify(cn.href)}`, '点节点后跳进考点', 6000);
+    const openedNode = await waitForNewTab(known, cn.href);
+    ok('★★ 真鼠标点星系节点会在新标签页打开考点',
+      !!openedNode, openedNode ? openedNode.url : `没等到指向 ${cn.href} 的新标签页`);
     const after = await probe('return location.pathname');
-    ok('★★ 真鼠标点星系节点能跳进考点', after === cn.href, `点了 ${cn.href}，落在 ${after}`);
+    ok('★ 原页面留在知识树上（链接不再把当前页顶掉）', after === '/learn', `实得 ${after}`);
     const target = await probe('return window.__clickTarget');
     ok('★ click 的落点确实在节点内部（不是被指针捕获挪到容器上）',
       String(target || '').indexOf('in-node') >= 0,
@@ -778,7 +826,7 @@ try {
   await waitFor('!!document.querySelector("#main-scroll")', '还原桌面视口');
   await sleep(400);
 
-  section('4. 公式实验室：切模块后画布真的重画');
+  section('4. 公式实验室：换公式后画布真的重画');
   {
     await nav('/lab');
     await waitFor('!!document.querySelector("canvas[aria-label*=交互演示]")', '实验画布出现');
@@ -796,27 +844,24 @@ try {
     };
 
     const p1 = await count();
-    ok('默认模块画布已绘制', p1 > 500, `${p1} 像素`);
+    ok('默认公式的画布已绘制', p1 > 500, `${p1} 像素`);
 
-    /* 实验室现在是三段式：实验 / 手册 / 索引。
-     * 实验标签页内部又有 4 个可交互模块（割线/面积/正态/极限）。
-     * 必须区分「顶层导航 tab」和「实验内部模块 tab」，否则 btns[1]
-     * 会点到「手册」—— 那页里没有 canvas，p2 就是 -1。 */
+    /* ★ 这一条守的是这次改造的核心需求：**每一条公式都要有演示**，
+     *   而不是只有手写的那几个。左侧列表里随便点一条，画布必须重画。 */
+    const listLen = await probe(`return document.querySelectorAll('button[data-formula]').length`);
+    ok('★ 公式列表列出了可选的公式', Number(listLen) >= 20, `${listLen} 条`);
+
     const switched = await probe(`
-      var all = Array.from(document.querySelectorAll('[role=tab]'));
-      /* 实验内部的模块 tab：文字是 4 个实验模块名之一 */
-      var moduleNames = ['割线','面积','正态','极限'];
-      var inner = all.filter(function (t) {
-        return moduleNames.some(function (n) { return t.textContent.indexOf(n) >= 0; });
-      });
-      if (inner.length < 2) return 'NO_TABS';
-      inner[1].click();
-      return inner.length;`);
-    ok('实验页有多个模块可切', switched !== 'NO_TABS' && Number(switched) >= 2, `实得 ${switched}`);
-    await sleep(1000);
+      var bs = document.querySelectorAll('button[data-formula]');
+      if (bs.length < 3) return 'FEW';
+      var target = bs[bs.length - 1];
+      target.click();
+      return target.getAttribute('data-formula');`);
+    ok('能点列表里的另一条公式', switched !== 'FEW' && switched !== 'PROBE_ERROR', String(switched));
+    await sleep(900);
 
     const p2 = await count();
-    ok('切模块后画布重画了', p2 > 500 && p2 !== p1, `像素 ${p1} → ${p2}`);
+    ok('★ 换一条公式后画布重画了（不是只有几个能拖）', p2 > 500 && p2 !== p1, `像素 ${p1} → ${p2}`);
 
     // 拖动滑块，读数必须跟着变
     const before = await probe('var e=document.querySelector("input[type=range]"); return e? e.value : "NONE"');
@@ -830,9 +875,30 @@ try {
       await sleep(500);
       const after = await probe('var e=document.querySelector("input[type=range]"); return e? e.value : "NONE"');
       ok('拖动滑块后取值确实变了', before !== after, `${before} → ${after}`);
+      ok('拖动滑块后画布也重画了', (await count()) !== p2, '像素数没变');
     } else {
-      ok('实验模块有可拖滑块', false, '没找到 range');
+      ok('演示模块有可拖滑块', false, '没找到 range');
     }
+
+    /* 公式手册那一侧：卡片上的「动手」要能就地展开演示 */
+    const handbook = await probe(`
+      var bs = Array.from(document.querySelectorAll('[role=tab], button'));
+      var t = bs.find(function (x) { return x.textContent.trim() === '公式手册'; });
+      if (!t) return 'NO_TAB';
+      t.click();
+      return 'ok';`);
+    ok('能切到公式手册', handbook === 'ok', String(handbook));
+    await sleep(1200);
+
+    const toggle = await probe(`
+      var b = document.querySelector('button[data-demo-toggle]');
+      if (!b) return 'NO_BTN';
+      b.click();
+      return b.getAttribute('data-demo-toggle');`);
+    ok('手册卡片上有「动手」按钮', toggle !== 'NO_BTN' && toggle !== 'PROBE_ERROR', String(toggle));
+    await sleep(1200);
+    const inline = await count();
+    ok('★ 手册卡片里就地展开了演示（不用切回演示台）', inline > 500, `${inline} 像素`);
   }
 
   section('5. 数学公式渲染（重点：不许漏出裸 LaTeX）');
@@ -1344,8 +1410,17 @@ try {
       return a ? a.getAttribute('href') : '';`);
     ok('结果指向具体考点', /^\/learn\//.test(String(href)), String(href));
 
+    /* 点一下 —— 站内链接现在一律新标签页，所以「原页面不动 + 多一个标签」才对 */
+    const knownDir = (await listPages()).map((p) => p.id);
     await probe(`document.querySelector('nav[aria-label="考点目录"] a').click(); return 1`);
-    await waitFor(`location.pathname === ${JSON.stringify(String(href))}`, '跳到了那个考点');
+    const openedDir = await waitForNewTab(knownDir, String(href));
+    ok('★ 点目录在新标签页打开考点', !!openedDir, openedDir ? openedDir.url : '没等到新标签页');
+    const stillHome = await probe('return location.pathname');
+    ok('★ 原页面没被顶掉（上一个网页还留着）', stillHome === '/', `实得 ${stillHome}`);
+
+    /* 再直接进那个考点页，验它自己渲染得对不对 */
+    await nav(String(href));
+    await waitFor('!!document.querySelector("nav[aria-label=\\"面包屑\\"]")', '考点页面包屑出现');
     await sleep(900);
 
     const landed = await probe(`return JSON.stringify({
@@ -1355,12 +1430,14 @@ try {
       h1: document.querySelector('h1') ? document.querySelector('h1').textContent.trim() : '',
     })`);
     const ld = JSON.parse(landed);
-    ok('★ 点目录直接进考点页', ld.path === String(href), ld.path);
+    ok('★ 直接进考点页路径正确', ld.path === String(href), ld.path);
     ok('★ 面包屑是三层（首页 / 知识树 / 考点）', ld.crumb.length === 3, JSON.stringify(ld.crumb));
     ok('★ 面包屑末段就是考点标题', ld.h1 === ld.crumb[2] && ld.h1.length > 0, `h1="${ld.h1}"`);
     ok('面包屑里有「知识树」这一层', ld.crumb.indexOf('知识树') >= 0, JSON.stringify(ld.crumb));
 
-    /* 面包屑要能点着往上退 —— 不然它只是个装饰 */
+    /* 面包屑要能点着往上退 —— 不然它只是个装饰。
+     * 同样是新标签页（站内链接的统一定义）。 */
+    const knownCrumb = (await listPages()).map((p) => p.id);
     const back = await probe(`
       var a = Array.from(document.querySelectorAll('nav[aria-label="面包屑"] a'))
         .find(function (x) { return x.textContent.trim() === '知识树'; });
@@ -1368,8 +1445,8 @@ try {
       a.click();
       return 'ok';`);
     ok('面包屑里的「知识树」可点', back === 'ok', String(back));
-    await waitFor('location.pathname === "/learn"', '退回了知识树');
-    ok('★ 点面包屑能退回上一层', true);
+    const openedCrumb = await waitForNewTab(knownCrumb, '/learn');
+    ok('★ 点面包屑在新标签页退回知识树', !!openedCrumb, openedCrumb ? openedCrumb.url : '没等到新标签页');
   }
 
   /* ============================================================
@@ -1396,20 +1473,37 @@ try {
       return 'ok';`);
     ok('错题本页面容器就位', marked === 'ok', String(marked));
 
-    const clickNav = async (href) => {
-      const r = await probe(`
-        var a = Array.from(document.querySelectorAll('nav[aria-label="主导航"] a'))
-          .find(function (x) { return x.getAttribute('href') === ${JSON.stringify(href)}; });
-        if (!a) return 'NO_LINK';
-        a.click();
-        return 'ok';`);
-      return r;
-    };
+    /* ★ 先把「侧栏链接 = 新标签页」这个约定钉住，再用一次真点击验证。
+     *
+     *   之后的切页都改用 spaNav（同一个文档里的客户端路由）——
+     *   这一节要验的是「保活 / 不重拉 / 滚动还在」，前提是**不整页刷新**。
+     *   而点侧栏现在会开新标签，走的是「新文档 + 全新应用实例」，
+     *   那正好是保活管不到的场景。所以两者必须分开测。 */
+    const targets = JSON.parse(await probe(`
+      return JSON.stringify(Array.from(document.querySelectorAll('nav[aria-label="主导航"] a'))
+        .map(function (x) { return x.getAttribute('target'); }));`));
+    ok('★ 侧栏每个入口都是新标签页打开（target=_blank）',
+      targets.length >= 10 && targets.every((t) => t === '_blank'),
+      `${targets.filter((t) => t === '_blank').length}/${targets.length} 个`);
+
+    const knownSide = (await listPages()).map((p) => p.id);
+    await probe(`
+      var a = Array.from(document.querySelectorAll('nav[aria-label="主导航"] a'))
+        .find(function (x) { return x.getAttribute('href') === '/stats'; });
+      if (a) a.click();
+      return 1;`);
+    const openedSide = await waitForNewTab(knownSide, '/stats');
+    ok('★ 真点侧栏确实开了新标签页', !!openedSide, openedSide ? openedSide.url : '没等到新标签页');
+    ok('★ 原页面还停在错题本（上一个网页留着）',
+      (await probe('return location.pathname')) === '/mistakes',
+      String(await probe('return location.pathname')));
+
+    const clickNav = async (href) => spaNav(href);
 
     const before = requests.filter((u) => u.includes('/api/study/mistakes')).length;
 
     /* 切到统计，再切回来 —— 全程走客户端路由，不是整页刷新 */
-    ok('能从侧栏点进统计', (await clickNav('/stats')) === 'ok');
+    ok('能在同一文档内切到统计', (await clickNav('/stats')) === '/stats');
     await waitFor('document.querySelector("[data-page=\\"/stats\\"]").style.display !== "none"', '统计页显示出来');
     await sleep(800);
 
@@ -1424,7 +1518,7 @@ try {
     ok('★ 切走的页面没有被卸载（DOM 记号还在）', switched.probe === true);
     ok('★ 切到统计没有闪骨架屏', switched.skel === 0, `${switched.skel} 个骨架屏`);
 
-    ok('能切回错题本', (await clickNav('/mistakes')) === 'ok');
+    ok('能切回错题本', (await clickNav('/mistakes')) === '/mistakes');
     await waitFor('document.querySelector("[data-page=\\"/mistakes\\"]").style.display !== "none"', '错题本回到前台');
     await sleep(700);
 
@@ -1463,7 +1557,7 @@ try {
     ok('知识点页可以滚动（够长）', sc.max > 100, `可滚动高度 ${sc.max}px`);
     ok('已经滚下去了', sc.y > 50, `scrollY=${sc.y}`);
 
-    ok('从知识点页切到统计', (await clickNav('/stats')) === 'ok');
+    ok('从知识点页切到统计', (await clickNav('/stats')) === '/stats');
     await waitFor('document.querySelector("[data-page=\\"/stats\\"]").style.display !== "none"', '统计页再次显示');
     await sleep(600);
     await probe(`history.back(); return 1`);

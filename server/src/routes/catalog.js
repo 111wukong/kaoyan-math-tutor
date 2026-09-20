@@ -2,7 +2,10 @@
 import { db, rebuildStats } from '../db/index.js';
 import { getTree, masteryBoard, nodeMastery, inTrack } from '../lib/game.js';
 import { nodeContext } from '../lib/graph.js';
-import { publicQuestion, answerIssue, normalizeAnswer } from '../lib/judge.js';
+import {
+  publicQuestion, answerIssue, canonicalAnswer,
+  QUESTION_TYPES, OPTION_TYPES, SELF_GRADED_TYPES,
+} from '../lib/judge.js';
 
 export default async function catalogRoutes(fastify) {
   /* ---------- 完整知识树（带掌握状态）---------- */
@@ -262,32 +265,74 @@ export default async function catalogRoutes(fastify) {
     const kid = String(body?.kid ?? '').trim();
     if (!tree.nodeById.has(kid)) return { error: '考点不存在' };
 
-    const type = body?.type === 'blank' ? 'blank' : 'choice';
+    /* 题型白名单。不在名单里的一律当单选题 —— 但**不是静默**：
+     * 下面 answerIssue 会按单选题去校验答案，形态不对就会报出来。 */
+    const type = QUESTION_TYPES.includes(body?.type) ? body.type : 'choice';
     const stem = String(body?.stem ?? '').trim().slice(0, 800);
     if (stem.length < 5) return { error: '题干太短了，至少写 5 个字' };
 
-    const answer = type === 'choice'
-      ? String(body?.answer ?? '').trim().toUpperCase().slice(0, 1)
-      : normalizeAnswer(String(body?.answer ?? '').slice(0, 200));
+    /* 答案按题型规整。这一步和判题器用的是同一个 canonicalAnswer ——
+     * 录进去什么形态、判题时期待什么形态，只能有一处定义。 */
+    const answer = canonicalAnswer(type, body?.answer);
 
     const issue = answerIssue(type, answer);
     if (issue) return { error: issue };
 
+    /* ---------- 选项 ---------- */
     let options = null;
-    if (type === 'choice') {
+    if (type === 'judge') {
+      /* 判断题的选项是**固定的两个**，不让用户填 ——
+       * 让他填就一定会有人写成「正确/不正确」「真/假」，
+       * 而判题器只认 T/F 这一组键。写死在这里，前端只需渲染。 */
+      options = JSON.stringify([{ k: 'T', t: '正确' }, { k: 'F', t: '错误' }]);
+    } else if (OPTION_TYPES.has(type)) {
       const raw = Array.isArray(body?.options) ? body.options : [];
       const clean = raw.map((o, i) => ({
-        k: String(o?.k ?? 'ABCD'[i] ?? '').trim().toUpperCase().slice(0, 1),
+        k: String(o?.k ?? 'ABCDEF'[i] ?? '').trim().toUpperCase().slice(0, 1),
         t: String(o?.t ?? '').trim().slice(0, 300),
       })).filter((o) => o.k && o.t);
-      if (clean.length !== 4 || clean.map((o) => o.k).join('') !== 'ABCD') {
-        return { error: '选择题需要正好四个选项，标号是 A / B / C / D' };
+
+      if (type === 'choice') {
+        if (clean.length !== 4 || clean.map((o) => o.k).join('') !== 'ABCD') {
+          return { error: '单选题需要正好四个选项，标号是 A / B / C / D' };
+        }
+        /* 这里**不需要**再检查「答案在不在选项里」：
+         * 上一行已经保证选项键正好是 ABCD，而 answerIssue 保证答案是 A–D 之一，
+         * 两者一交，答案必然在选项里。写一个永远不成立的检查只会让人以为
+         * 这里有保护，实际是死的 —— 端到端测试里就是这么暴露出来的。 */
+      } else {
+        /* 多选题允许 4~6 个选项，标号必须从 A 连续排下去。
+         * 不连续的话 normLetters 会把答案字母和选项键对不上号 ——
+         * 比如选项只有 A、B、D（缺 C），答案 'ABD' 里那个 D 指向谁就说不清了。 */
+        if (clean.length < 4 || clean.length > 6) {
+          return { error: '多选题需要 4~6 个选项' };
+        }
+        const want = 'ABCDEF'.slice(0, clean.length);
+        if (clean.map((o) => o.k).join('') !== want) {
+          return { error: `多选题的选项标号要从 A 连续排到 ${want[want.length - 1]}` };
+        }
+        if (answer.split('').some((k) => !want.includes(k))) {
+          return { error: `答案「${answer}」里有不存在的选项（只有 ${want}）` };
+        }
+        if (answer.length < 2) {
+          return { error: '多选题至少要勾 2 个选项' };
+        }
       }
-      /* 这里**不需要**再检查「答案在不在选项里」：
-       * 上一行已经保证选项键正好是 ABCD，而 answerIssue 保证答案是 A–D 之一，
-       * 两者一交，答案必然在选项里。写一个永远不成立的检查只会让人以为
-       * 这里有保护，实际是死的 —— 端到端测试里就是这么暴露出来的。 */
       options = JSON.stringify(clean);
+    }
+
+    /* ---------- 评分点（解答 / 证明）---------- */
+    let steps = '[]';
+    if (SELF_GRADED_TYPES.has(type)) {
+      const raw = Array.isArray(body?.steps) ? body.steps : [];
+      const clean = raw
+        .map((s) => ({
+          t: String(s?.t ?? '').trim().slice(0, 500),
+          pts: Math.max(0, Math.min(20, Number(s?.pts) || 0)),
+        }))
+        .filter((s) => s.t);
+      if (clean.length > 12) return { error: '评分点最多 12 条' };
+      steps = JSON.stringify(clean);
     }
 
     return {
@@ -299,6 +344,7 @@ export default async function catalogRoutes(fastify) {
         options,
         answer,
         analysis: String(body?.analysis ?? '').trim().slice(0, 2000),
+        steps,
         sourceType: String(body?.sourceType ?? '').trim().slice(0, 40) || '自建',
         sourceYear: Number(body?.sourceYear) || null,
         source: String(body?.source ?? '').trim().slice(0, 80) || '手动录入',
@@ -320,6 +366,7 @@ export default async function catalogRoutes(fastify) {
            * 录题是手输的，5000 字符对一道数学题绰绰有余。 */
           stem: { type: 'string', maxLength: 5000 },
           options: { type: 'array', maxItems: 12 },
+          steps: { type: 'array', maxItems: 12 },
           answer: { type: 'string', maxLength: 2000 },
           analysis: { type: 'string', maxLength: 5000 },
           difficulty: { type: 'integer', minimum: 1, maximum: 5 },
@@ -362,6 +409,7 @@ export default async function catalogRoutes(fastify) {
           type: { type: 'string' },
           stem: { type: 'string' },
           options: { type: 'array' },
+          steps: { type: 'array' },
           answer: { type: 'string' },
           analysis: { type: 'string' },
           difficulty: { type: 'integer' },

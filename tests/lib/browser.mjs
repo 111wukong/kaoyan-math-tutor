@@ -158,5 +158,24 @@ export async function launchPage({ width = 1440, height = 900, browser = null } 
   const client = cdpClient(target.webSocketDebuggerUrl);
   await client.ready;
 
-  return { client, bin, kill, stderrTail };
+  return { client, bin, kill, stderrTail, dbgPort };
+}
+
+/**
+ * 列出浏览器里当前所有 page 目标（标签页）。
+ *
+ * 走 HTTP 的 /json/list 而不是 CDP 的 Target.getTargets —— 后者只在
+ * **浏览器级**会话上可用，而这里连的是某个 page 的会话，调它会报
+ * "not allowed"。HTTP 端点没有这个限制，而且不用额外建连接。
+ *
+ * 用途：站内链接现在一律 target="_blank"，断言「真的新开了一个标签」
+ * 只能靠对比点击前后这里的目标列表（见 tests/browser-smoke.mjs）。
+ */
+export async function listPages(dbgPort) {
+  try {
+    const list = await (await fetch(`http://127.0.0.1:${dbgPort}/json/list`)).json();
+    return list.filter((t) => t.type === 'page').map((t) => ({ id: t.id, url: t.url }));
+  } catch {
+    return [];
+  }
 }

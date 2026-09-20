@@ -130,8 +130,25 @@ export interface Category {
   id: string; name: string; color: string; chapters: Chapter[];
 }
 
+/**
+ * 题型。对应考研数学卷面的真实构成（单选/填空/解答），
+ * 外加多选、判断两个练习型 —— 它们用来练概念辨析，真题不考。
+ *
+ * 解答题和证明题**不能自动判分**，由用户对照参考答案自评，
+ * 服务端返回的 `selfGraded` 就是这个意思，前端靠它切换作答区形态。
+ */
+export type QuestionType = 'choice' | 'multi' | 'blank' | 'judge' | 'solve' | 'proof';
+
+/** 解答 / 证明题的一个评分点。`pts` 是这一条值多少分（用于分步给分）。 */
+export interface QuestionStep { t: string; pts: number }
+
 export interface Question {
-  id: string; kid: string; type: 'choice' | 'blank'; difficulty: number;
+  id: string; kid: string; type: QuestionType;
+  /** 题型中文名。服务端给，前端不再自己维护一份映射 —— 两份必然漂移。 */
+  typeLabel: string;
+  /** true = 判题器判不了，要用户自评（解答 / 证明题） */
+  selfGraded: boolean;
+  difficulty: number;
   stem: string; options: { k: string; t: string }[] | null;
   sourceType: string; sourceYear: number | null; source: string;
 }
@@ -139,9 +156,11 @@ export interface Question {
 /** 录题 / 改题时提交的字段。答案必须能被判题器判分，否则服务端会拒。 */
 export interface QuestionDraft {
   kid: string;
-  type: 'choice' | 'blank';
+  type: QuestionType;
   stem: string;
   options?: { k: string; t: string }[];
+  /** 仅解答 / 证明题：分步给分的依据 */
+  steps?: QuestionStep[];
   answer: string;
   analysis?: string;
   difficulty?: number;
@@ -151,9 +170,15 @@ export interface QuestionDraft {
 }
 
 export interface AnswerResult {
-  correct: boolean; myAnswer: string; answer: string; analysis: string;
+  /** 解答 / 证明题在「亮答案」那一步返回 null —— 那是「还没判」，不是「答错了」 */
+  correct: boolean | null;
+  /** true = 这一次只是把参考答案亮出来，没有记任何账（见服务端注释） */
+  selfGrade?: boolean;
+  myAnswer: string; answer: string; analysis: string;
+  /** 评分点，仅解答 / 证明题有 */
+  steps: QuestionStep[] | null;
   options: { k: string; t: string }[] | null; stem: string; kid: string;
-  xp: { gained: number; levelUp: boolean; from?: number; to?: number; title?: string };
+  xp: { gained: number; levelUp: boolean; from?: number; to?: number; title?: string } | null;
   xpNote: string;
   combo: { combo: number; best_combo: number };
   mastery: { level: string; label: string; accuracy: number; attempts: number };
@@ -184,8 +209,10 @@ export interface Card {
 
 export interface Mistake {
   qid: string; kid: string; kidTitle: string; chapterId: string;
-  stem: string; type: string; options: { k: string; t: string }[] | null;
+  stem: string; type: QuestionType; options: { k: string; t: string }[] | null;
+  typeLabel: string; selfGraded: boolean;
   answer: string; analysis: string; myAnswer: string;
+  steps: QuestionStep[] | null;
   difficulty: number; sourceType: string; sourceYear: number | null;
   wrongCount: number; attempts: number; lastAt: number;
 }
@@ -415,7 +442,16 @@ export const api = {
   },
 
   study: {
-    answer: (qid: string, answer: string, context = 'quiz') => post<AnswerResult>('/api/study/answer', { qid, answer, context }),
+    /**
+     * 作答。
+     *
+     * `selfCorrect` 只有解答 / 证明题会读：
+     *   · 不传 → 服务端只把参考答案和评分点返回，**不记任何账**；
+     *   · 传 true/false → 才真正落一次作答记录。
+     * 其他题型传了也会被服务端忽略（那是权限边界，不是提示）。
+     */
+    answer: (qid: string, answer: string, context = 'quiz', selfCorrect?: boolean) =>
+      post<AnswerResult>('/api/study/answer', { qid, answer, context, selfCorrect }),
     mistakes: (kid?: string) => get<{ mistakes: Mistake[]; total: number; byKid: Record<string, number> }>(`/api/study/mistakes${kid ? `?kid=${kid}` : ''}`),
     weak: (limit = 8) => get<{ weak: any[] }>(`/api/study/weak?limit=${limit}`),
     /** 根因诊断：从错题回溯到真正没打牢的前置。与 weak 的分工见后端注释。 */

@@ -64,12 +64,18 @@ export function seed({ quiet = false } = {}) {
     knowledge.forEach((n) => kn.run(n));
 
     // 内置题 owner_id 为 NULL；用户自建题不会被这里覆盖（id 前缀不同）
-    const q = db.prepare(`INSERT INTO questions (id,kid,type,difficulty,stem,options,answer,analysis,source_type,source_year,source,owner_id)
-      VALUES (@id,@kid,@type,@difficulty,@stem,@options,@answer,@analysis,@sourceType,@sourceYear,@source,NULL)
+    /* steps 在 questions.json 里写成**数组**（人写的东西要能读），
+     * 进库前才 stringify —— options 当年是直接存字符串的，那是历史包袱，
+     * 不必再传染给新字段。 */
+    const q = db.prepare(`INSERT INTO questions (id,kid,type,difficulty,stem,options,answer,analysis,steps,source_type,source_year,source,owner_id)
+      VALUES (@id,@kid,@type,@difficulty,@stem,@options,@answer,@analysis,@steps,@sourceType,@sourceYear,@source,NULL)
       ON CONFLICT(id) DO UPDATE SET kid=@kid, type=@type, difficulty=@difficulty, stem=@stem,
-        options=@options, answer=@answer, analysis=@analysis,
+        options=@options, answer=@answer, analysis=@analysis, steps=@steps,
         source_type=@sourceType, source_year=@sourceYear, source=@source`);
-    questions.forEach((x) => q.run(x));
+    questions.forEach((x) => q.run({
+      ...x,
+      steps: JSON.stringify(Array.isArray(x.steps) ? x.steps : []),
+    }));
 
     /* 公式库：和图谱边一样**整表重建**。
      * 理由相同 —— formulas.json 是唯一真相源，删掉一条公式也该同步消失。

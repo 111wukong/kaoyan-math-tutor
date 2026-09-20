@@ -2650,5 +2650,925 @@
     "sourceType": "真题改编",
     "sourceYear": 2022,
     "source": "真题改编（2022）"
+  },
+  {
+    "id": "q205",
+    "kid": "c1n4",
+    "type": "multi",
+    "difficulty": 2,
+    "stem": "关于等价无穷小代换，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"等价代换只保证在乘除运算中可以直接替换\"}, {\"k\": \"B\", \"t\": \"加减法中出现等价无穷小时一定不能代换\"}, {\"k\": \"C\", \"t\": \"\\\\sin x 与 x 是 x\\\\to 0 时的等价无穷小\"}, {\"k\": \"D\", \"t\": \"若 \\\\alpha\\\\sim\\\\alpha_1, \\\\beta\\\\sim\\\\beta_1 且 \\\\lim\\\\frac{\\\\alpha_1}{\\\\beta_1} 存在，则 \\\\lim\\\\frac{\\\\alpha}{\\\\beta}=\\\\lim\\\\frac{\\\\alpha_1}{\\\\beta_1}\"}]",
+    "answer": "ACD",
+    "analysis": "等价代换的依据是 \\lim\\frac{\\alpha}{\\beta}=1，它只在乘除结构中直接可用；加减法里能不能换，要看两个无穷小相减后剩下的最低阶是多少 —— \\lim_{x\\to 0}\\frac{\\tan x-\\sin x}{x^{3}} 里直接换会得到 0，但真值是 \\frac{1}{2}，所以「一定不能」这种说法是错的。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q206",
+    "kid": "c2n3",
+    "type": "multi",
+    "difficulty": 2,
+    "stem": "关于罗尔定理，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"三个条件缺一不可，去掉「f(a)=f(b)」结论就不一定成立\"}, {\"k\": \"B\", \"t\": \"若 f 在 [a,b] 连续、在 (a,b) 可导且 f(a)=f(b)，则存在 \\\\xi\\\\in(a,b) 使 f'(\\\\xi)=0\"}, {\"k\": \"C\", \"t\": \"若存在 \\\\xi\\\\in(a,b) 使 f'(\\\\xi)=0，则必有 f(a)=f(b)\"}, {\"k\": \"D\", \"t\": \"满足条件时，使 f'(\\\\xi)=0 的 \\\\xi 是唯一的\"}]",
+    "answer": "AB",
+    "analysis": "罗尔定理的三个条件（闭区间连续、开区间可导、两端点函数值相等）缺一不可：f(x)=x 在 [0,1] 上满足前两条而 f(0)\\neq f(1)，此时导函数恒为 1，确实没有零点。C 是逆命题，把结论当条件用，显然不成立；D 更直接 —— f(x)=\\sin x 在 [0,\\pi] 上有两个导数为零的点。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q207",
+    "kid": "c3n4",
+    "type": "multi",
+    "difficulty": 2,
+    "stem": "关于定积分，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"\\\\int_a^b f(x)dx 的值只与 f 和区间 [a,b] 有关，与积分变量用什么字母无关\"}, {\"k\": \"B\", \"t\": \"若 f 在 [a,b] 上可积且 f(x)\\\\ge 0，则 \\\\int_a^b f(x)dx\\\\ge 0\"}, {\"k\": \"C\", \"t\": \"若 f 是可积的奇函数，则 \\\\int_{-a}^{a}f(x)dx=0\"}, {\"k\": \"D\", \"t\": \"若 \\\\int_a^b f(x)dx=0 且 f 连续，则 f 在 [a,b] 上恒为零\"}]",
+    "answer": "ABC",
+    "analysis": "A 是定积分的记号无关性 —— 积分值只由被积函数和区间决定。D 不成立：f(x)=x 在 [-1,1] 上积分也是 0，但它并不恒为零，正负抵消同样能让积分为零。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q208",
+    "kid": "l2n2",
+    "type": "multi",
+    "difficulty": 3,
+    "stem": "设 A,B 均为 n 阶方阵，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"若 AB=E，则 BA=E\"}, {\"k\": \"B\", \"t\": \"若 A,B 均可逆，则 (AB)^{-1}=A^{-1}B^{-1}\"}, {\"k\": \"C\", \"t\": \"若 A 可逆，则 |A^{-1}|=|A|^{-1}\"}, {\"k\": \"D\", \"t\": \"若 A^{2}=A 且 A 可逆，则 A=E\"}]",
+    "answer": "ACD",
+    "analysis": "B 错在顺序 —— 转置和求逆都要「倒过来」，(AB)^{-1}=B^{-1}A^{-1}。A 之所以成立，是因为方阵只要有一侧逆就是可逆的（|A||B|=|AB|=1）。D 两边同时左乘 A^{-1} 即可。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q209",
+    "kid": "l5n1",
+    "type": "multi",
+    "difficulty": 2,
+    "stem": "关于特征值与特征向量，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"若 \\\\lambda 是 A 的特征值，则 \\\\lambda^{2} 是 A^{2} 的特征值\"}, {\"k\": \"B\", \"t\": \"属于不同特征值的特征向量线性无关\"}, {\"k\": \"C\", \"t\": \"若 A 可逆，则 A 的特征值全不为零\"}, {\"k\": \"D\", \"t\": \"特征向量允许取零向量\"}]",
+    "answer": "ABC",
+    "analysis": "D 是特征向量定义里最容易被忽略的一条：特征向量**必须非零**，否则 A\\cdot 0=\\lambda\\cdot 0 对任何 \\lambda 都成立，特征值就无从谈起了。A 的证明：A\\alpha=\\lambda\\alpha \\Rightarrow A^{2}\\alpha=\\lambda A\\alpha=\\lambda^{2}\\alpha。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q210",
+    "kid": "l6n2",
+    "type": "multi",
+    "difficulty": 3,
+    "stem": "设 A 为 n 阶实对称矩阵，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"A 正定的充要条件是 A 的特征值全大于零\"}, {\"k\": \"B\", \"t\": \"A 正定的充要条件是 A 的各阶顺序主子式全大于零\"}, {\"k\": \"C\", \"t\": \"A 正定的充要条件是 A 与单位矩阵 E 合同\"}, {\"k\": \"D\", \"t\": \"若 A 的所有对角元都大于零，则 A 正定\"}]",
+    "answer": "ABC",
+    "analysis": "D 是最经典的反例陷阱：A=\\begin{pmatrix}1&2\\\\2&1\\end{pmatrix} 的对角元都是 1>0，但特征值是 3 与 -1，并不正定。对角元为正只说明二次型在坐标轴方向上取正值，管不住别的方向。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q211",
+    "kid": "p1n1",
+    "type": "multi",
+    "difficulty": 2,
+    "stem": "关于事件的概率运算，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"P(A\\\\cup B)=P(A)+P(B)-P(AB)\"}, {\"k\": \"B\", \"t\": \"若 A,B 互斥，则 P(AB)=0\"}, {\"k\": \"C\", \"t\": \"若 P(AB)=0，则 A 与 B 互斥\"}, {\"k\": \"D\", \"t\": \"P(A-B)=P(A)-P(AB)\"}]",
+    "answer": "ABD",
+    "analysis": "C 是概率里最典型的错误推理。「概率为零」不等于「不可能」——连续型随机变量取任一指定值的概率都是 0，但那个值确实可能取到。所以由 P(AB)=0 推不出 A,B 互斥。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q212",
+    "kid": "p2n2",
+    "type": "multi",
+    "difficulty": 2,
+    "stem": "关于常用连续型分布，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"正态分布 N(\\\\mu,\\\\sigma^{2}) 的密度关于直线 x=\\\\mu 对称\"}, {\"k\": \"B\", \"t\": \"指数分布具有无记忆性\"}, {\"k\": \"C\", \"t\": \"均匀分布 U(a,b) 的密度在 (a,b) 内恒为 \\\\frac{1}{b-a}\"}, {\"k\": \"D\", \"t\": \"标准正态分布的密度函数最大值为 1\"}]",
+    "answer": "ABC",
+    "analysis": "D 记错了常数。标准正态密度 \\varphi(x)=\\frac{1}{\\sqrt{2\\pi}}e^{-x^{2}/2} 在 x=0 处取最大值 \\frac{1}{\\sqrt{2\\pi}}\\approx 0.399，不是 1。「最大值为 1」是把密度当成分布函数记了。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q213",
+    "kid": "p4n2",
+    "type": "multi",
+    "difficulty": 2,
+    "stem": "关于方差，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"D(X)=E(X^{2})-[E(X)]^{2}\"}, {\"k\": \"B\", \"t\": \"D(aX+b)=a^{2}D(X)\"}, {\"k\": \"C\", \"t\": \"D(X+Y)=D(X)+D(Y) 对任意随机变量 X,Y 都成立\"}, {\"k\": \"D\", \"t\": \"D(X)\\\\ge 0，且 D(X)=0 当且仅当 X 以概率 1 取常数\"}]",
+    "answer": "ABD",
+    "analysis": "C 少了一个前提。D(X+Y)=D(X)+D(Y) 只在 X,Y **不相关**时成立；一般情形要补上 2\\operatorname{Cov}(X,Y)。把不相关当成默认，是这一章最常见的计算错误。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q214",
+    "kid": "p3n3",
+    "type": "multi",
+    "difficulty": 2,
+    "stem": "关于协方差与相关系数，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"\\\\operatorname{Cov}(X,Y)=\\\\operatorname{Cov}(Y,X)\"}, {\"k\": \"B\", \"t\": \"若 X,Y 相互独立，则 \\\\operatorname{Cov}(X,Y)=0\"}, {\"k\": \"C\", \"t\": \"若 \\\\operatorname{Cov}(X,Y)=0，则 X 与 Y 相互独立\"}, {\"k\": \"D\", \"t\": \"相关系数满足 |\\\\rho_{XY}|\\\\le 1\"}]",
+    "answer": "ABD",
+    "analysis": "C 是「不相关推不出独立」这个经典结论。只有当 (X,Y) 服从二维正态分布时，不相关与独立才等价 —— 那个条件不能丢，丢了就是一道错题。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q215",
+    "kid": "c6n1",
+    "type": "multi",
+    "difficulty": 2,
+    "stem": "关于常数项级数，下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"若 \\\\sum u_n 收敛，则 \\\\lim_{n\\\\to\\\\infty}u_n=0\"}, {\"k\": \"B\", \"t\": \"若 \\\\lim_{n\\\\to\\\\infty}u_n=0，则 \\\\sum u_n 收敛\"}, {\"k\": \"C\", \"t\": \"p 级数 \\\\sum_{n=1}^{\\\\infty}\\\\frac{1}{n^{p}} 当 p>1 时收敛\"}, {\"k\": \"D\", \"t\": \"若 \\\\sum u_n 收敛，则 \\\\sum|u_n| 一定收敛\"}]",
+    "answer": "AC",
+    "analysis": "B 是必要条件当成了充分条件，调和级数 \\sum\\frac{1}{n} 就是反例：通项趋于零，级数照样发散。D 忽略了条件收敛 —— \\sum\\frac{(-1)^{n-1}}{n} 收敛但取绝对值后发散。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q216",
+    "kid": "c4n3",
+    "type": "multi",
+    "difficulty": 3,
+    "stem": "设 z=f(x,y) 在点 P 的某邻域内有二阶连续偏导数，记 A=f_{xx}(P), B=f_{xy}(P), C=f_{yy}(P)。下列说法正确的有",
+    "options": "[{\"k\": \"A\", \"t\": \"若 f 在 P 取极值且偏导数存在，则 f_x(P)=f_y(P)=0\"}, {\"k\": \"B\", \"t\": \"若 f_x(P)=f_y(P)=0，则 f 在 P 一定取极值\"}, {\"k\": \"C\", \"t\": \"若 AC-B^{2}>0 且 A<0，则 f 在 P 取极大值\"}, {\"k\": \"D\", \"t\": \"若 AC-B^{2}<0，则 P 一定不是极值点\"}]",
+    "answer": "ACD",
+    "analysis": "B 把必要条件当成了充分条件 —— f_x=f_y=0 只是「有可能是极值」，真正判是不是极值要看 AC-B^{2} 的符号。D 成立：AC-B^{2}<0 时 P 是鞍点，一定不是极值点。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q217",
+    "kid": "c1n2",
+    "type": "judge",
+    "difficulty": 1,
+    "stem": "由第一重要极限可得 \\lim_{x\\to 0}\\frac{\\sin 3x}{2x}=\\frac{3}{2}。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "T",
+    "analysis": "把式子拆成 \\frac{3}{2}\\cdot\\frac{\\sin 3x}{3x}，而 \\frac{\\sin 3x}{3x}\\to 1，所以极限是 \\frac{3}{2}。记住「分子分母同阶则极限是系数之比」这个结论更快。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q218",
+    "kid": "c1n4",
+    "type": "judge",
+    "difficulty": 2,
+    "stem": "等价无穷小代换在加减法中一定不能使用。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "F",
+    "analysis": "「一定不能」太绝对了。加减法里代换之所以常常出错，是因为相减后最低阶可能被抵消掉；但如果两个无穷小同号相加（如 \\lim\\frac{x+\\sin x}{x}），代换照样成立。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q219",
+    "kid": "c1n5",
+    "type": "judge",
+    "difficulty": 1,
+    "stem": "若 f 在点 x_0 处连续，则 f 在 x_0 处一定可导。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "F",
+    "analysis": "连续是可导的必要条件，不是充分条件。反例：f(x)=|x| 在 x=0 处连续，但左右导数分别是 -1 和 1，不可导。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q220",
+    "kid": "c2n1",
+    "type": "judge",
+    "difficulty": 1,
+    "stem": "若 f 在点 x_0 处可导，则 f 在 x_0 处一定连续。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "T",
+    "analysis": "可导必连续。因为 f(x)-f(x_0)=\\frac{f(x)-f(x_0)}{x-x_0}\\cdot(x-x_0)，前一个因子趋于 f'(x_0)，后一个趋于 0，乘积趋于 0。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q221",
+    "kid": "c2n5",
+    "type": "judge",
+    "difficulty": 1,
+    "stem": "洛必达法则既可用于 \\frac{0}{0} 型未定式，也可用于 \\frac{\\infty}{\\infty} 型未定式。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "T",
+    "analysis": "这两种是洛必达法则直接适用的基本型。其它未定式（0\\cdot\\infty、\\infty-\\infty、1^{\\infty}、0^{0}、\\infty^{0}）要先化成这两型才能用。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q222",
+    "kid": "c3n4",
+    "type": "judge",
+    "difficulty": 2,
+    "stem": "若 f 在闭区间 [a,b] 上可积，则 f 在 [a,b] 上一定连续。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "F",
+    "analysis": "方向反了。连续是可积的充分条件，不是必要条件。有界且只有有限个间断点的函数照样可积 —— 比如在 [0,1] 上只有 x=\\frac{1}{2} 处跳跃的函数。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q223",
+    "kid": "c3n6",
+    "type": "judge",
+    "difficulty": 2,
+    "stem": "反常积分 \\int_1^{+\\infty}\\frac{dx}{x^{2}} 收敛，且其值为 1。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "T",
+    "analysis": "这是 p 积分在 p=2>1 的情形。\\int_1^{+\\infty}\\frac{dx}{x^{2}}=\\left[-\\frac{1}{x}\\right]_1^{+\\infty}=0-(-1)=1。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q224",
+    "kid": "c6n2",
+    "type": "judge",
+    "difficulty": 2,
+    "stem": "幂级数在其收敛区间内可以逐项求导，且求导后收敛半径不变。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "T",
+    "analysis": "逐项求导与逐项积分都不会改变收敛半径（端点处的收敛性可能变，所以强调「区间内」）。这条性质是把幂级数当函数运算的基础。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q225",
+    "kid": "l1n1",
+    "type": "judge",
+    "difficulty": 1,
+    "stem": "交换行列式的两行，行列式的值不变。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "F",
+    "analysis": "交换两行行列式**变号**，不变号的是转置。这条性质是「两行相同则行列式为零」的由来：交换后既是原值又是相反数，只能为零。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q226",
+    "kid": "l4n2",
+    "type": "judge",
+    "difficulty": 2,
+    "stem": "设 A 为 m\\times n 矩阵，若 r(A)=r(A,b)，则非齐次线性方程组 Ax=b 有解。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "T",
+    "analysis": "这是非齐次线性方程组有解的充要条件。直观理解：r(A)=r(A,b) 说明 b 没有给系数矩阵增加新的「独立方向」，也就是 b 能由 A 的列向量组线性表示。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q227",
+    "kid": "p2n3",
+    "type": "judge",
+    "difficulty": 2,
+    "stem": "连续型随机变量取任意单个实数值的概率都是 0。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "T",
+    "analysis": "因为 P(X=a)=F(a)-F(a^{-})=\\int_a^a f(x)dx=0。这也解释了为什么「概率为 0」不等于「不可能事件」——取到每一个具体值的概率都是 0，但总有一个值会被取到。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q228",
+    "kid": "p5n2",
+    "type": "judge",
+    "difficulty": 2,
+    "stem": "中心极限定理要求总体必须服从正态分布。",
+    "options": "[{\"k\": \"T\", \"t\": \"正确\"}, {\"k\": \"F\", \"t\": \"错误\"}]",
+    "answer": "F",
+    "analysis": "恰恰相反 —— 中心极限定理的价值就在于**总体不必正态**。只要独立同分布、期望和方差存在，样本均值标准化后就近似服从 N(0,1)。",
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q229",
+    "kid": "c1n4",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求极限 \\lim_{x\\to 0}\\frac{\\tan x-\\sin x}{x^{3}}。",
+    "options": null,
+    "answer": "\\frac{1}{2}",
+    "analysis": "关键是把 \\tan x-\\sin x 化成「\\sin x 乘上一个无穷小」的形状，这样才能用 1-\\cos x\\sim\\frac{x^{2}}{2}。直接对分子用等价代换（\\tan x\\sim x, \\sin x\\sim x）会得到 0，是错的。",
+    "steps": [
+      {
+        "t": "把 \\tan x-\\sin x 通分：\\tan x-\\sin x=\\sin x\\left(\\frac{1}{\\cos x}-1\\right)=\\frac{\\sin x(1-\\cos x)}{\\cos x}",
+        "pts": 4
+      },
+      {
+        "t": "拆成三项之积：\\frac{\\tan x-\\sin x}{x^{3}}=\\frac{\\sin x}{x}\\cdot\\frac{1-\\cos x}{x^{2}}\\cdot\\frac{1}{\\cos x}",
+        "pts": 3
+      },
+      {
+        "t": "分别求极限：\\frac{\\sin x}{x}\\to 1, \\frac{1-\\cos x}{x^{2}}\\to\\frac{1}{2}, \\frac{1}{\\cos x}\\to 1",
+        "pts": 2
+      },
+      {
+        "t": "相乘得结果 \\frac{1}{2}",
+        "pts": 1
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q230",
+    "kid": "c3n5",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求 \\frac{d}{dx}\\int_{x^{2}}^{0}\\sin tdt。",
+    "options": null,
+    "answer": "-2x\\sin(x^{2})",
+    "analysis": "积分上限是常数、下限是变量，先交换上下限添一个负号，再用变限积分求导公式（别忘了链式法则乘 (x^{2})'=2x）。",
+    "steps": [
+      {
+        "t": "交换上下限：\\int_{x^{2}}^{0}\\sin tdt=-\\int_{0}^{x^{2}}\\sin tdt",
+        "pts": 3
+      },
+      {
+        "t": "用变限积分求导公式：\\frac{d}{dx}\\int_{0}^{x^{2}}\\sin tdt=\\sin(x^{2})\\cdot(x^{2})'",
+        "pts": 4
+      },
+      {
+        "t": "代入 (x^{2})'=2x，得结果 -2x\\sin(x^{2})",
+        "pts": 3
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q231",
+    "kid": "c3n2",
+    "type": "solve",
+    "difficulty": 2,
+    "stem": "计算定积分 \\int_0^1\\frac{x}{\\sqrt{1+x^{2}}}dx。",
+    "options": null,
+    "answer": "\\sqrt{2}-1",
+    "analysis": "令 u=1+x^{2} 是关键：du=2xdx 正好把分子的 x 消掉，积分限从 x\\in[0,1] 变成 u\\in[1,2]。",
+    "steps": [
+      {
+        "t": "令 u=1+x^{2}，则 du=2xdx，即 xdx=\\frac{1}{2}du",
+        "pts": 3
+      },
+      {
+        "t": "换限：x=0 时 u=1；x=1 时 u=2",
+        "pts": 2
+      },
+      {
+        "t": "化为 \\frac{1}{2}\\int_1^2 u^{-1/2}du=\\left[\\sqrt{u}\\right]_1^2",
+        "pts": 3
+      },
+      {
+        "t": "代入得 \\sqrt{2}-1",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q232",
+    "kid": "c3n7",
+    "type": "solve",
+    "difficulty": 2,
+    "stem": "求由曲线 y=x^{2} 与直线 y=x 所围平面图形的面积。",
+    "options": null,
+    "answer": "\\frac{1}{6}",
+    "analysis": "先解交点定积分限，再判断哪条曲线在上方 —— 在 (0,1) 上 x>x^{2}，所以被积函数是 x-x^{2}。符号搞反会得到 -\\frac{1}{6}，面积不能为负。",
+    "steps": [
+      {
+        "t": "联立 y=x^{2} 与 y=x 求交点：x^{2}=x 得 x=0, x=1",
+        "pts": 3
+      },
+      {
+        "t": "在 (0,1) 内 x>x^{2}，故面积 S=\\int_0^1(x-x^{2})dx",
+        "pts": 4
+      },
+      {
+        "t": "计算 \\left[\\frac{x^{2}}{2}-\\frac{x^{3}}{3}\\right]_0^1=\\frac{1}{2}-\\frac{1}{3}",
+        "pts": 2
+      },
+      {
+        "t": "得 S=\\frac{1}{6}",
+        "pts": 1
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q233",
+    "kid": "c2n7",
+    "type": "solve",
+    "difficulty": 2,
+    "stem": "求函数 f(x)=x^{3}-3x 的极值。",
+    "options": null,
+    "answer": "极大值 f(-1)=2，极小值 f(1)=-2",
+    "analysis": "用极值第一充分条件：看 f' 在驻点两侧是否变号。注意区分「驻点」和「极值点」—— 这里两个驻点恰好都是极值点，但不是必然。",
+    "steps": [
+      {
+        "t": "求导：f'(x)=3x^{2}-3=3(x-1)(x+1)",
+        "pts": 3
+      },
+      {
+        "t": "令 f'(x)=0 得驻点 x=-1 与 x=1",
+        "pts": 2
+      },
+      {
+        "t": "判号：x<-1 时 f'>0；-1<x<1 时 f'<0；x>1 时 f'>0",
+        "pts": 3
+      },
+      {
+        "t": "故 x=-1 取极大值 f(-1)=2，x=1 取极小值 f(1)=-2",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q234",
+    "kid": "c4n1",
+    "type": "solve",
+    "difficulty": 2,
+    "stem": "设 z=x^{2}y+e^{xy}，求 \\frac{\\partial z}{\\partial x} 与 \\frac{\\partial z}{\\partial y}。",
+    "options": null,
+    "answer": "\\frac{\\partial z}{\\partial x}=2xy+ye^{xy},\\quad \\frac{\\partial z}{\\partial y}=x^{2}+xe^{xy}",
+    "analysis": "求偏导时把另一个变量当常数。e^{xy} 对 x 求导要用链式法则，乘上指数里对 x 的导数 y。",
+    "steps": [
+      {
+        "t": "求 \\frac{\\partial z}{\\partial x}：把 y 视为常数，x^{2}y 求导得 2xy",
+        "pts": 3
+      },
+      {
+        "t": "e^{xy} 对 x 求导 = e^{xy}\\cdot y，故 \\frac{\\partial z}{\\partial x}=2xy+ye^{xy}",
+        "pts": 3
+      },
+      {
+        "t": "求 \\frac{\\partial z}{\\partial y}：把 x 视为常数，x^{2}y 求导得 x^{2}",
+        "pts": 2
+      },
+      {
+        "t": "e^{xy} 对 y 求导 = e^{xy}\\cdot x，故 \\frac{\\partial z}{\\partial y}=x^{2}+xe^{xy}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q235",
+    "kid": "c5n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "计算二重积分 \\iint_D (x+y)d\\sigma，其中 D 是由直线 x=0、y=0 与 x+y=1 围成的三角形区域。",
+    "options": null,
+    "answer": "\\frac{1}{3}",
+    "analysis": "X 型区域：0\\le x\\le 1，0\\le y\\le 1-x。先对 y 积分时 x 当常数。这类对称区域可以先用轮换对称性检查答案是否合理。",
+    "steps": [
+      {
+        "t": "确定积分区域：D=\\{(x,y)\\mid 0\\le x\\le 1, 0\\le y\\le 1-x\\}",
+        "pts": 3
+      },
+      {
+        "t": "化为累次积分 \\int_0^1 dx\\int_0^{1-x}(x+y)dy",
+        "pts": 3
+      },
+      {
+        "t": "内层积分得 x(1-x)+\\frac{(1-x)^{2}}{2}=\\frac{1}{2}-\\frac{x^{2}}{2}",
+        "pts": 3
+      },
+      {
+        "t": "外层积分 \\int_0^1\\left(\\frac{1}{2}-\\frac{x^{2}}{2}\\right)dx=\\frac{1}{2}-\\frac{1}{6}=\\frac{1}{3}",
+        "pts": 1
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q236",
+    "kid": "c6n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求幂级数 \\sum_{n=0}^{\\infty}\\frac{x^{n}}{n+1} 的收敛半径。",
+    "options": null,
+    "answer": "R=1",
+    "analysis": "这里 x 的系数是 a_n=\\frac{1}{n+1}。用比值法求收敛半径时，别把 n 的起点搞混 —— 从 n=0 还是 n=1 开始不影响极限值。",
+    "steps": [
+      {
+        "t": "写出系数 a_n=\\frac{1}{n+1}",
+        "pts": 3
+      },
+      {
+        "t": "用公式 R=\\lim_{n\\to\\infty}\\left|\\frac{a_n}{a_{n+1}}\\right|",
+        "pts": 3
+      },
+      {
+        "t": "代入得 R=\\lim_{n\\to\\infty}\\frac{n+2}{n+1}=1",
+        "pts": 4
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q237",
+    "kid": "c7n2",
+    "type": "solve",
+    "difficulty": 2,
+    "stem": "求微分方程 y''-3y'+2y=0 的通解。",
+    "options": null,
+    "answer": "y=C_1e^{x}+C_2e^{2x}",
+    "analysis": "二阶常系数齐次线性方程的标准解法：写特征方程 → 求特征根 → 按根的类型套通解形式。这里是两个不等实根。",
+    "steps": [
+      {
+        "t": "写出特征方程 r^{2}-3r+2=0",
+        "pts": 3
+      },
+      {
+        "t": "因式分解 (r-1)(r-2)=0，得 r_1=1, r_2=2",
+        "pts": 3
+      },
+      {
+        "t": "两个不等实根对应通解 y=C_1e^{r_1x}+C_2e^{r_2x}",
+        "pts": 2
+      },
+      {
+        "t": "代入得 y=C_1e^{x}+C_2e^{2x}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q238",
+    "kid": "p1n3",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "某厂有甲、乙两条生产线。甲线产量占 60%，次品率为 0.01；乙线产量占 40%，次品率为 0.02。现从产品中任取一件，发现是次品，求它来自甲线的概率。",
+    "options": null,
+    "answer": "\\frac{3}{7}",
+    "analysis": "这是贝叶斯公式的典型题：已知结果（是次品），反推原因（来自哪条线）。分母用全概率公式算出「取到次品」的总概率，分子是「甲线且次品」的概率。",
+    "steps": [
+      {
+        "t": "设 A 为「取到次品」，B_1,B_2 分别为甲、乙线产品。已知 P(B_1)=0.6, P(B_2)=0.4",
+        "pts": 2
+      },
+      {
+        "t": "写出条件概率 P(A\\mid B_1)=0.01, P(A\\mid B_2)=0.02",
+        "pts": 2
+      },
+      {
+        "t": "全概率：P(A)=0.6\\times 0.01+0.4\\times 0.02=0.006+0.008=0.014",
+        "pts": 3
+      },
+      {
+        "t": "贝叶斯：P(B_1\\mid A)=\\frac{0.006}{0.014}=\\frac{3}{7}",
+        "pts": 3
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q239",
+    "kid": "p4n1",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "设随机变量 X 的分布律为 P(X=k)=\\frac{c}{k!} (k=0,1,2,\\dots)。求常数 c 与数学期望 E(X)。",
+    "options": null,
+    "answer": "c=e^{-1},\\quad E(X)=1",
+    "analysis": "用 \\sum_{k=0}^{\\infty}\\frac{1}{k!}=e 定出 c，认出这是参数为 1 的泊松分布，期望就等于参数。也可以按定义算 \\sum k\\cdot\\frac{c}{k!} 验证。",
+    "steps": [
+      {
+        "t": "由归一性 \\sum_{k=0}^{\\infty}\\frac{c}{k!}=c\\sum_{k=0}^{\\infty}\\frac{1}{k!}=ce=1，得 c=e^{-1}",
+        "pts": 4
+      },
+      {
+        "t": "于是 P(X=k)=\\frac{e^{-1}}{k!}，即 X 服从参数为 1 的泊松分布",
+        "pts": 3
+      },
+      {
+        "t": "泊松分布的期望等于参数，故 E(X)=1",
+        "pts": 3
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q240",
+    "kid": "l4n1",
+    "type": "solve",
+    "difficulty": 2,
+    "stem": "求齐次线性方程组 \\begin{cases}x_1+x_2-x_3=0\\ 2x_1+x_2-x_3=0\\end{cases} 的基础解系。",
+    "options": null,
+    "answer": "\\xi=(0,1,1)^{T}",
+    "analysis": "两个方程三个未知数，r(A)=2<n=3，所以有非零解，基础解系含 n-r=1 个向量。取 x_3 为自由变量回代即可。",
+    "steps": [
+      {
+        "t": "写出系数矩阵并作初等行变换：\\begin{pmatrix}1&1&-1\\ 2&1&-1\\end{pmatrix}\\to\\begin{pmatrix}1&1&-1\\ 0&-1&1\\end{pmatrix}",
+        "pts": 3
+      },
+      {
+        "t": "由 r(A)=2<n=3 知有非零解，基础解系含 3-2=1 个向量",
+        "pts": 3
+      },
+      {
+        "t": "取 x_3 为自由变量，由第二式得 x_2=x_3；代入第一式得 x_1=0",
+        "pts": 2
+      },
+      {
+        "t": "令 x_3=1 得基础解系 \\xi=(0,1,1)^{T}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q241",
+    "kid": "c1n6",
+    "type": "proof",
+    "difficulty": 2,
+    "stem": "证明：方程 x^{3}-3x+1=0 在区间 (0,1) 内至少有一个实根。",
+    "options": null,
+    "answer": "由零点定理，存在 \\xi\\in(0,1) 使 f(\\xi)=0，即该方程在 (0,1) 内至少有一个实根。",
+    "analysis": "零点定理（介值定理的推论）的用法是固定的三步：构造函数 → 验证闭区间连续 → 验证两端点函数值异号。注意结论落在**开区间**内，因为端点处的函数值不为零。",
+    "steps": [
+      {
+        "t": "令 f(x)=x^{3}-3x+1",
+        "pts": 2
+      },
+      {
+        "t": "指出 f 是多项式，因而在闭区间 [0,1] 上连续",
+        "pts": 3
+      },
+      {
+        "t": "计算端点值：f(0)=1>0，f(1)=1-3+1=-1<0",
+        "pts": 3
+      },
+      {
+        "t": "由零点定理，存在 \\xi\\in(0,1) 使 f(\\xi)=0，即 \\xi 是方程的根",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q242",
+    "kid": "c2n3",
+    "type": "proof",
+    "difficulty": 2,
+    "stem": "设 f(x) 在 [0,1] 上连续、在 (0,1) 内可导，且 f(0)=f(1)=0。证明：存在 \\xi\\in(0,1)，使 f'(\\xi)=0。",
+    "options": null,
+    "answer": "存在 \\xi\\in(0,1) 使 f'(\\xi)=0。",
+    "analysis": "这是罗尔定理的直接应用。写证明时要把三个条件**逐条对照**罗尔定理（闭区间连续、开区间可导、两端函数值相等），一条一条验完再下结论，阅卷就是按这三个条件给分的。",
+    "steps": [
+      {
+        "t": "指出题设恰好满足罗尔定理的三个条件：f 在 [0,1] 连续、在 (0,1) 可导、f(0)=f(1)",
+        "pts": 4
+      },
+      {
+        "t": "由罗尔定理，至少存在一点 \\xi\\in(0,1) 使 f'(\\xi)=0",
+        "pts": 4
+      },
+      {
+        "t": "说明 \\xi 在开区间内（罗尔定理的结论本身保证，不必额外论证）",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q243",
+    "kid": "c2n4",
+    "type": "proof",
+    "difficulty": 2,
+    "stem": "设 0<a<b，证明：\\frac{b-a}{b}<\\ln\\frac{b}{a}<\\frac{b-a}{a}。",
+    "options": null,
+    "answer": "由 a<\\xi<b 得 \\frac{1}{b}<\\frac{1}{\\xi}<\\frac{1}{a}，两边同乘 b-a>0，即得 \\frac{b-a}{b}<\\ln\\frac{b}{a}<\\frac{b-a}{a}。",
+    "analysis": "拉格朗日中值定理证明不等式的标准套路：把式子改写成「函数值之差 = 导数 × 区间长度」，再用 \\xi 落在区间内来放缩。这里构造函数 f(x)=\\ln x。",
+    "steps": [
+      {
+        "t": "取 f(x)=\\ln x，它在 [a,b] 上连续、在 (a,b) 内可导，满足拉格朗日中值定理",
+        "pts": 3
+      },
+      {
+        "t": "于是存在 \\xi\\in(a,b) 使 \\ln b-\\ln a=\\frac{1}{\\xi}(b-a)",
+        "pts": 3
+      },
+      {
+        "t": "由 a<\\xi<b 得 \\frac{1}{b}<\\frac{1}{\\xi}<\\frac{1}{a}",
+        "pts": 2
+      },
+      {
+        "t": "两边同乘正数 b-a，并把 \\ln b-\\ln a 写成 \\ln\\frac{b}{a}，即得所证不等式",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q244",
+    "kid": "c3n4",
+    "type": "proof",
+    "difficulty": 2,
+    "stem": "证明：\\frac{1}{2}\\le\\int_0^1\\frac{1}{1+x^{2}}dx\\le 1。",
+    "options": null,
+    "answer": "由积分保序性得 \\int_0^1\\frac{1}{2}dx\\le\\int_0^1\\frac{1}{1+x^{2}}dx\\le\\int_0^1 1dx，即 \\frac{1}{2}\\le\\int_0^1\\frac{1}{1+x^{2}}dx\\le 1。",
+    "analysis": "不用把积分算出来（算出来是 \\frac{\\pi}{4}）。估积分值的通用手法是**先估被积函数**，再用保序性 —— 在 [0,1] 上 0\\le x^{2}\\le 1，所以 1\\le 1+x^{2}\\le 2。",
+    "steps": [
+      {
+        "t": "在 [0,1] 上有 0\\le x^{2}\\le 1，故 1\\le 1+x^{2}\\le 2",
+        "pts": 3
+      },
+      {
+        "t": "取倒数得 \\frac{1}{2}\\le\\frac{1}{1+x^{2}}\\le 1",
+        "pts": 3
+      },
+      {
+        "t": "用定积分的保序性（被积函数大则积分大）对两边积分",
+        "pts": 2
+      },
+      {
+        "t": "\\int_0^1\\frac{1}{2}dx=\\frac{1}{2}，\\int_0^1 1dx=1，故原不等式成立",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q245",
+    "kid": "c6n1",
+    "type": "proof",
+    "difficulty": 2,
+    "stem": "证明：调和级数 \\sum_{n=1}^{\\infty}\\frac{1}{n} 发散。",
+    "options": null,
+    "answer": "由 S_{2^{k}}\\ge 1+\\frac{k}{2}\\to+\\infty，部分和无界，故调和级数发散。",
+    "analysis": "核心是**分组放缩**：把项按 1 项、2 项、4 项、8 项…分组，每一组里的每一项都不小于该组最后一项，于是每组之和至少是 \\frac{1}{2}。组数可以任意多，部分和就无界。",
+    "steps": [
+      {
+        "t": "记部分和 S_n=\\sum_{k=1}^{n}\\frac{1}{k}，只要证明 S_n 无界即可",
+        "pts": 2
+      },
+      {
+        "t": "按 1 项、2 项、4 项、8 项分组，考察 S_{2^{k}}",
+        "pts": 3
+      },
+      {
+        "t": "每组内每项都不小于该组末项，故每组的和不小于 \\frac{1}{2}",
+        "pts": 3
+      },
+      {
+        "t": "于是 S_{2^{k}}\\ge 1+\\frac{k}{2}，令 k\\to\\infty 得部分和无界，级数发散",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q246",
+    "kid": "l2n3",
+    "type": "proof",
+    "difficulty": 3,
+    "stem": "设 A 为 m\\times n 矩阵，B 为 n\\times s 矩阵，证明：r(AB)\\le\\min\\{r(A), r(B)\\}。",
+    "options": null,
+    "answer": "r(AB)\\le r(A) 且 r(AB)\\le r(B)，故 r(AB)\\le\\min\\{r(A),r(B)\\}。",
+    "analysis": "这一条要分两次证，两边的路子不一样：一边看**列**（AB 的列是 A 的列的线性组合，所以列空间被包含，秩不超过 A 的秩），另一边看**行**（AB 的行是 B 的行的线性组合）。两个不等式取小的，就是结论。",
+    "steps": [
+      {
+        "t": "记 A 的列向量为 A_1,\\dots,A_n，B 的元素为 b_{kj}",
+        "pts": 2
+      },
+      {
+        "t": "AB 的第 j 列等于 \\sum_{k=1}^{n}b_{kj}A_k，即 AB 的每一列都是 A 的列的线性组合",
+        "pts": 3
+      },
+      {
+        "t": "故 AB 的列向量组可由 A 的列向量组线性表示，从而 r(AB)\\le r(A)",
+        "pts": 2
+      },
+      {
+        "t": "同理，AB 的每一行都是 B 的行的线性组合，故 r(AB)\\le r(B)",
+        "pts": 2
+      },
+      {
+        "t": "两个不等式同时成立，取较小者即得 r(AB)\\le\\min\\{r(A),r(B)\\}",
+        "pts": 1
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q247",
+    "kid": "p2n3",
+    "type": "proof",
+    "difficulty": 2,
+    "stem": "设 X 是随机变量，F(x)=P(X\\le x) 为其分布函数。证明：F(x) 单调不减，且 0\\le F(x)\\le 1。",
+    "options": null,
+    "answer": "对任意 x_1<x_2 有 F(x_1)\\le F(x_2)；又由概率的非负性与规范性得 0\\le F(x)\\le 1。",
+    "analysis": "这类证明的关键是**把函数值翻译成事件**：F(x_1)\\le F(x_2) 本质上是「事件 \\{X\\le x_1\\} 包含于 \\{X\\le x_2\\}」加上概率的单调性。",
+    "steps": [
+      {
+        "t": "任取 x_1<x_2，则事件 \\{X\\le x_1\\}\\subseteq\\{X\\le x_2\\}",
+        "pts": 3
+      },
+      {
+        "t": "由概率的单调性得 P(X\\le x_1)\\le P(X\\le x_2)，即 F(x_1)\\le F(x_2)",
+        "pts": 3
+      },
+      {
+        "t": "又因为 \\{X\\le x\\} 是事件，其概率满足 0\\le P(X\\le x)\\le 1",
+        "pts": 2
+      },
+      {
+        "t": "故 0\\le F(x)\\le 1，命题得证",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
+  },
+  {
+    "id": "q248",
+    "kid": "p5n1",
+    "type": "proof",
+    "difficulty": 3,
+    "stem": "设连续型随机变量 X 的密度为 f(x)，E(X)=\\mu，D(X)=\\sigma^{2}。证明切比雪夫不等式：对任意 \\varepsilon>0，有 P(|X-\\mu|\\ge\\varepsilon)\\le\\frac{\\sigma^{2}}{\\varepsilon^{2}}。",
+    "options": null,
+    "answer": "由 \\sigma^{2}\\ge\\varepsilon^{2}P(|X-\\mu|\\ge\\varepsilon) 即得 P(|X-\\mu|\\ge\\varepsilon)\\le\\frac{\\sigma^{2}}{\\varepsilon^{2}}。",
+    "analysis": "思路是「把积分区域缩小，被积函数放大」：方差是全直线上的积分，只保留 |x-\\mu|\\ge\\varepsilon 的那一段，积分的值只会变小；而在这一段上 (x-\\mu)^{2}\\ge\\varepsilon^{2}，把它提出来就得到概率。",
+    "steps": [
+      {
+        "t": "写出方差的积分定义 \\sigma^{2}=\\int_{-\\infty}^{+\\infty}(x-\\mu)^{2}f(x)dx",
+        "pts": 2
+      },
+      {
+        "t": "缩小积分区域（被积函数非负，积分只会变小）：\\sigma^{2}\\ge\\int_{|x-\\mu|\\ge\\varepsilon}(x-\\mu)^{2}f(x)dx",
+        "pts": 3
+      },
+      {
+        "t": "在区域 |x-\\mu|\\ge\\varepsilon 上有 (x-\\mu)^{2}\\ge\\varepsilon^{2}，故积分 \\ge\\varepsilon^{2}\\int_{|x-\\mu|\\ge\\varepsilon}f(x)dx",
+        "pts": 3
+      },
+      {
+        "t": "右边的积分就是 P(|X-\\mu|\\ge\\varepsilon)，于是 \\sigma^{2}\\ge\\varepsilon^{2}P(|X-\\mu|\\ge\\varepsilon)，整理即得所证",
+        "pts": 2
+      }
+    ],
+    "sourceType": "经典例题",
+    "sourceYear": 2019,
+    "source": "经典例题"
   }
 ]

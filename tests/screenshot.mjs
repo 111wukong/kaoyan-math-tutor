@@ -456,8 +456,48 @@ try {
   await shoot('08-错题本', '/mistakes', { waitFor: SHELL, settle: 1600 });
   await shoot('09-统计', '/stats', { waitFor: SHELL, settle: 2400 });
   await shoot('10-公式实验室', '/lab', { waitFor: SHELL, settle: 2400 });
+  /* 公式手册那张：切到手册 tab，再点开第一条公式的「动手」。
+   * 这张图要展示的是「查到了就能立刻动手看」—— 只拍手册列表看不出这一点，
+   * 只拍演示台又看不出「手册里每条都能展开」。 */
+  await shoot('10b-公式手册-就地演示', '/lab', {
+    waitFor: SHELL,
+    settle: 2200,
+    after: `(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const tab = Array.from(document.querySelectorAll('button'))
+        .find((x) => x.textContent.trim() === '公式手册');
+      if (tab) tab.click();
+      await wait(1600);
+      const b = document.querySelector('button[data-demo-toggle]');
+      if (b) b.click();
+      await wait(1800);
+      window.scrollTo(0, 320);
+      await wait(200);
+      return 1;
+    })()`,
+  });
   await shoot('11-闪电战', '/blitz', { waitFor: SHELL, settle: 1800 });
   await shoot('12-卡片库', '/deck', { waitFor: SHELL, settle: 1600 });
+  /* 我的题库 + 录题表单里的「解答题」。这张要展示的是六种题型 ——
+   * 打开录题面板、把题型切到「解答」，评分点编辑器就出来了。 */
+  await shoot('12b-我的题库-解答题', '/questions', {
+    waitFor: SHELL,
+    settle: 1800,
+    after: `(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const open = Array.from(document.querySelectorAll('button'))
+        .find((x) => x.textContent.indexOf('录一道题') >= 0);
+      if (open) open.click();
+      await wait(900);
+      const solve = Array.from(document.querySelectorAll('button'))
+        .find((x) => x.textContent.trim() === '解答');
+      if (solve) solve.click();
+      await wait(900);
+      window.scrollTo(0, 260);
+      await wait(200);
+      return 1;
+    })()`,
+  });
   /* ★ 课堂必须带上 ?kid=。不带的话页面停在「先选一个知识点」的空态 ——
    *   而上面刚灌好的那份存档（在 CLASS_KID 上）一个字都看不到。
    *   这张图以前就是这么拍空的：看着不报错，只是拍了个空页面。 */

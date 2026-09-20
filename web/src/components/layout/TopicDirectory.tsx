@@ -15,8 +15,9 @@
  * 所以这里拉过一次之后，那几个页面切过去是零等待 —— 反过来也一样。
  */
 import { useMemo, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { ChevronRight, ListTree, Search } from 'lucide-react';
+import { AppNavLink as NavLink } from '@/lib/links';
 import { api } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { cn } from '@/lib/utils';

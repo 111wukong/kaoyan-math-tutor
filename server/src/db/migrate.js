@@ -80,6 +80,13 @@ const ADD_COLUMNS = {
     stability: 'REAL',
     difficulty: 'REAL',
   },
+  /* questions.steps —— 解答题 / 证明题的评分点。
+   * 新库由 schema.sql 建好；老库的 questions 表已经存在，
+   * 那条 CREATE TABLE IF NOT EXISTS 会被整个跳过，所以必须在这里补。
+   * 默认 '[]' 而不是 NULL：读的地方就能少一层判空。 */
+  questions: {
+    steps: "TEXT NOT NULL DEFAULT '[]'",
+  },
 };
 
 /**

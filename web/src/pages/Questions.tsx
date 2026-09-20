@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { CircleAlert, Plus, SquarePen, Trash2, X } from 'lucide-react';
-import { api, type QuestionDraft } from '@/lib/api';
+import { CircleAlert, ListChecks, Plus, SquarePen, Trash2, X } from 'lucide-react';
+import { api, type QuestionDraft, type QuestionType, type QuestionStep } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
 import {
@@ -10,7 +10,26 @@ import {
 import { RichText } from '@/components/ui/Math';
 import { cn, DIFFICULTY } from '@/lib/utils';
 
-const blankOptions = () => [{ k: 'A', t: '' }, { k: 'B', t: '' }, { k: 'C', t: '' }, { k: 'D', t: '' }];
+const LETTERS = 'ABCDEF';
+
+const blankOptions = (n = 4) =>
+  Array.from({ length: n }, (_, i) => ({ k: LETTERS[i], t: '' }));
+
+/* 题型元信息。**只有这一份** —— 界面文案、默认答案、能不能自动判分，
+ * 都从这里取。上一版是 if/else 散在各处，加一种题型要改五个地方。 */
+const TYPES: {
+  value: QuestionType; label: string; hint: string;
+  auto: boolean; needsOptions: boolean;
+}[] = [
+  { value: 'choice', label: '单选', hint: '考研卷面 10 题 × 5 分。答案是一个字母', auto: true, needsOptions: true },
+  { value: 'multi', label: '多选', hint: '练习用。全部选对才得分，答案写成 ACD 这样', auto: true, needsOptions: true },
+  { value: 'blank', label: '填空', hint: '考研卷面 6 题 × 5 分。答案只能是整数、小数或分数', auto: true, needsOptions: false },
+  { value: 'judge', label: '判断', hint: '练习用。判断命题真假，适合概念辨析和反例训练', auto: true, needsOptions: false },
+  { value: 'solve', label: '解答', hint: '卷面上最大的一块（约 70 分）。不自动判分，你写完自己对照评分点打分', auto: false, needsOptions: false },
+  { value: 'proof', label: '证明', hint: '与解答同属大题。评分看论证链，同样自评', auto: false, needsOptions: false },
+];
+
+const typeMeta = (t: QuestionType) => TYPES.find((x) => x.value === t) || TYPES[0];
 
 const emptyDraft = (kid: string): QuestionDraft => ({
   kid,
@@ -23,18 +42,28 @@ const emptyDraft = (kid: string): QuestionDraft => ({
   sourceType: '真题',
 });
 
+/** 解答/证明题默认给三行评分点 —— 空白表比让人自己点「加一条」友好 */
+const blankSteps = (): QuestionStep[] => [
+  { t: '', pts: 4 }, { t: '', pts: 4 }, { t: '', pts: 4 },
+];
+
 /**
  * 我的题库 —— 录真题卷子上的错题。
  *
- * 内置题库只有 204 道（每个考点 3 道），刷完就断了；
- * 而真正的短板在真题卷子上，那些题原来一道都进不来。
- *
+ * 内置题库只有 200 多道；而真正的短板在真题卷子上，那些题原来一道都进不来。
  * 录进来的题和内置题一视同仁：能作答、进错题本、参与掌握度、
  * 能被 AI 分析错因，也能被「举一反三」当参考。
+ *
+ * ── 为什么录题时要卡答案 ────────────────────────────────────────
+ * 判题器只认特定形态的答案（判据在 judge.js 的 answerIssue）。
+ * 录一道判不了的题，用户之后每次答对都会被判错，而且没有任何提示。
+ * 但**解答题/证明题例外**：它们本来就不自动判分，靠参考答案自评，
+ * 所以答案栏放的是「参考解答」而不是「一个值」，校验口径也完全不同。
  */
 export default function Questions() {
   const pushToast = useApp((s) => s.pushToast);
   const [kidFilter, setKidFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
   const [mineOnly, setMineOnly] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState('');
@@ -42,7 +71,7 @@ export default function Questions() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const list = useAsync(() => api.catalog.questions({ limit: 300 }), [], { key: 'catalog.questions:300' });
+  const list = useAsync(() => api.catalog.questions({ limit: 500 }), [], { key: 'catalog.questions:500' });
   const tree = useAsync(() => api.catalog.tree(), [], { key: 'catalog.tree:math1' });
 
   /* 把「分类 → 章节 → 知识点」拍平成下拉选项。
@@ -62,11 +91,13 @@ export default function Questions() {
   const shown = useMemo(() => {
     let out = all;
     if (kidFilter) out = out.filter((q) => q.kid === kidFilter);
+    if (typeFilter) out = out.filter((q) => q.type === typeFilter);
     if (mineOnly) out = out.filter((q) => q.mine);
     return out;
-  }, [all, kidFilter, mineOnly]);
+  }, [all, kidFilter, typeFilter, mineOnly]);
 
   const mineCount = all.filter((q) => q.mine).length;
+  const meta = typeMeta(draft.type);
 
   const openCreate = () => {
     setEditingId('');
@@ -82,6 +113,7 @@ export default function Questions() {
       type: q.type,
       stem: q.stem,
       options: q.options || blankOptions(),
+      steps: undefined,
       answer: q.answer ?? '',
       analysis: '',
       difficulty: q.difficulty,
@@ -90,20 +122,43 @@ export default function Questions() {
     });
     setFormError('');
     setFormOpen(true);
-    /* 编辑时要把答案和解析取回来 —— 列表接口刻意不返回它们（考试中不能泄露），
-     * 所以这里单独拉一次单题详情。 */
+    /* 编辑时要把答案、解析、评分点取回来 —— 列表接口刻意不返回它们
+     * （考试中不能泄露），所以这里单独拉一次单题详情。 */
     api.catalog.question(q.id).then((r) => {
-      setDraft((d) => ({ ...d, answer: r.question.answer, analysis: r.question.analysis }));
+      setDraft((d) => ({
+        ...d,
+        answer: r.question.answer,
+        analysis: r.question.analysis,
+        steps: (r.question as any).steps || undefined,
+      }));
     }).catch(() => { /* 取不到就留空，用户重填 */ });
+  };
+
+  /** 换题型时把上一型的残留字段清掉 —— 不然「多选答案 ACD」会跟着
+   *  一起提交到填空题上，服务端按填空题校验就会报一个看不懂的错。 */
+  const switchType = (v: QuestionType) => {
+    const m = typeMeta(v);
+    setDraft({
+      ...draft,
+      type: v,
+      options: m.needsOptions ? (draft.options?.length ? draft.options : blankOptions()) : undefined,
+      steps: v === 'solve' || v === 'proof' ? (draft.steps?.length ? draft.steps : blankSteps()) : undefined,
+      answer: v === 'choice' ? 'A' : v === 'multi' ? '' : v === 'judge' ? 'T' : '',
+    });
+    setFormError('');
   };
 
   const save = async () => {
     setSaving(true);
     setFormError('');
     try {
-      const body: QuestionDraft = draft.type === 'choice'
-        ? draft
-        : { ...draft, options: undefined };
+      /* 按题型只提交它认的字段。多选题要带选项，判断题的选项由服务端写死
+       * （就「正确/错误」两个键），解答题要带评分点。 */
+      const body: QuestionDraft = {
+        ...draft,
+        options: meta.needsOptions ? draft.options : undefined,
+        steps: meta.auto ? undefined : (draft.steps || []).filter((s) => s.t.trim()),
+      };
       if (editingId) {
         await api.questions.update(editingId, body);
         pushToast({ kind: 'success', title: '已保存' });
@@ -132,8 +187,21 @@ export default function Questions() {
     }
   };
 
-  const canSave = draft.kid && draft.stem.trim().length >= 5 && String(draft.answer).trim()
-    && (draft.type === 'blank' || (draft.options || []).every((o) => o.t.trim()));
+  /* ---------- 可提交性 ---------- */
+  const answerOk = (() => {
+    const a = String(draft.answer ?? '').trim();
+    if (draft.type === 'choice') return /^[A-Fa-f]$/.test(a);
+    if (draft.type === 'multi') return a.replace(/[^A-Fa-f]/g, '').length >= 2;
+    if (draft.type === 'judge') return a === 'T' || a === 'F';
+    if (meta.auto) return a.length > 0;
+    return a.length >= 2;   // 解答/证明：参考答案
+  })();
+
+  const optionsOk = !meta.needsOptions
+    || (draft.options || []).length >= 4
+    && (draft.options || []).every((o) => o.t.trim());
+
+  const canSave = !!draft.kid && draft.stem.trim().length >= 5 && answerOk && optionsOk;
 
   return (
     <div className="space-y-5">
@@ -167,6 +235,14 @@ export default function Questions() {
               <option key={n.id} value={n.id}>{n.title}</option>
             ))}
           </select>
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="rounded-xl border border-hairline bg-veil/4 px-3 py-1.5 text-[12.5px] text-fg-soft outline-none transition-colors hover:border-veil/20 focus:border-cyan/40"
+          >
+            <option value="">全部题型</option>
+            {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}题</option>)}
+          </select>
           <Segmented
             size="sm"
             value={mineOnly ? 'mine' : 'all'}
@@ -188,7 +264,9 @@ export default function Questions() {
             <Panel className="p-5">
               <SectionTitle
                 title={editingId ? '改这道题' : '录一道新题'}
-                desc="答案必须能被自动判分 —— 判不了的题录进来，你以后答对也会被判错"
+                desc={meta.auto
+                  ? '答案必须能被自动判分 —— 判不了的题录进来，你以后答对也会被判错'
+                  : '解答题和证明题不自动判分：写好参考答案和评分点，作答时你对照着给自己打分'}
                 right={
                   <Button variant="ghost" size="sm" onClick={() => setFormOpen(false)}>
                     <X size={14} /> 收起
@@ -198,6 +276,14 @@ export default function Questions() {
               />
 
               <div className="space-y-4">
+                <Field label="题型" hint={meta.hint}>
+                  <Segmented
+                    value={draft.type}
+                    onChange={(v) => switchType(v as QuestionType)}
+                    options={TYPES.map((t) => ({ value: t.value, label: t.label }))}
+                  />
+                </Field>
+
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="挂在哪个考点下">
                     <select
@@ -210,16 +296,15 @@ export default function Questions() {
                       ))}
                     </select>
                   </Field>
-                  <Field label="题型">
+                  <Field label="难度">
                     <Segmented
-                      value={draft.type}
-                      onChange={(v) => setDraft({
-                        ...draft,
-                        type: v,
-                        answer: v === 'choice' ? 'A' : '',
-                        options: v === 'choice' ? (draft.options?.length ? draft.options : blankOptions()) : undefined,
-                      })}
-                      options={[{ value: 'choice', label: '选择题' }, { value: 'blank', label: '填空题' }]}
+                      size="sm"
+                      value={String(draft.difficulty ?? 2)}
+                      onChange={(v) => setDraft({ ...draft, difficulty: Number(v) })}
+                      options={[
+                        { value: '1', label: '基础' }, { value: '2', label: '常规' },
+                        { value: '3', label: '较难' }, { value: '4', label: '压轴' },
+                      ]}
                     />
                   </Field>
                 </div>
@@ -233,7 +318,8 @@ export default function Questions() {
                   />
                 </Field>
 
-                {draft.type === 'choice' ? (
+                {/* ---------- 选项 + 答案 ---------- */}
+                {draft.type === 'choice' && (
                   <Field label="选项与答案" hint="点左侧字母设为正确答案">
                     <div className="space-y-2">
                       {(draft.options || []).map((o, i) => (
@@ -264,7 +350,98 @@ export default function Questions() {
                       ))}
                     </div>
                   </Field>
-                ) : (
+                )}
+
+                {draft.type === 'multi' && (
+                  <Field
+                    label="选项与答案"
+                    hint="点字母切换「这个选项对不对」，至少要选 2 个"
+                  >
+                    <div className="space-y-2">
+                      {(draft.options || []).map((o, i) => {
+                        const on = String(draft.answer || '').toUpperCase().includes(o.k);
+                        return (
+                          <div key={o.k} className="flex items-center gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const cur = String(draft.answer || '').toUpperCase();
+                                const next = on
+                                  ? cur.replace(o.k, '')
+                                  : [...cur, o.k].sort().join('');
+                                setDraft({ ...draft, answer: next });
+                              }}
+                              className={cn(
+                                'grid h-8 w-8 shrink-0 place-items-center rounded-lg border text-[13px] font-semibold transition-all',
+                                on
+                                  ? 'border-emerald/45 bg-emerald/15 text-emerald'
+                                  : 'border-hairline bg-veil/4 text-fg-mute hover:border-veil/22',
+                              )}
+                              title={on ? '取消这个正确答案' : '设为正确答案之一'}
+                            >
+                              {on ? '✓' : o.k}
+                            </button>
+                            <Input
+                              value={o.t}
+                              onChange={(e) => {
+                                const next = [...(draft.options || [])];
+                                next[i] = { ...o, t: e.target.value };
+                                setDraft({ ...draft, options: next });
+                              }}
+                              placeholder={`选项 ${o.k}`}
+                            />
+                            {(draft.options || []).length > 4 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = (draft.options || [])
+                                    .filter((x) => x.k !== o.k)
+                                    .map((x, j) => ({ ...x, k: LETTERS[j] }));
+                                  setDraft({
+                                    ...draft,
+                                    options: next,
+                                    answer: String(draft.answer || '').replace(o.k, ''),
+                                  });
+                                }}
+                                aria-label={`删除选项 ${o.k}`}
+                                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-fg-faint transition-colors hover:bg-rose/12 hover:text-rose"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {(draft.options || []).length < 6 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDraft({
+                            ...draft,
+                            options: [...(draft.options || []), { k: LETTERS[(draft.options || []).length], t: '' }],
+                          })}
+                        >
+                          <Plus size={13} /> 加一个选项
+                        </Button>
+                      )}
+                      <p className="text-[11.5px] text-fg-mute">
+                        当前答案：<span className="font-mono text-fg-soft">{draft.answer || '（还没选）'}</span>
+                      </p>
+                    </div>
+                  </Field>
+                )}
+
+                {draft.type === 'judge' && (
+                  <Field label="答案" hint="判断题只有两个选项，界面会渲染成「正确 / 错误」两个按钮">
+                    <Segmented
+                      value={draft.answer || 'T'}
+                      onChange={(v) => setDraft({ ...draft, answer: v })}
+                      options={[{ value: 'T', label: '正确' }, { value: 'F', label: '错误' }]}
+                    />
+                  </Field>
+                )}
+
+                {draft.type === 'blank' && (
                   <Field
                     label="答案"
                     hint="只能是整数、小数或分数（2 / -1/2 / 0.5）。写 \frac{1}{2} 也行，会自动转换"
@@ -277,23 +454,101 @@ export default function Questions() {
                   </Field>
                 )}
 
+                {(draft.type === 'solve' || draft.type === 'proof') && (
+                  <>
+                    <Field
+                      label="参考答案"
+                      hint="作答时你会先看到它，再给自己打分。写结论 + 关键中间结果"
+                    >
+                      <TextArea
+                        rows={3}
+                        value={draft.answer}
+                        onChange={(e) => setDraft({ ...draft, answer: e.target.value })}
+                        placeholder={draft.type === 'proof'
+                          ? '例：由 $f$ 在 $[a,b]$ 连续、在 $(a,b)$ 可导，且 $f(a)=f(b)$，故存在 $\\xi\\in(a,b)$ 使 $f\'(\\xi)=0$。'
+                          : '例：$\\lim_{x\\to0}\\frac{\\sin 3x}{2x}=\\frac{3}{2}$'}
+                      />
+                    </Field>
+
+                    <Field
+                      label="评分点"
+                      hint="分步给分的依据。作答时会逐条列出来让你对照，所以每条要能独立判断对错"
+                    >
+                      <div className="space-y-2">
+                        {(draft.steps || []).map((s, i) => (
+                          <div key={i} className="flex items-start gap-2">
+                            <span className="mt-2.5 grid h-6 w-6 shrink-0 place-items-center rounded-md border border-veil/10 bg-veil/5 text-[11px] text-fg-mute">
+                              {i + 1}
+                            </span>
+                            <Input
+                              value={s.t}
+                              onChange={(e) => {
+                                const next = [...(draft.steps || [])];
+                                next[i] = { ...s, t: e.target.value };
+                                setDraft({ ...draft, steps: next });
+                              }}
+                              placeholder={`第 ${i + 1} 步 —— 例：写出导数定义式`}
+                            />
+                            <input
+                              type="number"
+                              min={0}
+                              max={20}
+                              value={s.pts}
+                              onChange={(e) => {
+                                const next = [...(draft.steps || [])];
+                                next[i] = { ...s, pts: Number(e.target.value) || 0 };
+                                setDraft({ ...draft, steps: next });
+                              }}
+                              aria-label={`第 ${i + 1} 步的分值`}
+                              className="h-10 w-16 shrink-0 rounded-xl border border-hairline bg-veil/4 px-2 text-center text-[12.5px] tabular text-fg outline-none focus:border-cyan/40"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setDraft({ ...draft, steps: (draft.steps || []).filter((_, j) => j !== i) })}
+                              aria-label={`删除第 ${i + 1} 步`}
+                              className="mt-1.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-fg-faint transition-colors hover:bg-rose/12 hover:text-rose"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex items-center gap-3">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={(draft.steps || []).length >= 12}
+                            onClick={() => setDraft({ ...draft, steps: [...(draft.steps || []), { t: '', pts: 4 }] })}
+                          >
+                            <Plus size={13} /> 加一个评分点
+                          </Button>
+                          {(draft.steps || []).length > 0 && (
+                            <span className="flex items-center gap-1 text-[11.5px] text-amber-200/90">
+                              <ListChecks size={12} />
+                              合计 {(draft.steps || []).reduce((a, s) => a + (s.pts || 0), 0)} 分
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </Field>
+                  </>
+                )}
+
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="难度">
-                    <Segmented
-                      size="sm"
-                      value={String(draft.difficulty ?? 2)}
-                      onChange={(v) => setDraft({ ...draft, difficulty: Number(v) })}
-                      options={[
-                        { value: '1', label: '基础' }, { value: '2', label: '常规' },
-                        { value: '3', label: '较难' }, { value: '4', label: '压轴' },
-                      ]}
-                    />
-                  </Field>
                   <Field label="来源（可选）">
                     <Input
                       value={draft.sourceType || ''}
                       onChange={(e) => setDraft({ ...draft, sourceType: e.target.value })}
                       placeholder="例：2023 真题"
+                    />
+                  </Field>
+                  <Field label="年份（可选）">
+                    <Input
+                      value={draft.sourceYear ? String(draft.sourceYear) : ''}
+                      onChange={(e) => setDraft({
+                        ...draft,
+                        sourceYear: e.target.value ? Number(e.target.value.replace(/\D/g, '')) : undefined,
+                      })}
+                      placeholder="例：2023"
                     />
                   </Field>
                 </div>
@@ -335,10 +590,10 @@ export default function Questions() {
         <Panel>
           <EmptyState
             icon={<SquarePen size={22} />}
-            title={mineOnly ? '你还没录过题' : '这个考点下还没有题'}
+            title={mineOnly ? '你还没录过题' : '这个筛选下还没有题'}
             desc={mineOnly
               ? '点右上角「录一道题」，把真题卷子上的错题录进来。'
-              : '换个考点，或者取消筛选。'}
+              : '换个考点或题型，或者取消筛选。'}
           />
         </Panel>
       ) : (
@@ -362,7 +617,7 @@ export default function Questions() {
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {node && <span className="text-[11.5px] text-cyan">{node.title}</span>}
                         <span className={cn('rounded border px-1.5 py-px text-[10.5px]', diff.cls)}>{diff.label}</span>
-                        <span className="text-[11px] text-fg-faint">{q.type === 'choice' ? '选择' : '填空'}</span>
+                        <span className="text-[11px] text-fg-faint">{q.typeLabel || q.type}</span>
                         {q.sourceType && <span className="text-[11px] text-fg-faint">{q.sourceType}</span>}
                         {q.mine && <Badge tone="cyan">我的</Badge>}
                       </div>
@@ -393,7 +648,7 @@ export default function Questions() {
           <span>
             录题时会检查答案能不能被自动判分。判不了的（答案含根号、π 或「无解」这类描述）
             会被拒绝并说明原因 —— 放进去的话，你以后答对也会被判错，而且看不出哪里不对。
-            这类题建议改成选择题。
+            这类题建议改成选择题。解答题和证明题不受这条限制，它们本来就不自动判分。
           </span>
         </div>
       </Panel>

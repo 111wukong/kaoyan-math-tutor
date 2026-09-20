@@ -149,12 +149,17 @@ CREATE INDEX IF NOT EXISTS idx_edges_to ON knowledge_edges(to_kid);
 CREATE TABLE IF NOT EXISTS questions (
   id          TEXT PRIMARY KEY,
   kid         TEXT NOT NULL,
-  type        TEXT NOT NULL,                 -- choice | blank
+  type        TEXT NOT NULL,                 -- choice | multi | blank | judge | solve | proof
   difficulty  INTEGER NOT NULL DEFAULT 2,
   stem        TEXT NOT NULL,
-  options     TEXT,                          -- JSON 数组，仅选择题
+  options     TEXT,                          -- JSON 数组，仅选项型题型（choice / multi / judge）
   answer      TEXT NOT NULL,
   analysis    TEXT NOT NULL DEFAULT '',
+  /* 评分点：JSON 数组 [{ t, pts }]，仅解答题 / 证明题。
+   * 单开一列而不是塞进 analysis，是因为它要被**程序读**（分步给分要按条展示、
+   * 逐条自评），而 analysis 是给人读的一整段。两者混在一起，
+   * 迟早有人往 analysis 里插一句换行就把解析搞坏。 */
+  steps       TEXT NOT NULL DEFAULT '[]',
   source_type TEXT NOT NULL DEFAULT '',
   source_year INTEGER,
   source      TEXT NOT NULL DEFAULT '',
