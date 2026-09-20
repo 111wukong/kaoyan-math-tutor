@@ -135,6 +135,79 @@ export default async function catalogRoutes(fastify) {
   });
 
   /* ---------- 题库筛选 ---------- */
+  /* ---------- 公式库（公式手册）----------
+   *
+   * 为什么不做成「前端内置一份 JSON」：
+   *   公式要按章节筛、按考点关联、按必背过滤，还要跟着知识树的
+   *   掌握度走。放服务端才能和 knowledge / mastery 一起查。
+   *
+   * 返回**扁平且已排好序**的列表，分组交给前端 ——
+   * 前端本来就要按筛选结果重新分组，服务端先分好一份，两边的分组口径
+   * 迟早会打架（比如筛完之后空掉的组，服务端删还是前端删？）。
+   * 排序口径：章节顺序 → 章内 sort_order。前端按 chapterId 的连续段分组即可。
+   */
+  fastify.get('/api/catalog/formulas', async (req) => {
+    const track = req.query.track || 'math1';
+    const q = String(req.query.q || '').trim().toLowerCase();
+    const chapter = String(req.query.chapter || '');
+    const kid = String(req.query.kid || '');
+    const mustOnly = req.query.must === '1';
+
+    const tree = getTree();
+    const board = masteryBoard(req.userId, { track });
+    const levelByNode = new Map(board.rows.map((r) => [r.nodeId, r.level]));
+    const chapterById = new Map(tree.chapters.map((c) => [c.id, c]));
+    const catById = new Map(tree.categories.map((c) => [c.id, c]));
+    const chOrder = new Map(tree.chapters.map((c, i) => [c.id, i]));
+
+    let rows = db.prepare('SELECT * FROM formulas').all();
+    if (chapter) rows = rows.filter((r) => r.chapter_id === chapter);
+    if (kid) rows = rows.filter((r) => r.kid === kid);
+    if (mustOnly) rows = rows.filter((r) => r.must === 1);
+    if (q) {
+      /* 搜名字、LaTeX、条件、备注、分组标题五处。
+       * 只搜名字不够用 —— 学生记得的是符号（「sinx/x」），不是条目名。 */
+      rows = rows.filter((r) => [r.name, r.tex, r.cond, r.note, r.grp]
+        .some((v) => String(v || '').toLowerCase().includes(q)));
+    }
+
+    rows.sort((a, b) => (chOrder.get(a.chapter_id) ?? 99) - (chOrder.get(b.chapter_id) ?? 99)
+      || a.sort_order - b.sort_order);
+
+    const items = rows.map((r) => {
+      const ch = chapterById.get(r.chapter_id);
+      const cat = ch ? catById.get(ch.category_id) : null;
+      const node = r.kid ? tree.nodeById.get(r.kid) : null;
+      return {
+        id: r.id,
+        chapterId: r.chapter_id,
+        chapterName: ch ? ch.name : '',
+        categoryId: cat ? cat.id : '',
+        categoryName: cat ? cat.name : '',
+        kid: r.kid || null,
+        kidTitle: node ? node.title : null,
+        /** 该公式所属考点的掌握状态 —— 界面靠它标「已学 / 未学」 */
+        mastery: r.kid ? (levelByNode.get(r.kid) || 'new') : null,
+        group: r.grp,
+        name: r.name,
+        tex: r.tex,
+        cond: r.cond,
+        note: r.note,
+        must: r.must,
+      };
+    });
+
+    return {
+      items,
+      count: items.length,
+      /** 库里一共多少条（不受筛选影响）—— 界面要能说清「筛掉了多少」 */
+      total: db.prepare('SELECT COUNT(*) n FROM formulas').get().n,
+      mustCount: items.filter((x) => x.must).length,
+      coveredKids: new Set(items.filter((x) => x.kid).map((x) => x.kid)).size,
+      chapters: new Set(items.map((x) => x.chapterId)).size,
+    };
+  });
+
   fastify.get('/api/catalog/questions', async (req) => {
     const { kid, type, difficulty, sourceType, year, limit = 50, random = '0' } = req.query;
     const where = ['(owner_id IS NULL OR owner_id = @uid)'];

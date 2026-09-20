@@ -277,6 +277,36 @@ export interface GraphPayload {
   health: { nodes: number; edges: number; isolated: string[]; dangling: string[]; byType: Record<string, number> };
 }
 
+/** 公式库的一条。`cond` 是成立条件 —— 考研丢分丢在「什么时候不能用」，
+ *  所以它不是可选装饰，是这一条的核心信息之一。 */
+export interface Formula {
+  id: string;
+  chapterId: string; chapterName: string;
+  categoryId: string; categoryName: string;
+  kid: string | null; kidTitle: string | null;
+  /** 所属考点的掌握状态（没有关联考点时为 null） */
+  mastery: Mastery['level'] | null;
+  /** 表内分组标题，如「基本积分表」 */
+  group: string;
+  name: string;
+  tex: string;
+  cond: string;
+  note: string;
+  /** 1 = 必背 */
+  must: number;
+}
+
+export interface FormulaPayload {
+  items: Formula[];
+  /** 本次筛选后的条数 */
+  count: number;
+  /** 库里一共多少条（不受筛选影响） */
+  total: number;
+  mustCount: number;
+  coveredKids: number;
+  chapters: number;
+}
+
 /* ---- 错因归类 ---- */
 
 export type ErrorType = 'concept' | 'calc' | 'condition' | 'method' | 'misread' | 'blank';
@@ -365,6 +395,13 @@ export const api = {
     },
     facets: () => get<{ sources: any[]; years: any[]; difficulties: any[]; types: any[]; total: number }>('/api/catalog/facets'),
     question: (id: string) => get<{ question: Question & { answer: string; analysis: string }; stat: { n: number; c: number; ok: number } }>(`/api/catalog/questions/${id}`),
+    /** 公式库（公式手册）。筛选在服务端做，返回已排好序的扁平列表。 */
+    formulas: (params: { q?: string; chapter?: string; kid?: string; must?: string; track?: string } = {}) => {
+      const qs = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v !== '' && v !== undefined && v !== null).map(([k, v]) => [k, String(v)]),
+      ).toString();
+      return get<FormulaPayload>(`/api/catalog/formulas${qs ? `?${qs}` : ''}`);
+    },
   },
 
   /* 自建题（录题）。内置题改不了也删不了，服务端一律回 404。 */

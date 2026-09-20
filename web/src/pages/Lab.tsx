@@ -1,16 +1,32 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { FlaskConical, Info, Move3d } from 'lucide-react';
+import {
+  ArrowUpRight, BookOpen, ChevronDown, FlaskConical, Info, Move3d, Search, Star,
+} from 'lucide-react';
 import { Panel, SectionTitle, Segmented, Badge } from '@/components/ui/Primitives';
 import { InlineMath, RichText } from '@/components/ui/Math';
-import { cn, cssVar } from '@/lib/utils';
+import { api, type Formula } from '@/lib/api';
+import { useAsync } from '@/lib/hooks';
+import { cn, cssVar, MASTERY_STYLE } from '@/lib/utils';
 import { canvasColor } from '@/components/fx/theme-colors';
 
-/* 公式实验室
- * 四个"可以拖"的数学模块。设计原则：
- *   1. 每个模块先给一个生活场景钩子，再给公式 —— 直觉先于符号；
- *   2. 拖动的效果必须"看得见地"趋向结论（割线真的变成切线，矩形真的填满面积）；
- *   3. 结论用一句大白话写在下面，不写成定理。
+/* 公式实验室 = 两个东西
+ *
+ *   ① 交互演示（Playground）：四个"可以拖"的模块，每个都是一张手写的 canvas。
+ *      设计原则：先给生活场景钩子再给公式；拖动的效果必须"看得见地"趋向结论；
+ *      结论用大白话写，不写成定理。
+ *
+ *   ② 公式手册（Handbook）：按考纲整理的公式库（257 条，覆盖 19 章 67 个考点）。
+ *
+ * ★ 为什么必须是两个，而不是「把手册也做成可拖的」：
+ *   每个交互模块都是**手写的绘图逻辑**（割线的增量三角形、黎曼和的矩形、
+ *   泰勒的近似区间、ε-N 的带宽 —— 各写一套）。这种东西不可能对几百条公式
+ *   各写一遍。反过来，公式手册需要的是**覆盖面和可检索**，不是每个都动起来。
+ *   把两者塞进一个视图，结果是两边都做不好。
+ *
+ *   所以这里的分工是：手册负责「查得到、不漏」，实验室负责「看得懂、记得住」，
+ *   手册里的每条公式都挂着它对应的考点，点进去就是知识点详情。
  */
 
 type ModuleId = 'secant' | 'riemann' | 'taylor' | 'epsilon';
@@ -49,6 +65,45 @@ const MODULES: {
 ];
 
 export default function Lab() {
+  const [tab, setTab] = useState<'play' | 'handbook'>('play');
+
+  return (
+    <div className="space-y-5">
+      <Panel className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl border border-violet/25 bg-violet/10 text-violet">
+              <FlaskConical size={18} />
+            </div>
+            <div>
+              <h1 className="text-[18px] font-semibold tracking-tight text-fg">公式实验室</h1>
+              <p className="mt-0.5 text-[12.5px] text-fg-mute">
+                {tab === 'play'
+                  ? '拖动滑块，看公式怎么「动」起来 —— 四个模块都是可交互的'
+                  : '按考纲整理的公式库 —— 每条都带成立条件与易错点'}
+              </p>
+            </div>
+          </div>
+          <Segmented
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: 'play', label: <span className="flex items-center gap-1.5"><Move3d size={12} /> 交互演示</span> },
+              { value: 'handbook', label: <span className="flex items-center gap-1.5"><BookOpen size={12} /> 公式手册</span> },
+            ]}
+          />
+        </div>
+      </Panel>
+
+      {tab === 'play' ? <Playground /> : <Handbook />}
+    </div>
+  );
+}
+
+/* ============================================================
+   ① 交互演示
+   ============================================================ */
+function Playground() {
   const [mod, setMod] = useState<ModuleId>('secant');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -107,28 +162,16 @@ export default function Lab() {
 
   return (
     <div className="space-y-5">
-      <Panel className="p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl border border-violet/25 bg-violet/10 text-violet">
-              <FlaskConical size={18} />
-            </div>
-            <div>
-              <h1 className="text-[18px] font-semibold tracking-tight text-fg">公式实验室</h1>
-              <p className="mt-0.5 text-[12.5px] text-fg-mute">
-                拖动滑块，看公式怎么"动"起来 —— 四个模块都是可交互的
-              </p>
-            </div>
-          </div>
-          <Badge tone="violet"><Move3d size={10} /> 可拖动</Badge>
-        </div>
-
-        <div className="mt-4">
+      {/* 标题在 Lab() 那层统一渲染 —— 这里只放「选哪个模块」。
+          两处都写标题的话，切到手册再切回来会看到两个 h1。 */}
+      <Panel className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <Segmented
             value={mod}
             onChange={setMod}
             options={MODULES.map((m) => ({ value: m.id, label: m.name }))}
           />
+          <Badge tone="violet"><Move3d size={10} /> 可拖动</Badge>
         </div>
       </Panel>
 
@@ -566,6 +609,223 @@ function drawEpsilon(ctx: CanvasRenderingContext2D, W: number, H: number, eps: n
   ctx.fillStyle = C.amber(0.9);
   ctx.fillText(`n = N = ${N}`, m.X(N) + 5, m.Y(m.yr[1]) + 14);
   ctx.restore();
+}
+
+/* ============================================================
+   ② 公式手册
+   ============================================================
+   257 条、19 章、67 个考点。设计上只有三件事：
+     1. 查得到 —— 搜索同时匹配中文名、LaTeX 符号、条件、备注；
+     2. 不漏 —— 每章都能整章展开，章头写着条数和必背数；
+     3. 能对上号 —— 每条都挂着它对应的考点，点进去就是知识点详情。
+   外加一个「只看必背」——考前一天真正会翻的是那个视图，不是全部 257 条。
+   ============================================================ */
+function Handbook() {
+  const [raw, setRaw] = useState('');
+  const [q, setQ] = useState('');
+  const [mustOnly, setMustOnly] = useState(false);
+  /** 章节的展开状态。**没记过**的章节走默认（第一章展开）—— 用一个「只记显式操作」的表，
+   *  而不是把 19 个默认值都初始化一遍（那样加章节就得同步改这里）。 */
+  const [closed, setClosed] = useState<Record<string, boolean>>({});
+
+  /* 防抖 260ms。每打一个字就打一次接口，既浪费也让列表一直跳 ——
+   * 输入框和「真正用于查询的值」必须分开，不然打「洛必达」会触发三次查询。 */
+  useEffect(() => {
+    const t = setTimeout(() => setQ(raw.trim()), 260);
+    return () => clearTimeout(t);
+  }, [raw]);
+
+  const data = useAsync(
+    () => api.catalog.formulas({ q, must: mustOnly ? '1' : '' }),
+    [q, mustOnly],
+    /* key 把筛选条件带上 —— 来回切「只看必背」时结果是现成的。
+     * 5 分钟新鲜期：公式库是静态内容，不跟着用户操作变。 */
+    { key: `formulas:${q}|${mustOnly ? 1 : 0}`, staleTime: 5 * 60_000 },
+  );
+
+  const items = data.data?.items || [];
+  const searching = q.length > 0;
+
+  /* 按章节切连续段。服务端已经排好序（章节顺序 → 章内 sort_order），
+   * 这里只切不排 —— 再排一次就可能和服务端的口径不一致。 */
+  const sections = useMemo(() => {
+    const out: { chapterId: string; chapterName: string; categoryName: string; items: Formula[] }[] = [];
+    for (const f of items) {
+      const last = out[out.length - 1];
+      if (last && last.chapterId === f.chapterId) last.items.push(f);
+      else out.push({ chapterId: f.chapterId, chapterName: f.chapterName, categoryName: f.categoryName, items: [f] });
+    }
+    return out;
+  }, [items]);
+
+  const isOpen = (id: string, idx: number) => {
+    /* 搜索时全部展开 —— 搜完还要一个个点开，等于没搜。 */
+    if (searching) return true;
+    const v = closed[id];
+    return v === undefined ? idx === 0 : !v;
+  };
+  const allClosed = sections.length > 0 && sections.every((s, i) => !isOpen(s.chapterId, i));
+
+  const loading = data.loading && !data.data;
+
+  return (
+    <div className="space-y-4">
+      <Panel className="p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[220px] flex-1">
+            <Search size={14} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-fg-faint" />
+            <input
+              value={raw}
+              onChange={(e) => setRaw(e.target.value)}
+              aria-label="搜索公式"
+              placeholder="搜公式名或符号 ——「等价无穷小」「洛必达」「sin x」「AC-B²」"
+              className="h-10 w-full rounded-xl border border-hairline bg-veil/4 pl-10 pr-3.5 text-[13.5px] text-fg outline-none transition-all placeholder:text-fg-faint focus:border-cyan/45 focus:bg-veil/6"
+            />
+          </div>
+          <button
+            onClick={() => setMustOnly((v) => !v)}
+            aria-pressed={mustOnly}
+            className={cn(
+              'flex h-10 items-center gap-1.5 rounded-xl border px-3 text-[12.5px] transition-colors',
+              mustOnly
+                ? 'border-amber/45 bg-amber/12 text-amber-100'
+                : 'border-hairline bg-veil/4 text-fg-mute hover:text-fg-soft',
+            )}
+          >
+            <Star size={12} /> 只看必背
+          </button>
+          <button
+            onClick={() => setClosed(allClosed ? {} : Object.fromEntries(sections.map((s) => [s.chapterId, true])))}
+            className="h-10 rounded-xl border border-hairline bg-veil/4 px-3 text-[12.5px] text-fg-mute transition-colors hover:text-fg-soft"
+          >
+            {allClosed ? '展开全部' : '收起全部'}
+          </button>
+        </div>
+
+        <p className="mt-2.5 text-[11.5px] text-fg-faint">
+          {data.data
+            ? `库里共 ${data.data.total} 条 · 覆盖 ${data.data.coveredKids} 个考点 · ${data.data.chapters} 章`
+              + (searching || mustOnly ? ` · 当前筛选出 ${data.data.count} 条` : '')
+            : '加载中…'}
+        </p>
+      </Panel>
+
+      {loading ? (
+        <div className="space-y-2">
+          {[0, 1, 2].map((i) => <div key={i} className="skeleton h-14 rounded-2xl" />)}
+        </div>
+      ) : !sections.length ? (
+        <Panel>
+          <div className="px-6 py-12 text-center">
+            <p className="text-[14px] text-fg-soft">没有匹配的公式</p>
+            <p className="mt-1.5 text-[12.5px] text-fg-mute">
+              {mustOnly ? '试试关掉「只看必背」—— 有些条目是了解级的。' : '换个词试试，或者只打符号的一半（如「arctan」）。'}
+            </p>
+          </div>
+        </Panel>
+      ) : (
+        sections.map((s, idx) => {
+          const open = isOpen(s.chapterId, idx);
+          const mustN = s.items.filter((x) => x.must).length;
+          return (
+            <Panel key={s.chapterId} className="overflow-hidden p-0">
+              <button
+                onClick={() => setClosed((m) => ({ ...m, [s.chapterId]: open }))}
+                aria-expanded={open}
+                className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-veil/4"
+              >
+                <ChevronDown
+                  size={15}
+                  className={cn('shrink-0 text-fg-faint transition-transform duration-200', open && 'rotate-180')}
+                />
+                <span className="shrink-0 rounded border border-veil/10 bg-veil/5 px-1.5 py-[1px] text-[10.5px] text-fg-faint">
+                  {s.categoryName}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-fg-soft">{s.chapterName}</span>
+                <span className="shrink-0 text-[11.5px] tabular text-fg-faint">
+                  {s.items.length} 条{mustN > 0 ? ` · 必背 ${mustN}` : ''}
+                </span>
+              </button>
+
+              {open && (
+                <div className="border-t border-hairline">
+                  {groupRuns(s.items).map((g) => (
+                    <div key={g.name}>
+                      <div className="flex items-center gap-2 bg-veil/3 px-4 py-1.5">
+                        <span className="text-[11px] font-medium tracking-wide text-cyan/80">{g.name}</span>
+                        <span className="h-px flex-1 bg-hairline" />
+                        <span className="text-[10.5px] tabular text-fg-faint">{g.items.length}</span>
+                      </div>
+                      <div className="divide-y divide-veil/5">
+                        {g.items.map((f) => <FormulaCard key={f.id} f={f} />)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+/** 章内按 group 再切一次连续段 —— 一张「表」一个标题 */
+function groupRuns(items: Formula[]) {
+  const out: { name: string; items: Formula[] }[] = [];
+  for (const f of items) {
+    const last = out[out.length - 1];
+    if (last && last.name === f.group) last.items.push(f);
+    else out.push({ name: f.group, items: [f] });
+  }
+  return out;
+}
+
+function FormulaCard({ f }: { f: Formula }) {
+  const ms = f.mastery ? MASTERY_STYLE[f.mastery] : null;
+  return (
+    <div className="px-4 py-3">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        {f.must === 1 && (
+          <span className="flex shrink-0 items-center gap-1 rounded border border-amber/35 bg-amber/10 px-1.5 py-[1px] text-[10px] text-amber-200/95">
+            <Star size={9} /> 必背
+          </span>
+        )}
+        <span className="text-[12.5px] font-medium text-fg-soft">{f.name}</span>
+        <span className="flex-1" />
+        {/* 挂回考点。掌握状态的小圆点用的是和知识树同一套色，
+            这样「这条公式我学没学过」不用点进去就知道。 */}
+        {f.kid && (
+          <Link
+            to={`/learn/${f.kid}`}
+            className="group flex shrink-0 items-center gap-1.5 rounded-lg border border-hairline bg-veil/4 px-2 py-[3px] text-[11px] text-fg-mute transition-colors hover:border-cyan/35 hover:text-fg-soft"
+          >
+            {ms && <span className={cn('h-1.5 w-1.5 rounded-full', ms.dot)} />}
+            <span className="max-w-[160px] truncate">{f.kidTitle}</span>
+            <ArrowUpRight size={10} className="transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </Link>
+        )}
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-veil/8 bg-veil/3 px-3.5 py-2.5 text-center">
+        <InlineMath text={`$$${f.tex}$$`} />
+      </div>
+
+      {(f.cond || f.note) && (
+        <div className="mt-2 flex flex-wrap items-start gap-x-4 gap-y-1">
+          {f.cond && (
+            <span className="text-[11.5px] leading-relaxed text-fg-mute">
+              条件 <InlineMath text={`$${f.cond}$`} className="text-amber-200/90" />
+            </span>
+          )}
+          {f.note && (
+            <span className="min-w-0 flex-1 text-[11.5px] leading-relaxed text-fg-faint">{f.note}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export { motion, RichText, cn };

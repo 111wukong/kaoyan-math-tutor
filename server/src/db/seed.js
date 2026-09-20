@@ -45,6 +45,7 @@ export function seed({ quiet = false } = {}) {
   const chapters = read('chapters.json');
   const knowledge = read('knowledge.json');
   const questions = read('questions.json');
+  const formulas = read('formulas.json');
   const { edges, skipped: noEdges } = readEdges();
 
   const run = db.transaction(() => {
@@ -70,6 +71,25 @@ export function seed({ quiet = false } = {}) {
         source_type=@sourceType, source_year=@sourceYear, source=@source`);
     questions.forEach((x) => q.run(x));
 
+    /* 公式库：和图谱边一样**整表重建**。
+     * 理由相同 —— formulas.json 是唯一真相源，删掉一条公式也该同步消失。
+     * upsert 只增不减，改着改着库里就会剩下一批已经删掉的旧公式。 */
+    db.exec('DELETE FROM formulas');
+    const fm = db.prepare(`INSERT INTO formulas (id,chapter_id,kid,grp,name,tex,cond,note,must,sort_order)
+      VALUES (@id,@chapterId,@kid,@group,@name,@tex,@cond,@note,@must,@sortOrder)`);
+    formulas.forEach((f) => fm.run({
+      id: f.id,
+      chapterId: f.chapterId,
+      kid: f.kid || null,
+      group: f.group || '',
+      name: f.name || '',
+      tex: f.tex,
+      cond: f.cond || '',
+      note: f.note || '',
+      must: f.must ? 1 : 0,
+      sortOrder: f.sortOrder || 0,
+    }));
+
     /* 图谱边：整表重建而不是 upsert。
      * 为什么不用 ON CONFLICT 更新：edges.json 是**唯一真相源**，
      * 删掉一条边也应该同步消失。upsert 只会增不会减，
@@ -94,6 +114,7 @@ export function seed({ quiet = false } = {}) {
     chapters: chapters.length,
     knowledge: knowledge.length,
     questions: questions.length,
+    formulas: formulas.length,
     edges: edges.length,
   };
   if (!quiet) {

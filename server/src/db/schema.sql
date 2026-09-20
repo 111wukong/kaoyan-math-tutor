@@ -163,6 +163,30 @@ CREATE TABLE IF NOT EXISTS questions (
 CREATE INDEX IF NOT EXISTS idx_questions_kid ON questions(kid);
 CREATE INDEX IF NOT EXISTS idx_questions_owner ON questions(owner_id);
 
+-- 公式库（公式手册）。和题库一样是**内置内容**，没有 owner_id。
+--
+-- 为什么单开一张表而不是塞进 knowledge.content：
+--   一条知识点正文里可能散着七八个公式，而且它们的「成立条件」各不相同。
+--   塞进正文就再也筛不出来、搜不到、也没法按「必背」过滤 ——
+--   而这三件事正是公式手册存在的理由。
+--
+-- cond 是这张表存在的关键字段：考研丢分丢在「这个公式什么时候不能用」，
+--   而网上随便一份公式表都不写条件。
+CREATE TABLE IF NOT EXISTS formulas (
+  id          TEXT PRIMARY KEY,
+  chapter_id  TEXT NOT NULL,
+  kid         TEXT,                          -- 关联考点，可空（有些公式是跨考点的通法）
+  grp         TEXT NOT NULL DEFAULT '',      -- 表内分组标题（如「基本积分表」）
+  name        TEXT NOT NULL DEFAULT '',      -- 中文名，用来搜
+  tex         TEXT NOT NULL,                 -- LaTeX 正文
+  cond        TEXT NOT NULL DEFAULT '',      -- 成立条件（也含 LaTeX）
+  note        TEXT NOT NULL DEFAULT '',      -- 提醒 / 易错点
+  must        INTEGER NOT NULL DEFAULT 0,    -- 1 = 必背
+  sort_order  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_formulas_chapter ON formulas(chapter_id);
+CREATE INDEX IF NOT EXISTS idx_formulas_kid ON formulas(kid);
+
 -- ============ 学习数据（按用户隔离）============
 
 -- 作答明细。权威数据源。
