@@ -798,13 +798,21 @@ try {
     const p1 = await count();
     ok('默认模块画布已绘制', p1 > 500, `${p1} 像素`);
 
-    // 切到第二个模块，画布必须重画（不是只换了个标题）
+    /* 实验室现在是三段式：实验 / 手册 / 索引。
+     * 实验标签页内部又有 4 个可交互模块（割线/面积/正态/极限）。
+     * 必须区分「顶层导航 tab」和「实验内部模块 tab」，否则 btns[1]
+     * 会点到「手册」—— 那页里没有 canvas，p2 就是 -1。 */
     const switched = await probe(`
-      var btns = Array.from(document.querySelectorAll('[role=tab]'));
-      if (btns.length < 2) return 'NO_TABS';
-      btns[1].click();
-      return btns.length;`);
-    ok('有多个实验模块可切', switched !== 'NO_TABS' && Number(switched) >= 2, `实得 ${switched}`);
+      var all = Array.from(document.querySelectorAll('[role=tab]'));
+      /* 实验内部的模块 tab：文字是 4 个实验模块名之一 */
+      var moduleNames = ['割线','面积','正态','极限'];
+      var inner = all.filter(function (t) {
+        return moduleNames.some(function (n) { return t.textContent.indexOf(n) >= 0; });
+      });
+      if (inner.length < 2) return 'NO_TABS';
+      inner[1].click();
+      return inner.length;`);
+    ok('实验页有多个模块可切', switched !== 'NO_TABS' && Number(switched) >= 2, `实得 ${switched}`);
     await sleep(1000);
 
     const p2 = await count();

@@ -343,10 +343,10 @@ ok(isTempDbPath('/Users/someone/project/server/data/app.db') === false,
 ok(isTempDbPath('') === false, '空路径返回 false（信息不足，交给调用方定）');
 
 /* ── 建表脚本哨兵 ──────────────────────────────────────────────────
- * 27 = 原来的 25 张 + admin_log + knowledge_edges。
+ * 28 = 原来的 25 张 + admin_log + knowledge_edges + formulas。
  * 这个数字是**故意钉死的**：它盯的是「建表脚本有没有被误改」。
  * 加表时同步改这里，是让改动者被迫确认一次「我知道我加了一张表」。
- * 最近一次：knowledge_edges（知识图谱的有向前置依赖边）。
+ * 最近一次：formulas（公式库）。
  *
  * ★ 这条断言原来在 server/scripts/smoke.mjs，靠 /api/health 回的
  *   db.tables 去比。后来 /api/health 不再回库内详情了 —— 它是**公开**
@@ -354,8 +354,8 @@ ok(isTempDbPath('') === false, '空路径返回 false（信息不足，交给调
  *   不走 HTTP，也不需要管理员会话。判据本身一个字没改。 */
 const tableCount = db.prepare(
   "SELECT COUNT(*) n FROM sqlite_master WHERE type = 'table'").get().n;
-ok(tableCount === 27,
-  `建表脚本应产出 27 张表，实际 ${tableCount}（加表时请同步改这条断言）`);
+ok(tableCount === 28,
+  `建表脚本应产出 28 张表，实际 ${tableCount}（加表时请同步改这条断言）`);
 
 /* ══════════════════════════════════════════════════════════════════ */
 section('六、自建题与掌握度');

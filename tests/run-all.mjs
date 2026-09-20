@@ -36,16 +36,13 @@ const SUITES = [
    * 分工：
    *   latex-coverage 验「autoLatex 的包裹对不对」（$ 之外不该有裸 \command、不许增删字符）
    *   pipeline-leak  验「整条管线跑完，屏幕上会不会出现标记符号」—— 用真 katex
+   *   formulas       验「公式库里的每一条，KaTeX 到底认不认」—— 第三层
    *
-   * 必须两层都有：包裹对了 ≠ KaTeX 解析得了。renderTex 用的是 throwOnError:false，
-   * KaTeX 解析失败时不抛异常，而是吐一个 class="katex-error" 的 span 把源码原样显示出来；
-   * 这个类名不含独立成词的 katex，所以浏览器套件那句 .katex 子树剔除**删不掉它**。
-   * 实测就是这么漏的：CI 抽到 q01（题干带 \lim），本机没抽到。
-   *
-   * 浏览器套件里那条抽查是**随机抽题**的，同一份代码可能本机绿、CI 红 ——
-   * 所以真正的门禁在这两个确定性套件上，浏览器那条只当补充。 */
+   * 必须三层都有：包裹对了 ≠ KaTeX 解析得了 ≠ 公式本身写得对。
+   * 一个写错的公式照样能被正确包裹、也照样不漏源码，它只是渲染不出来。 */
   { name: 'LaTeX 全量检查', file: 'tests/latex-coverage.mjs' },
   { name: '渲染管线漏屏检查', file: 'tests/pipeline-leak.mjs' },
+  { name: '公式库', file: 'tests/formulas.mjs' },
   /* 图谱套件也是**确定性全量**检查，而且自己建临时库、不走 HTTP ——
    * 放在这里跑得最快，挂了能立刻看出是数据问题还是接口问题。 */
   { name: '图谱与诊断', file: 'tests/graph.mjs' },
