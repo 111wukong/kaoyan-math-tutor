@@ -40,6 +40,51 @@ const CLASSROOM_JSON = JSON.stringify({
 /** 答疑要的普通文本。带 LaTeX，好顺带验证前端的公式渲染 */
 const CHAT_TEXT = '先别急着套公式。你把 $x=0$ 代进去看看分子分母各是什么？';
 
+/** 单题讲解要的文本。带标题和公式，好验前端的富文本管线 */
+const EXPLAIN_TEXT = [
+  '这题考的是**导数的定义**。',
+  '',
+  '关键那一步是把 $\\frac{f(a+h)-f(a)}{h}$ 凑成差商 —— 不凑的话没法用导数定义，',
+  '只能硬算，而硬算在 $h\\to 0$ 时会卡在 $\\frac{0}{0}$。',
+  '',
+  '你上次的作答卡在第二步：求导之后没有化简，系数留成了 $2a\\cdot h$。',
+  '',
+  '看到「求极限且分子分母都趋于 0」，先想**能不能凑出导数定义**。',
+  '',
+  '试一下：求 $\\lim_{h\\to 0}\\frac{(2+h)^{3}-8}{h}$。',
+  '',
+  '答案：12',
+].join('\n');
+
+/**
+ * 按提示词里的评分点条数，回一份「第一条满分、其余 0 分」的批改结果。
+ *
+ * ★ 为什么要数条数而不是写死 3 条：题库里的解答题有 3~5 条评分点，
+ *   写死的话「总分对不对」这条断言就只在特定题目上成立。
+ *   数出来之后，不管题目几条评分点，`sum(got)` 和 `full` 都能精确对上。
+ *
+ * ★ 不能用 /^\s+(\d+)\. （/m 去匹配：这里拿到的是 JSON.stringify 之后的文本，
+ *   换行已经变成字面的 `\n`（反斜杠 + n），`^` 锚点根本对不上。
+ *   只认「（N 分）」这个片段就够了 —— 提示词里只有评分点那一行是这个形状。
+ */
+function gradeFor(prompt) {
+  const pts = [...String(prompt).matchAll(/（(\d+) 分）/g)].map((m) => Number(m[1]));
+  if (!pts.length) return JSON.stringify({ score: 7, comment: '整体思路对，细节有漏。' });
+  /* 第一条满分、第二条给一半、其余 0 分 —— 刻意造出**部分给分**的形状。
+   * 全给满分或全给 0 都看不出「逐条给分」这个特性，
+   * 而截图要说明的正是它。 */
+  return JSON.stringify({
+    steps: pts.map((p, k) => ({
+      i: k + 1,
+      got: k === 0 ? p : k === 1 ? Math.floor(p / 2) : 0,
+      comment: k === 0 ? '这一步写对了。'
+        : k === 1 ? '方向对，但化简时把系数算错了。'
+          : '这一步没写到。',
+    })),
+    comment: '第一步完整，第二步的系数算错了，第三步没有给出结论。',
+  });
+}
+
 export async function startLlmStub() {
   const captured = { last: null, count: 0 };
   let mode = 'ok';
@@ -73,15 +118,21 @@ export async function startLlmStub() {
 
         if (mode === '401') return send(401, UNAUTHORIZED);
 
-        /* 课堂请求 vs 答疑请求，靠提示词里有没有要求 JSON 来区分。
-         * ★ 必须用裸 `turns` 去匹配，不能写 `"turns"` ——
-         *   课堂提示词里的 JSON 模板经过 JSON.stringify 之后，
+        /* 靠提示词里的特征短语区分是哪一类请求。
+         *
+         * ★ 必须用裸字面量去匹配，不能写带引号的 JSON 键 ——
+         *   提示词里的 JSON 模板经过 JSON.stringify 之后，
          *   内层引号全被转义成了 \" ，带引号的字面量永远匹配不上，
          *   结果 stub 会给课堂请求回一段纯文本，接口那边 parseJsonObject 失败，
          *   报出「课堂发言 0 条」这种看着像产品 bug 的假失败。
          * 这是 stub 自己的判断，不是接口约定。 */
-        const isClassroom = JSON.stringify(body.messages || []).includes('turns');
-        const content = rawOverride !== null ? rawOverride : (isClassroom ? CLASSROOM_JSON : CHAT_TEXT);
+        const flat = JSON.stringify(body.messages || []);
+        const content = rawOverride !== null
+          ? rawOverride
+          : flat.includes('阅卷老师') ? gradeFor(flat)
+            : flat.includes('考研数学辅导老师') ? EXPLAIN_TEXT
+              : flat.includes('turns') ? CLASSROOM_JSON
+                : CHAT_TEXT;
 
         if (!body.stream) {
           return send(200, JSON.stringify({

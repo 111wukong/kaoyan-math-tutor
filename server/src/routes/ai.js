@@ -13,7 +13,8 @@ import { resolveLlm } from './misc.js';
 import { checkLlmBase, llmFetch } from '../lib/llmUrl.js';
 import { buildSnapshot, nodeMastery, getTree } from '../lib/game.js';
 import { ancestors } from '../lib/graph.js';
-import { answerIssue, normalizeAnswer } from '../lib/judge.js';
+import { answerIssue, normalizeAnswer, parseSteps, SELF_GRADED_TYPES, QUESTION_TYPES, TYPE_LABEL } from '../lib/judge.js';
+import { buildGradePrompt, buildExplainPrompt, parseGrade } from '../lib/grade.js';
 
 /* ---------- AI 接口的限流档位 ----------
  *
@@ -723,6 +724,9 @@ export default async function aiRoutes(fastify) {
           count: { type: 'integer' },
           fromQid: { type: 'string' },
           save: { type: 'boolean' },
+          /* objective / subjective / mixed —— 见 buildGeneratePrompt。
+           * 不在白名单里的一律按 objective 处理（老客户端不传这个字段）。 */
+          mode: { type: 'string' },
         },
       },
     },
@@ -732,6 +736,7 @@ export default async function aiRoutes(fastify) {
 
     const { kid, fromQid, save = true } = req.body;
     const count = Math.min(5, Math.max(1, Number(req.body?.count) || 3));
+    const mode = ['objective', 'subjective', 'mixed'].includes(req.body?.mode) ? req.body.mode : 'objective';
 
     const tree = getTree();
     const node = tree.nodeById.get(kid);
@@ -753,7 +758,7 @@ export default async function aiRoutes(fastify) {
       errorType = att?.error_type ?? '';
     }
 
-    const prompt = buildGeneratePrompt({ node, examples, fromQ, userAnswer, errorType, count });
+    const prompt = buildGeneratePrompt({ node, examples, fromQ, userAnswer, errorType, count, mode });
 
     let content = '';
     try {
@@ -764,8 +769,8 @@ export default async function aiRoutes(fastify) {
 
     const arr = parseJsonArray(content);
     const dupInDb = db.prepare('SELECT 1 FROM questions WHERE kid = ? AND stem = ? LIMIT 1');
-    const ins = db.prepare(`INSERT INTO questions (id,kid,type,difficulty,stem,options,answer,analysis,source_type,source_year,source,owner_id)
-      VALUES (@id,@kid,@type,@difficulty,@stem,@options,@answer,@analysis,@sourceType,NULL,@source,@ownerId)`);
+    const ins = db.prepare(`INSERT INTO questions (id,kid,type,difficulty,stem,options,answer,analysis,steps,source_type,source_year,source,owner_id)
+      VALUES (@id,@kid,@type,@difficulty,@stem,@options,@answer,@analysis,@steps,@sourceType,NULL,@source,@ownerId)`);
 
     const created = [];
     const seenStem = new Set();
@@ -792,12 +797,23 @@ export default async function aiRoutes(fastify) {
           options: q.options ? JSON.stringify(q.options) : null,
           answer: q.answer,
           analysis: q.analysis,
+          steps: JSON.stringify(q.steps || []),
           sourceType: 'AI 变式',
           source: 'AI 生成',
           ownerId: req.userId,
         };
         if (save) ins.run(row);
-        created.push({ id, kid, type: q.type, difficulty: q.difficulty, stem: q.stem, options: q.options, answer: q.answer, analysis: q.analysis, sourceType: 'AI 变式', saved: save });
+        created.push({
+          id, kid, type: q.type, difficulty: q.difficulty, stem: q.stem,
+          options: q.options, answer: q.answer, analysis: q.analysis,
+          steps: q.steps, sourceType: 'AI 变式', saved: save,
+          /* ★ 题型的中文名和「要不要自评」跟着一起给。
+           *   生成的题会被直接塞进作答卡，而作答卡靠这两个字段决定渲染形态 ——
+           *   少给的话主观题会渲染成没有题型标签、也不知道要判分的怪样子。
+           *   定义在 judge.js 里，和 publicQuestion 用的是同一份。 */
+          typeLabel: TYPE_LABEL[q.type] || q.type,
+          selfGraded: SELF_GRADED_TYPES.has(q.type),
+        });
         if (created.length >= count) break;
       }
     });
@@ -813,6 +829,106 @@ export default async function aiRoutes(fastify) {
       parseFailed: created.length === 0,
       raw: created.length ? undefined : content.slice(0, 400),
     };
+  });
+
+  /* ---------- AI 批改（解答题 / 证明题）----------
+   *
+   * ── 为什么需要它 ────────────────────────────────────────────────
+   * 这两种题的答案是一段过程，判题器判不了，所以上一版只能让用户自评。
+   * 自评能用，但有个真实的毛病：先看完整参考答案再给自己打分，
+   * 人会不自觉地往宽里给 —— 「我思路是对的，只是算错了个符号」，
+   * 然后那道题就永远进不了错题本。
+   *
+   * AI 批改不是**替代**自评，是先给一个外部判断，用户再决定接不接受。
+   * 所以这个接口**不写库**：它只返回分数和评语，真正的记账仍然走
+   * /api/study/answer（带 selfCorrect）那条唯一的路 ——
+   * XP、连击、掌握度、错题本全都只有一处实现。
+   */
+  fastify.post('/api/ai/grade', {
+    config: { rateLimit: AI_LIMIT },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['qid', 'answer'],
+        properties: {
+          qid: { type: 'string' },
+          /* 上限 8000：一道解答题的过程撑死几千字，再多就是误贴了整页笔记 */
+          answer: { type: 'string', maxLength: 8000 },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { cfg, error } = await llmOrError(req);
+    if (error) return reply.code(400).send(error);
+
+    const q = db.prepare('SELECT * FROM questions WHERE id = ?').get(req.body.qid);
+    if (!q) return reply.code(404).send({ error: '题目不存在' });
+
+    /* ★ 只对解答 / 证明题开放。客观题有确定的答案，
+     *   让模型去「批改」它们等于用不确定的东西替换确定的东西。 */
+    if (!SELF_GRADED_TYPES.has(q.type)) {
+      return reply.code(400).send({ error: '只有解答题和证明题需要 AI 批改，客观题直接判分' });
+    }
+
+    const answer = String(req.body.answer ?? '').trim();
+    if (!answer) return reply.code(400).send({ error: '先写下你的解答，再让 AI 批改' });
+
+    const steps = parseSteps(q) || [];
+    let content = '';
+    try {
+      /* temperature 压到 0.1：批改要的是稳定 ——
+       * 同一份作答连点两次不该给出差很多的分。 */
+      content = await callLlm(cfg, buildGradePrompt(q, steps, answer), { temperature: 0.1 });
+    } catch (e) {
+      return reply.code(502).send({ error: e.message });
+    }
+
+    const grade = parseGrade(content, steps);
+    if (!grade) {
+      /* 解析失败**不是错误**，是「这次没批成」。前端据此回退到自评，
+       * 所以返回 200 + ok:false，而不是 5xx —— 5xx 会走全局错误提示，
+       * 用户看到「出错了」，而实际上功能是可用的（自评那条路还在）。 */
+      return { ok: false, parseFailed: true, raw: String(content).slice(0, 400), model: cfg.model };
+    }
+
+    return { ok: true, ...grade, model: cfg.model };
+  });
+
+  /* ---------- 单题讲解 ----------
+   *
+   * 和「AI 对话 / 课堂」的区别：这两个是**开放式**的，用户得自己组织问题。
+   * 而错题复盘时的问题是固定的：「这题为什么这么做、我卡在哪」。
+   * 把这个问法写死进提示词，用户就只需要点一下。
+   */
+  fastify.post('/api/ai/explain', {
+    config: { rateLimit: AI_LIMIT },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['qid'],
+        properties: { qid: { type: 'string' } },
+      },
+    },
+  }, async (req, reply) => {
+    const { cfg, error } = await llmOrError(req);
+    if (error) return reply.code(400).send(error);
+
+    const q = db.prepare('SELECT * FROM questions WHERE id = ?').get(req.body.qid);
+    if (!q) return reply.code(404).send({ error: '题目不存在' });
+
+    /* 带上学生最近一次的作答和错因 —— 「针对你这一步」比「这道题怎么做」
+     * 有用得多，而那需要知道学生写了什么。 */
+    const att = db.prepare('SELECT answer, error_type FROM attempts WHERE user_id = ? AND qid = ? ORDER BY ts DESC LIMIT 1')
+      .get(req.userId, q.id);
+    const errorType = att?.error_type ? (ERROR_TYPES[att.error_type] || att.error_type) : '';
+
+    let text = '';
+    try {
+      text = await callLlm(cfg, buildExplainPrompt(q, att?.answer ?? '', errorType), { temperature: 0.4 });
+    } catch (e) {
+      return reply.code(502).send({ error: e.message });
+    }
+    return { ok: true, text, model: cfg.model };
   });
 
   /* ---------- 人格列表 ---------- */
@@ -1280,11 +1396,15 @@ function buildErrorAdvice(rows, judged) {
 /* ---------- 变式题生成用到的两个辅助 ---------- */
 
 /**
- * 把模型吐出来的题清洗成「判题器判得了」的形状。
+ * 把模型吐出来的题清洗成「判题器判得了、或者 AI 判得了」的形状。
  *
  * 返回 null 表示这道题作废 —— 宁可少出一道，也不要出一道
- * 用户答对了系统说错的题。判题器（judge.js）只能比对确定的值：
- * 选择题比字母，填空题归一化后比数值/表达式。
+ * 用户答对了系统说错的题。
+ *
+ * 两类题型的底线不一样：
+ *   · choice / blank —— 判题器（judge.js）只能比对确定的值，答案形态必须卡死
+ *   · solve / proof  —— 判题器不参与，靠 AI 批改或用户自评，
+ *     所以**卡的是评分点**：没有评分点的解答题，AI 批改和自评都没有依据
  */
 export function sanitizeGenerated(raw, kid) {
   const stem = String(raw?.stem ?? '').trim().slice(0, 800);
@@ -1292,9 +1412,33 @@ export function sanitizeGenerated(raw, kid) {
 
   const difficulty = Math.min(4, Math.max(1, Number(raw?.difficulty) || 2));
   const analysis = String(raw?.analysis ?? '').trim().slice(0, 1500);
-  const type = raw?.type === 'blank' ? 'blank' : 'choice';
+  const type = QUESTION_TYPES.includes(raw?.type) ? raw.type : 'choice';
 
-  if (type === 'choice') {
+  /* ---------- 解答题 / 证明题 ---------- */
+  if (SELF_GRADED_TYPES.has(type)) {
+    const answer = String(raw?.answer ?? '').trim().slice(0, 2000);
+    /* 和手工录题共用同一套判据（answerIssue）—— 两处各写一份迟早改歪一边 */
+    if (answerIssue(type, answer)) return null;
+
+    const steps = (Array.isArray(raw?.steps) ? raw.steps : [])
+      .map((s) => ({
+        t: String(s?.t ?? '').trim().slice(0, 500),
+        pts: Math.max(0, Math.min(20, Math.round(Number(s?.pts) || 0))),
+      }))
+      .filter((s) => s.t);
+    /* 少于两条评分点的解答题没有价值：一条评分点的「分步给分」等于不分步，
+     * 而 AI 批改也没法指出「卡在哪一步」。 */
+    if (steps.length < 2) return null;
+    /* 每步都要有分值，否则满分是 0，批改出来的 ratio 没有意义 */
+    if (steps.every((s) => s.pts === 0)) return null;
+
+    return { kid, type, difficulty, stem, options: null, answer, analysis, steps };
+  }
+
+  /* ---------- 客观题 ---------- */
+  const normType = type === 'blank' ? 'blank' : 'choice';
+
+  if (normType === 'choice') {
     const opts = Array.isArray(raw?.options) ? raw.options : [];
     const clean = opts
       .map((o, i) => ({
@@ -1306,7 +1450,7 @@ export function sanitizeGenerated(raw, kid) {
     if (clean.length !== 4 || clean.map((o) => o.k).join('') !== 'ABCD') return null;
     const answer = String(raw?.answer ?? '').trim().toUpperCase().slice(0, 1);
     if (!'ABCD'.includes(answer)) return null;
-    return { kid, type, difficulty, stem, options: clean, answer, analysis };
+    return { kid, type: 'choice', difficulty, stem, options: clean, answer, analysis, steps: null };
   }
 
   /* 填空题：先做能救的规范化（\frac{1}{2}→1/2、x=2→2），再过共用的判据。
@@ -1315,10 +1459,64 @@ export function sanitizeGenerated(raw, kid) {
   const answer = normalizeAnswer(String(raw?.answer ?? '').slice(0, 200));
   if (answerIssue('blank', answer)) return null;
 
-  return { kid, type, difficulty, stem, options: null, answer, analysis };
+  return { kid, type: 'blank', difficulty, stem, options: null, answer, analysis, steps: null };
 }
 
-function buildGeneratePrompt({ node, examples, fromQ, userAnswer, errorType, count }) {
+/**
+ * 出题提示词。
+ *
+ * mode 决定出哪一类题，两类的「硬性要求」完全不同：
+ *   objective  客观题 —— 必须能被判题器自动判分（确定的值）
+ *   subjective 主观题 —— 判题器不参与，靠 AI 批改/自评，
+ *              所以硬性要求变成「必须给参考解答 + 可逐条判断的评分点」
+ *   mixed      各出一半
+ *
+ * ★ 主观题以前是被**明确禁止**的（老版本这里写着「禁止证明题」），
+ *   因为判题器判不了。有了 AI 批改之后这条禁令可以放开 ——
+ *   但放开的是「能不能判」，不是「好不好判」：答案不唯一、需要画图的题
+ *   仍然禁止，AI 也给不出稳定的分。
+ */
+function buildGeneratePrompt({ node, examples, fromQ, userAnswer, errorType, count, mode = 'objective' }) {
+  const wantSubjective = mode === 'subjective' || mode === 'mixed';
+  const wantObjective = mode === 'objective' || mode === 'mixed';
+
+  const requirement = (() => {
+    const lines = [];
+    if (mode === 'mixed') {
+      lines.push(`1. 出 ${Math.ceil(count / 2)} 道客观题（choice / blank），其余出主观题（solve / proof）。`);
+    }
+    if (wantObjective) {
+      lines.push(
+        '【客观题】必须能被程序自动判分：',
+        '  - choice：四选一，选项键固定为 A / B / C / D，answer 写选项字母',
+        '  - blank：填空题，answer 必须是**一个确定的数值**',
+        '  - 填空题的 answer 只写值本身：写 1/2，不要写 \\frac{1}{2}；写 2，不要写 x=2',
+        '  - 填空题的 answer 只能是整数、分数或小数；含根号、π 或字母时改用 choice 出',
+      );
+    }
+    if (wantSubjective) {
+      lines.push(
+        '【主观题】必须能被逐条给分，所以**必须**给参考解答和评分点：',
+        '  - solve：解答题（求值、求极限、解方程、算积分这类）',
+        '  - proof：证明题（证明不等式、存在性、单调性这类）',
+        '  - answer 写**参考解答**（结论 + 关键中间结果），不要只写一个数字',
+        '  - steps 写 3~5 条评分点，每条是一句能独立判断对错的话，pts 是该条的分数',
+        '  - 评分点要按**解题步骤**切，不要按「思路分 / 计算分」这种笼统维度切',
+        '  - 仍然禁止：答案不唯一的题、需要画图的题、要查表的题',
+      );
+    }
+    return lines;
+  })().map((l, i) => `${i + 1}. ${l.replace(/^\d+\. /, '')}`).join('\n');
+
+  const shapes = [];
+  if (wantObjective) {
+    shapes.push('{"type":"choice","difficulty":3,"stem":"题干","options":[{"k":"A","t":"选项"},{"k":"B","t":"选项"},{"k":"C","t":"选项"},{"k":"D","t":"选项"}],"answer":"A","analysis":"解析"}');
+    shapes.push('{"type":"blank","difficulty":3,"stem":"题干","answer":"1/2","analysis":"解析"}');
+  }
+  if (wantSubjective) {
+    shapes.push('{"type":"solve","difficulty":3,"stem":"题干","answer":"参考解答：……","analysis":"思路要点","steps":[{"t":"写出导数定义式","pts":4},{"t":"正确求导并化简","pts":4},{"t":"代值得到结论","pts":2}]}');
+  }
+
   return [
     '你在为一名备战考研数学的学生出**变式练习题**。',
     '',
@@ -1344,17 +1542,10 @@ function buildGeneratePrompt({ node, examples, fromQ, userAnswer, errorType, cou
     `【数量】${count} 道，难度递进。`,
     '',
     '【硬性要求 —— 违反则整题作废】',
-    '1. 必须能被程序自动判分。只出两种题型：',
-    '   - choice：四选一，选项键固定为 A / B / C / D，answer 写选项字母',
-    '   - blank：填空题，answer 必须是**一个确定的数值或简单表达式**',
-    '2. 禁止证明题、讨论题、答案不唯一的题、需要画图的题。',
-    '3. 填空题的 answer 只写值本身：写 1/2，不要写 \\frac{1}{2}；写 2，不要写 x=2。',
-    '4. 填空题的 answer 只能是**整数、分数或小数**（如 2、-1/2、0.5）。',
-    '   答案里含根号、π 或字母时，请改用选择题出 —— 填空题判不了这些，会误判。',
-    '5. 数学公式用 LaTeX，行内 $...$。',
+    requirement,
+    '数学公式用 LaTeX，行内 $...$。',
     '',
     '只输出 JSON 数组，不要任何解释文字、不要 markdown 代码块：',
-    '[{"type":"choice","difficulty":3,"stem":"题干","options":[{"k":"A","t":"选项"},{"k":"B","t":"选项"},{"k":"C","t":"选项"},{"k":"D","t":"选项"}],"answer":"A","analysis":"解析"},'
-      + '{"type":"blank","difficulty":3,"stem":"题干","answer":"1/2","analysis":"解析"}]',
+    `[${shapes.join(',')}]`,
   ].filter(Boolean).join('\n');
 }

@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { TEST_ADMIN_EMAIL, TEST_ADMIN_PASSWORD } from './lib/server.mjs';
+import { startLlmStub } from './lib/llm-stub.mjs';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5180';
 const OUT = process.env.OUT || '/tmp/yanshu-shots';
@@ -132,6 +133,23 @@ if (THEME !== DEFAULT_THEME) {
 }
 console.log(`   主题 ${THEME}`);
 
+/* 接一个假模型。AI 批改 / 讲解那两张截图必须有模型才拍得出来，
+ * 而 CI 上拉不起真模型、真模型的输出也不确定（同一份作答两次给的分不一样，
+ * 截图就不可复现了）。
+ *
+ * 这和「灌一份有分布的学习数据」是同一件事：**界面是真的，数据是造的**。
+ * 假模型也保证了截图里的分数是可控的 —— 拍出来能说明「逐条给分」这个形态，
+ * 而不是撞运气撞到一个好看的输出。 */
+const llmStub = await startLlmStub();
+const llmCfg = await api('PUT', '/api/settings/llm', {
+  kind: 'local', localBase: llmStub.base, localModel: 'stub-model',
+});
+if (llmCfg.status !== 200) {
+  console.error('配置假模型失败', llmCfg.status, JSON.stringify(llmCfg.data));
+  process.exit(1);
+}
+console.log(`   假模型 ${llmStub.base}`);
+
 console.log('② 灌学习数据（要有分布，不能全满也不能全空）');
 const tree = (await api('GET', '/api/catalog/tree')).data;
 const allKids = tree.categories.flatMap((c) => c.chapters.flatMap((ch) => ch.nodes));
@@ -152,9 +170,18 @@ const kids = [...byKid.keys()];
 
 async function answer(qid, forceWrong) {
   const detail = await api('GET', `/api/catalog/questions/${qid}`);
-  const truth = detail.data?.question?.answer;
-  const a = forceWrong ? (detail.data?.question?.type === 'choice' ? 'ZZZ' : '绝对不对') : truth;
-  const r = await api('POST', '/api/study/answer', { qid, answer: a, context: 'quiz' });
+  const q = detail.data?.question;
+  const truth = q?.answer;
+  /* ★ 解答题和证明题**不自动判分**，判分结果由 selfCorrect 带上来。
+   *   不带 selfCorrect 的那次请求是「亮答案」这一步 —— 它**一个字节都不写库**。
+   *   所以灌数据时必须显式给 selfCorrect，否则这个知识点一条记录都不会产生，
+   *   而日志里「作答 N 次」看着一切正常。
+   *   （这个坑踩过一次：拍 AI 批改那张图时发现错题本里根本没有解答题。） */
+  const selfGraded = q?.type === 'solve' || q?.type === 'proof';
+  const a = forceWrong ? (q?.type === 'choice' ? 'ZZZ' : '绝对不对') : truth;
+  const body = { qid, answer: a, context: 'quiz' };
+  if (selfGraded) body.selfCorrect = !forceWrong;
+  const r = await api('POST', '/api/study/answer', body);
   if (r.data?.correct === false) wrong++;
   answered++;
 }
@@ -166,11 +193,28 @@ for (const kid of kids.slice(0, 9)) {
 }
 for (const kid of kids.slice(9, 15)) {
   for (const q of byKid.get(kid).slice(0, 2)) {
+    /* ★ 只答错，**不要**再补一遍对的。
+     *
+     * 错题本的口径是「每题只看最后一次作答」—— stats_question.ok 被本次结果
+     * **直接覆盖**，所以错完再答对，那道题立刻从错题本移出，等于没灌。
+     * 这里原来写的就是「错一遍再答对」，于是 08-错题本 那张截图**一直是空的**，
+     * 而日志里那句「灌了有分布的数据」看起来一切正常。
+     *
+     * 只答错还有个好处：这几个考点的正确率是 0%，薄弱点 / 根因诊断
+     * 那几页才有真东西可算。 */
     await answer(q.id, true);
-    await answer(q.id, false);
   }
 }
 console.log(`   作答 ${answered} 次（其中判错 ${wrong} 次）`);
+
+/* 再故意答错一道**解答题**，并且放在最后答 —— 错题本是按最近作答排序的，
+ * 这样它会排在第一位，下面「AI 批改」那张截图才走得进重练流程。
+ * 主观题的判分面板（AI 批改 / 自评）只在解答题和证明题上出现。 */
+const solveList = (await api('GET', '/api/catalog/questions?type=solve&limit=1')).data?.questions || [];
+if (solveList[0]) {
+  await answer(solveList[0].id, true);
+  console.log(`   另外答错一道解答题（${solveList[0].id}），用于 AI 批改截图`);
+}
 
 /* 复习卡：给几张卡打分，让「复习」页和 SM-2 有内容。
  * 注意要用 /api/cards（全量）而不是 /api/cards/due ——
@@ -382,6 +426,17 @@ try {
     if (after) {
       const r = await ev(after);
       if (r.error) console.log(`\x1b[33m   · ${name} 的 after 钩子报错：${r.error}\x1b[0m`);
+      /* ★ 钩子的返回值也要检查。约定：跑到预期位置就 return 'ok'。
+       *
+       * 为什么必须查：钩子里「找不到按钮 → 提前 return」**不会抛异常**，
+       * 表现是「截图拍到了，但拍的是没展开的样子」—— 那看起来像
+       * 「功能没做」，而不像「钩子没生效」。实测就是这么浪费过一轮：
+       * 12c 那张拍出来是空的错题本，一度以为错题本页面坏了。
+       * 顺带一提，`textContent` 常常带前导空格（图标和文字之间有空格），
+       * 所以选择器别用 `/^文字/` 去锚定。 */
+      else if (r.value !== 'ok') {
+        console.log(`\x1b[33m   · ${name} 的 after 钩子没走到位：${JSON.stringify(r.value)}\x1b[0m`);
+      }
       await sleep(900);    // 平滑滚动要时间，别在滚到一半时按快门
     }
 
@@ -473,7 +528,7 @@ try {
       await wait(1800);
       window.scrollTo(0, 320);
       await wait(200);
-      return 1;
+      return 'ok';
     })()`,
   });
   await shoot('11-闪电战', '/blitz', { waitFor: SHELL, settle: 1800 });
@@ -495,9 +550,74 @@ try {
       await wait(900);
       window.scrollTo(0, 260);
       await wait(200);
-      return 1;
+      return 'ok';
     })()`,
   });
+  /* AI 批改解答题。这一张要拍的是「逐条给分 + 指出卡在哪一步」，
+   * 所以得走完整链路：错题本 → 重练 → 写答案 → 提交对答案 → 让 AI 批改。
+   *
+   * ★ 受控组件必须用 native setter 再补一发 input 事件，
+   *   直接 `ta.value = '...'` 不会触发 React 的 onChange，
+   *   结果是「提交」按钮一直是 disabled，截图拍到一个空面板。 */
+  await shoot('12c-AI批改-解答题', '/mistakes', {
+    waitFor: SHELL,
+    settle: 1800,
+    after: `(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      /* ★ 不能用 /^重练/ 锚定：按钮里图标和文字之间有空格，
+       *   textContent 是「 重练（最多 10 题）」，锚点匹配不上。 */
+      const btn = (re) => Array.from(document.querySelectorAll('button'))
+        .find((b) => re.test(b.textContent || ''));
+      const go = btn(/重练（最多/);
+      if (!go) return 'NO_RETRAIN_BTN';
+      go.click();
+      await wait(1000);
+      const ta = document.querySelector('textarea');
+      if (!ta) return 'NO_TEXTAREA';
+      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      set.call(ta, '第一步：由导数定义写出差商 \\\\frac{f(a+h)-f(a)}{h}。\\n第二步：展开并化简，得 2a + h。\\n第三步：令 h 趋于 0。');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      await wait(400);
+      const submit = btn(/提交并对答案/);
+      if (!submit) return 'NO_SUBMIT_BTN';
+      submit.click();
+      await wait(1600);
+      const ai = btn(/让 AI 批改/);
+      if (!ai) return 'NO_AI_BTN';
+      ai.click();
+      await wait(2600);
+      /* 把「接受判分」滚到视野中间 —— 总分和总评就在它上面。
+       * 直接 scrollTo 一个固定值拍不到那块，因为评分点有几条是变的。 */
+      const accept = btn(/接受判分/);
+      if (!accept) return 'NO_ACCEPT_BTN';
+      accept.scrollIntoView({ block: 'center' });
+      await wait(250);
+      return 'ok';
+    })()`,
+  });
+
+  /* AI 讲透一道题。错题卡展开后点一下「让 AI 讲透这道题」——
+   * 服务端会带上这次作答和错因，所以讲的是「你卡在哪一步」。 */
+  await shoot('12d-AI讲透一道题', '/mistakes', {
+    waitFor: SHELL,
+    settle: 1600,
+    after: `(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const card = document.querySelector('button[data-mistake-toggle]');
+      if (!card) return 'NO_CARD';
+      card.click();
+      await wait(900);
+      const ai = Array.from(document.querySelectorAll('button'))
+        .find((b) => /让 AI 讲透这道题/.test(b.textContent || ''));
+      if (!ai) return 'NO_AI_BTN';
+      ai.click();
+      await wait(2600);
+      ai.scrollIntoView({ block: 'center' });
+      await wait(250);
+      return 'ok';
+    })()`,
+  });
+
   /* ★ 课堂必须带上 ?kid=。不带的话页面停在「先选一个知识点」的空态 ——
    *   而上面刚灌好的那份存档（在 CLASS_KID 上）一个字都看不到。
    *   这张图以前就是这么拍空的：看着不报错，只是拍了个空页面。 */
@@ -507,7 +627,7 @@ try {
   await shoot('13b-课堂-留痕', `/classroom?kid=${CLASS_KID}`, {
     waitFor: SHELL,
     settle: 2200,
-    after: 'window.scrollTo(0, document.documentElement.scrollHeight)',
+    after: `(function () { window.scrollTo(0, document.documentElement.scrollHeight); return 'ok'; })()`,
   });
   await shoot('14-成就', '/achievements', { waitFor: SHELL, settle: 1800 });
   await shoot('15-设置', '/settings', { waitFor: SHELL, settle: 1600 });
@@ -580,6 +700,9 @@ try {
     }
   }
   if (client) client.close();
+  /* 假模型也要收掉。不收的话进程会挂在监听上，脚本跑完不退出 ——
+   * 表现是「截图全拍完了但命令不返回」，很容易被当成卡死。 */
+  try { await llmStub?.stop(); } catch { /* 已经关了 */ }
   try { proc?.stderr?.destroy(); } catch { /* 已关 */ }
   try { proc?.kill('SIGKILL'); } catch { /* 已退 */ }
   try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* 删不掉就算了 */ }

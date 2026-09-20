@@ -677,6 +677,10 @@ section('13. AI 接口的降级行为（没配模型时应给明确报错）');
     ['错因归类', () => POST('/api/ai/error-type', { qid: 'q01' })],
     ['批量错因归类', () => POST('/api/ai/error-types', { limit: 3 })],
     ['变式题生成', () => POST('/api/ai/generate', { kid, count: 2 })],
+    /* AI 批改和讲解也要走同一道闸门（llmOrError）。漏掉的话，
+     * 没配模型的用户点「让 AI 批改」会拿到一个看不懂的上游 401。 */
+    ['AI 批改', () => POST('/api/ai/grade', { qid: 'q01', answer: 'x' })],
+    ['AI 讲解', () => POST('/api/ai/explain', { qid: 'q01' })],
   ];
   for (const [label, call] of aiEndpoints) {
     const r = await call();
@@ -1039,6 +1043,130 @@ section('13b. AI 正常路径（对着本地 stub 模型跑通）');
       JSON.stringify((fixed.data?.created || []).map((q) => q.answer)));
 
     stub.setRaw(null);
+
+    /* ---------- AI 批改（解答题 / 证明题）----------
+     *
+     * 这一节守的核心是「算术不交给模型」：满分从库里的评分点求和、
+     * 总分从各步相加。模型给的数一律不听 —— 它会在总分上写一个和分步
+     * 对不上的数，用户一眼就看出来，然后整个功能就不可信了。 */
+    const solveList = await GET('/api/catalog/questions?type=solve&limit=5');
+    const solveId = solveList.data?.questions?.[0]?.id;
+    ok('题库里有解答题可供批改', !!solveId, JSON.stringify(solveList.data)?.slice(0, 120));
+
+    if (solveId) {
+      /* 列表接口不给答案与评分点（考试中不能泄露），所以再拉一次单题详情 */
+      const solveQ = await GET(`/api/catalog/questions/${solveId}`);
+      const stepN = (solveQ.data?.question?.steps || []).length;
+      ok('解答题带评分点', stepN >= 2, `${stepN} 条`);
+
+      stub.setRaw(null);
+      const g = await POST('/api/ai/grade', { qid: solveId, answer: '我的解答：先求导，再代入。' });
+      ok('AI 批改返回 200', g.status === 200, `实得 ${g.status} ${JSON.stringify(g.data)?.slice(0, 140)}`);
+      ok('★ 批改成功', g.data?.ok === true, JSON.stringify(g.data)?.slice(0, 140));
+      ok('★ 逐条给出得分（条数与评分点一致）',
+        (g.data?.steps?.length || 0) === stepN, `实得 ${g.data?.steps?.length} / ${stepN}`);
+      ok('★ 总分 = 各步得分之和（不是模型报的那个数）',
+        (g.data?.steps || []).reduce((a, s) => a + s.got, 0) === g.data?.score,
+        `score=${g.data?.score} Σgot=${(g.data?.steps || []).reduce((a, s) => a + s.got, 0)}`);
+      ok('★ 满分 = 各评分点分值之和（分母来自库里）',
+        (g.data?.steps || []).reduce((a, s) => a + s.pts, 0) === g.data?.full,
+        `full=${g.data?.full}`);
+      ok('每步得分都落在 [0, 该步满分] 内',
+        (g.data?.steps || []).every((s) => s.got >= 0 && s.got <= s.pts));
+      ok('批改带总评', !!g.data?.comment);
+      ok('批改标明用的哪个模型', !!g.data?.model);
+
+      /* 客观题不该走这条路 —— 它有确定答案，让模型介入是倒退 */
+      const onChoice = await POST('/api/ai/grade', { qid: 'q01', answer: 'A' });
+      ok('★ 客观题请求 AI 批改被拒（400）', onChoice.status === 400,
+        `实得 ${onChoice.status} ${JSON.stringify(onChoice.data)?.slice(0, 100)}`);
+
+      const empty = await POST('/api/ai/grade', { qid: solveId, answer: '   ' });
+      ok('空作答被拒（400）', empty.status === 400, `实得 ${empty.status}`);
+
+      const noSuch = await POST('/api/ai/grade', { qid: 'no-such-q', answer: 'x' });
+      ok('批改不存在的题返回 404', noSuch.status === 404, `实得 ${noSuch.status}`);
+
+      /* ★ 模型输出解析不了时：200 + ok:false，不是 5xx。
+       *   5xx 会走全局错误提示，用户看到「出错了」——
+       *   而实际上自评那条路还在，功能是可用的。 */
+      stub.setRaw('这道题我不会批，你自己看吧。');
+      const broken = await POST('/api/ai/grade', { qid: solveId, answer: '我的解答' });
+      ok('★ 模型输出解析不了时返回 200 + ok:false（回退自评，不是报错）',
+        broken.status === 200 && broken.data?.ok === false && broken.data?.parseFailed === true,
+        `status=${broken.status} ${JSON.stringify(broken.data)?.slice(0, 120)}`);
+      ok('解析失败时把模型原文带回来（便于排查）', typeof broken.data?.raw === 'string');
+      stub.setRaw(null);
+    }
+
+    /* ---------- AI 讲透一道题 ---------- */
+    {
+      const target = solveId || 'q01';
+      const ex = await POST('/api/ai/explain', { qid: target });
+      ok('AI 讲解返回 200', ex.status === 200, `实得 ${ex.status} ${JSON.stringify(ex.data)?.slice(0, 120)}`);
+      ok('讲解有实质内容', (ex.data?.text || '').length > 20, `${(ex.data?.text || '').length} 字`);
+      const miss = await POST('/api/ai/explain', { qid: 'no-such-question' });
+      ok('讲解不存在的题返回 404', miss.status === 404, `实得 ${miss.status}`);
+    }
+
+    /* ---------- AI 生成主观题 ---------- */
+    {
+      stub.setRaw(JSON.stringify([
+        {
+          type: 'solve', difficulty: 3,
+          stem: '求 $\\lim_{x\\to 0}\\frac{\\tan x-\\sin x}{x^{3}}$',
+          answer: '\\frac{1}{2}',
+          analysis: '化成 sin x(1-cos x)/(x³cos x)。',
+          steps: [
+            { t: '通分并提取 sin x', pts: 4 },
+            { t: '用 1-cos x ~ x²/2', pts: 4 },
+            { t: '代入得 1/2', pts: 2 },
+          ],
+        },
+        /* 只有一条评分点的要作废：一条评分点的「分步给分」等于不分步，
+         * 而且 AI 批改也没法指出「卡在哪一步」 */
+        { type: 'solve', difficulty: 2, stem: '求这个极限的值是多少', answer: '1', steps: [{ t: '算出结果', pts: 10 }] },
+        /* 完全没有评分点的更要作废 */
+        { type: 'proof', difficulty: 2, stem: '证明这个数列收敛', answer: '由单调有界准则可知收敛。' },
+      ]));
+      const sub = await POST('/api/ai/generate', { kid, count: 3, mode: 'subjective' });
+      ok('主观题生成返回 200', sub.status === 200, `实得 ${sub.status}`);
+      const made = sub.data?.created || [];
+      ok('★ 生成出主观题', made.length >= 1, JSON.stringify(sub.data)?.slice(0, 160));
+      ok('★ 生成的都是解答题 / 证明题',
+        made.length > 0 && made.every((q) => q.type === 'solve' || q.type === 'proof'),
+        JSON.stringify(made.map((q) => q.type)));
+      ok('★ 每条都带评分点', made.length > 0 && made.every((q) => (q.steps || []).length >= 2),
+        JSON.stringify(made.map((q) => (q.steps || []).length)));
+      ok('★ 带题型中文名与自评标记（作答卡靠这两个字段渲染）',
+        made.length > 0 && made.every((q) => !!q.typeLabel && q.selfGraded === true),
+        JSON.stringify(made.map((q) => [q.typeLabel, q.selfGraded])));
+      ok('没有评分点 / 评分点太少的题被丢弃', (sub.data?.skippedUnjudgeable || 0) >= 2,
+        `实得 ${sub.data?.skippedUnjudgeable}`);
+
+      /* 生成的主观题落库后要能作答，而且走的是「亮答案 → 判分」那条路 */
+      const genSolve = made[0];
+      if (genSolve) {
+        const listed = await GET(`/api/catalog/questions?kid=${kid}&limit=50`);
+        ok('★ 生成的主观题出现在题库里',
+          (listed.data?.questions || []).some((q) => q.id === genSolve.id));
+        const first = await POST('/api/study/answer', { qid: genSolve.id, answer: '我的过程', context: 'quiz' });
+        ok('★ 生成的主观题先返回参考答案（correct=null，不记账）',
+          first.data?.correct === null && first.data?.selfGrade === true,
+          `correct=${first.data?.correct} selfGrade=${first.data?.selfGrade}`);
+        ok('★ 参考答案带回评分点', (first.data?.steps || []).length >= 2,
+          `${(first.data?.steps || []).length} 条`);
+
+        /* 批改一道刚生成的题：走完整链路。
+         * ★ 先把 setRaw 清掉 —— 不清的话 stub 还在吐那段「出题 JSON」，
+         *   批改接口拿到的就是一堆题而不是批改结果，报 parseFailed。
+         *   这是 stub 的状态，不是产品的问题。 */
+        stub.setRaw(null);
+        const g2 = await POST('/api/ai/grade', { qid: genSolve.id, answer: '我的过程' });
+        ok('★ 生成的主观题能被 AI 批改', g2.data?.ok === true, JSON.stringify(g2.data)?.slice(0, 140));
+      }
+      stub.setRaw(null);
+    }
 
     /* ---------- 错误路径 ---------- */
     stub.setMode('401');

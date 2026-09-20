@@ -9,7 +9,7 @@ import { AppLink as Link } from '@/lib/links';
 import { api } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
-import { Panel, Button, Skeleton, Badge, SectionTitle, TextArea, EmptyState } from '@/components/ui/Primitives';
+import { Panel, Button, Skeleton, Badge, SectionTitle, TextArea, EmptyState, Segmented } from '@/components/ui/Primitives';
 import { RichText } from '@/components/ui/Math';
 import { ProgressRing } from '@/components/fx/Motion';
 import { QuestionCard } from '@/components/QuestionCard';
@@ -30,6 +30,9 @@ export default function KnowledgeDetail() {
    * 一次只生成一道的话，用户得反复点按钮，生成出来的题也没法连着做。 */
   const [queue, setQueue] = useState<any[]>([]);
   const [genLoading, setGenLoading] = useState(false);
+  /* 出哪一类题。默认客观题 —— 判题器直接判分，不需要模型介入；
+   * 选主观题会出解答题/证明题，作答后由 AI 批改（或自己判）。 */
+  const [genMode, setGenMode] = useState<'objective' | 'subjective' | 'mixed'>('objective');
 
   if (loading && !data) {
     return (
@@ -75,13 +78,15 @@ export default function KnowledgeDetail() {
   const genVariants = async () => {
     setGenLoading(true);
     try {
-      const r = await api.ai.generate(kid, { count: 3 });
+      const r = await api.ai.generate(kid, { count: 3, mode: genMode });
       if (!r.created.length) {
         pushToast({
           kind: 'warn',
           title: '模型这次没给出可用的题',
           desc: r.skippedUnjudgeable
-            ? `有 ${r.skippedUnjudgeable} 道因为判不了分被丢掉了，再点一次试试`
+            ? (genMode === 'objective'
+              ? `有 ${r.skippedUnjudgeable} 道因为判不了分被丢掉了，再点一次试试`
+              : `有 ${r.skippedUnjudgeable} 道因为没给评分点被丢掉了，再点一次试试`)
             : '再点一次试试，或者换个考点',
         });
         return;
@@ -199,6 +204,16 @@ export default function KnowledgeDetail() {
           <Button variant="outline" onClick={genVariants} loading={genLoading}>
             <Sparkles size={14} /> 举一反三
           </Button>
+          <Segmented
+            size="sm"
+            value={genMode}
+            onChange={(v) => setGenMode(v as typeof genMode)}
+            options={[
+              { value: 'objective', label: '客观题' },
+              { value: 'subjective', label: '解答题' },
+              { value: 'mixed', label: '混合' },
+            ]}
+          />
           <Button variant="outline" onClick={() => nav(`/chat?kid=${kid}`)}>
             <MessagesSquare size={14} /> 让 AI 讲这个考点
           </Button>
