@@ -119,7 +119,10 @@ export default function Blitz() {
     let ok = false;
     try {
       const r = await api.study.answer(current.id, optKey, 'blitz');
-      ok = r.correct;
+      /* 闪电战只抽单选题（见上面 questions({ type: 'choice' })），
+       * 所以 correct 一定不是 null。这层兜底是给「服务端将来放宽题型」留的 ——
+       * 真出现 null 时按「没答对」处理，不能让计时赛卡住。 */
+      ok = r.correct === true;
       if (r.achievements?.length) announceAchievements(r.achievements, pushToast);
     } catch {
       ok = false;

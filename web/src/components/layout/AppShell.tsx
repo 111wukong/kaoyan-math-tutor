@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, NavLink, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   LayoutDashboard, Network, PenLine, RotateCcw, CircleAlert, FlaskConical,
@@ -14,6 +14,7 @@ import { Toaster } from '@/components/ui/Toaster';
 import { KeepAlivePages } from '@/components/layout/KeepAlivePages';
 import { TopicDirectory } from '@/components/layout/TopicDirectory';
 import { APP_PAGES } from '@/routes';
+import { AppLink as Link, AppNavLink as NavLink } from '@/lib/links';
 import { api } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';

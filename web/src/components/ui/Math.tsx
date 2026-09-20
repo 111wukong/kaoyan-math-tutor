@@ -47,6 +47,18 @@ const CJK_OR_PUNCT = /[\u4e00-\u9fff\n，。；：、！？「」【】（）《
 /** 反斜杠 + 单个符号的命令：\, \; \: \! \␣ —— 公式内空白/微调 */
 const CMD_SYMBOL = ',;:! ';
 
+/** LaTeX 里可以转义的符号：\{ \} \| \% \& \# \$ \_
+ *
+ *  它们不含字母，所以既进不了「\command」那条路，也不在 CMD_SYMBOL 里，
+ *  结果是**一个孤立的 `\` 被当成普通字符**留在片段末尾 —— KaTeX 报
+ *  「Unexpected character: '\'」，整条公式的源码红字漏到屏幕上。
+ *
+ *  实测形态：`\{X\le x_1\}` 会被切成 `\le x_1\`（前面那个 \{ 没被认成起点，
+ *  扫描从后面的 \le 才起步）。概率论里这种「事件用花括号包起来」的写法遍地都是，
+ *  模型输出也常带，所以必须认。
+ */
+const ESCAPABLE = '{}|%&$#_';
+
 /** 从 s[i] === '{' 跳到配对 '}' 之后。
  *  撞上中文 / 换行 / 文件尾（也就是括号根本没闭合）则返回 -1，调用方放弃。 */
 function skipBraces(s: string, i: number): number {
@@ -194,10 +206,17 @@ function autoLatex(s: string): string {
       continue;
     }
 
-    /* 分支 1：\command 起头 → 吸收命令 + 参数 + 后续命令 */
-    if (c === '\\' && i + 1 < n && TEX_CMD.test(s[i + 1])) {
+    /* 分支 1：\command 起头 → 吸收命令 + 参数 + 后续命令
+     *
+     * ★ 起点也接受「转义符号」\{ \} \| 之类（见 ESCAPABLE）。
+     *   不认它们的话，扫描会从后面某个 \command 才起步，产出一个**从中间截断**
+     *   的片段：`\{X\le x_1\}` 变成 `\le x_1\`，末尾那个孤立反斜杠直接让
+     *   KaTeX 抛异常、源码漏屏。实测题 q247 的解析就是这个形态。 */
+    if (c === '\\' && i + 1 < n && (TEX_CMD.test(s[i + 1]) || ESCAPABLE.includes(s[i + 1]))) {
       let j = i + 1;
-      while (j < n && TEX_CMD.test(s[j])) j++;
+      /* \{ 这种「反斜杠 + 符号」整体算已经消费掉，不能再按字母命令去吞。 */
+      if (ESCAPABLE.includes(s[i + 1])) j = i + 2;
+      else while (j < n && TEX_CMD.test(s[j])) j++;
       while (j < n) {
         const ch = s[j];
         if (ch === '{' || ch === '[') {
@@ -223,8 +242,12 @@ function autoLatex(s: string): string {
           } else {
             // 不带花括号的上下标：x^2、x_n、x^\alpha
             while (j < n && /[A-Za-z0-9\\]/.test(s[j])) {
-              if (s[j] === '\\') { j++; while (j < n && TEX_CMD.test(s[j])) j++; }
-              else j++;
+              if (s[j] === '\\') {
+                /* ★ 反斜杠后面必须能配对才消费。只吃掉那个 \ 的话，
+                 *   片段会以孤立的 \ 结尾（`x_1\}` 的形态），KaTeX 报错漏屏。 */
+                if (ESCAPABLE.includes(s[j + 1])) j += 2;
+                else { j++; while (j < n && TEX_CMD.test(s[j])) j++; }
+              } else j++;
             }
           }
         } else if (ch === ' ' && j + 1 < n && (s[j + 1] === '\\' || s[j + 1] === '^' || s[j + 1] === '_' || s[j + 1] === '{')) {
@@ -237,16 +260,19 @@ function autoLatex(s: string): string {
              * 实测 q52 的解析、kl2n2 的例题都是这个形态。 */
             if (s.slice(j + 1, j + 8) === '\\begin{') break;
             if (j + 2 < n && TEX_CMD.test(s[j + 2])) { j += 2; while (j < n && TEX_CMD.test(s[j])) j++; }
+            /* 空格后面跟的是 \{ \} 这类转义符号：同样要连符号一起消费，
+             * 只吃反斜杠会留下一个孤立 \（见 ESCAPABLE 的说明）。 */
+            else if (j + 2 < n && ESCAPABLE.includes(s[j + 2])) j += 3;
             else j++;
           } else j++;
         } else if (ch === ' ' && j + 1 < n && !CJK_OR_PUNCT.test(s[j + 1])) {
           // 公式内空格：空格后不是中文/中文标点/换行，视为同一公式继续
           j++;
-        } else if (ch === '\\' && j + 1 < n && TEX_CMD.test(s[j + 1])) {
+        } else if (ch === '\\' && j + 1 < n && (TEX_CMD.test(s[j + 1]) || ESCAPABLE.includes(s[j + 1]))) {
           // 同上：\begin{env} 交给分支 0，别吞
           if (s.slice(j, j + 7) === '\\begin{') break;
-          j++;
-          while (j < n && TEX_CMD.test(s[j])) j++;
+          if (ESCAPABLE.includes(s[j + 1])) j += 2;
+          else { j++; while (j < n && TEX_CMD.test(s[j])) j++; }
         } else if (ch === "'" || ch === '′' || ch === ',' || ch === '!' || ch === '%') {
           j++;   // 撇号（导数）、英文逗号可吸收，避免 e^{x}'' 被切断
         } else if (MATH_CHAR.test(ch)) {

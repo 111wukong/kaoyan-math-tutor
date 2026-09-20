@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown, ChevronRight, Circle, LayoutList, Lock, Network, Orbit, Search } from 'lucide-react';
+import { AppLink as Link } from '@/lib/links';
 import { api } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { Panel, Skeleton, Badge, Segmented, EmptyState } from '@/components/ui/Primitives';

@@ -28,9 +28,12 @@ export default function Quiz() {
   const current = questions[idx];
   const doneCount = Object.keys(answered).length;
 
-  const handleAnswer = async (ans: string) => {
-    const r = await api.study.answer(current.id, ans, 'quiz');
-    setAnswered((m) => ({ ...m, [current.id]: r.correct }));
+  const handleAnswer = async (ans: string, opts?: { selfCorrect?: boolean }) => {
+    const r = await api.study.answer(current.id, ans, 'quiz', opts?.selfCorrect);
+    /* ★ 只有真判过（correct 是布尔）才记账。
+     * 解答题「亮答案」那一步返回的是 null —— 那是「还没判」，不是「答错了」。
+     * 记进去的话，用户光点一下「对答案」就白得一道题的完成数，而自评还没做。 */
+    if (r.correct !== null) setAnswered((m) => ({ ...m, [current.id]: r.correct }));
     setXpGained((v) => v + (r.xp?.gained || 0));
     if (r.achievements?.length) announceAchievements(r.achievements, pushToast);
     if (r.xp?.levelUp) {

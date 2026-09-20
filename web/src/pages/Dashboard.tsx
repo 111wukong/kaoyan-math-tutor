@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
   ArrowRight, CalendarClock, CircleAlert, Crosshair, Flame, Layers, Pause, Play,
   RotateCcw, Sparkles, Target, Timer, TrendingUp, Trophy, Zap,
 } from 'lucide-react';
+import { AppLink as Link } from '@/lib/links';
 import { api } from '@/lib/api';
 import { useAsync, useCountdown } from '@/lib/hooks';
 import { useApp } from '@/stores/app';

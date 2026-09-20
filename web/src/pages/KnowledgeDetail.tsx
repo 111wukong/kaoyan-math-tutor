@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, BookOpen, ChevronRight, Lightbulb, Link2, MessagesSquare,
   PenLine, Plus, Sparkles, StickyNote, Target, Trash2, Zap,
 } from 'lucide-react';
+import { AppLink as Link } from '@/lib/links';
 import { api } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
@@ -230,8 +231,8 @@ export default function KnowledgeDetail() {
               index={0}
               total={queue.length + 1}
               context="quiz"
-              onAnswer={async (ans) => {
-                const r = await api.study.answer(practice.id, ans, 'quiz');
+              onAnswer={async (ans, opts) => {
+                const r = await api.study.answer(practice.id, ans, 'quiz', opts?.selfCorrect);
                 if (r.achievements?.length) announceAchievements(r.achievements, pushToast);
                 return r;
               }}

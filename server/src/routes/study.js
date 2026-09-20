@@ -11,7 +11,7 @@
  *   7. 首次接触该知识点时建复习卡
  */
 import { db } from '../db/index.js';
-import { judge, parseOptions, publicQuestion } from '../lib/judge.js';
+import { judge, parseOptions, parseSteps, publicQuestion, SELF_GRADED_TYPES, TYPE_LABEL } from '../lib/judge.js';
 import {
   answerXp, awardXp, checkAchievements, buildSnapshot, masteryBoard,
   getTree, inTrack, nodeMastery, XP,
@@ -26,7 +26,24 @@ const todayStr = () => {
 };
 
 export default async function studyRoutes(fastify) {
-  /* ============ 作答 ============ */
+  /* ============ 作答 ============
+   *
+   * ── 为什么解答题/证明题要分两次请求 ──────────────────────────────
+   * 这两种题的答案是「过程」，机器判不了，只能让用户对照参考答案自评。
+   * 于是有一步绕不开：**先把参考答案亮出来，用户才能自评**。
+   *
+   * 但「亮答案」和「记一次作答」不能是同一件事 ——
+   * 否则用户只是想看看答案，账上就多了一次作答记录，
+   * 掌握度、连击、每日统计全被污染，而且是**静默**污染。
+   *
+   * 所以口径是：
+   *   · 不带 selfCorrect → 只返回参考答案 + 评分点，**一个字节都不写库**；
+   *   · 带 selfCorrect   → 正常走完整条记账链路。
+   *
+   * ★ selfCorrect 只在 SELF_GRADED_TYPES 上生效。其他题型一律忽略 ——
+   *   不挡的话，任何人都能对选择题宣称「我答对了」，XP 和掌握度立刻失真。
+   *   这是权限边界，不是参数校验。
+   */
   fastify.post('/api/study/answer', {
     schema: {
       body: {
@@ -36,16 +53,45 @@ export default async function studyRoutes(fastify) {
           qid: { type: 'string' },
           answer: { type: 'string' },
           context: { type: 'string' },
+          /* 用户自评的结果。只有解答/证明题会读它。 */
+          selfCorrect: { type: 'boolean' },
         },
       },
     },
   }, async (req, reply) => {
-    const { qid, answer, context = 'quiz' } = req.body;
+    const { qid, answer, context = 'quiz', selfCorrect } = req.body;
     const q = db.prepare('SELECT * FROM questions WHERE id = ?').get(qid);
     if (!q) return reply.code(404).send({ error: '题目不存在' });
 
     const today = todayStr();
-    const correct = judge(q, answer);
+    const selfGraded = SELF_GRADED_TYPES.has(q.type);
+
+    /* ---------- 第一步：亮答案（解答/证明题专用，不写库）---------- */
+    if (selfGraded && typeof selfCorrect !== 'boolean') {
+      if (!String(answer ?? '').trim()) {
+        return reply.code(400).send({ error: '先写下你的解答，再对答案' });
+      }
+      const m = nodeMastery(req.userId, q.kid);
+      return {
+        correct: null,            // 还没判 —— 不是「错了」
+        selfGrade: true,
+        myAnswer: String(answer ?? ''),
+        answer: q.answer,
+        analysis: q.analysis,
+        steps: parseSteps(q),
+        options: parseOptions(q),
+        stem: q.stem,
+        kid: q.kid,
+        xp: null,
+        xpNote: '',
+        combo: db.prepare('SELECT combo, best_combo FROM game_state WHERE user_id = ?').get(req.userId)
+          || { combo: 0, best_combo: 0 },
+        mastery: { level: m.level, label: m.label, accuracy: m.accuracy, attempts: m.attempts },
+        achievements: [],
+      };
+    }
+
+    const correct = judge(q, answer, selfCorrect);
 
     const run = db.transaction(() => {
       const xpInfo = answerXp(req.userId, qid, q.kid, { todayStr: today });
@@ -103,9 +149,13 @@ export default async function studyRoutes(fastify) {
 
     return {
       correct,
+      selfGrade: false,
       myAnswer: String(answer ?? ''),
       answer: q.answer,
       analysis: q.analysis,
+      /* 评分点跟着答案一起回来。自评完还要再看一遍逐条得分点 ——
+       * 只在「亮答案」那一步给、自评完就不给，用户想回头核对就没了。 */
+      steps: parseSteps(q),
       options: parseOptions(q),
       stem: q.stem,
       kid: q.kid,
@@ -126,7 +176,8 @@ export default async function studyRoutes(fastify) {
 
     const rows = db.prepare(`
       SELECT sq.qid, sq.kid, sq.n, sq.c, sq.ts,
-             q.stem, q.type, q.options, q.answer, q.analysis, q.difficulty, q.source_type, q.source_year,
+             q.stem, q.type, q.options, q.answer, q.analysis, q.steps,
+             q.difficulty, q.source_type, q.source_year,
              k.title AS kidTitle, k.chapter_id AS chapterId,
              (SELECT answer FROM attempts a WHERE a.user_id = sq.user_id AND a.qid = sq.qid ORDER BY a.ts DESC LIMIT 1) AS myAnswer
       FROM stats_question sq
@@ -143,7 +194,12 @@ export default async function studyRoutes(fastify) {
       mistakes: rows.map((r) => ({
         qid: r.qid, kid: r.kid, kidTitle: r.kidTitle, chapterId: r.chapterId,
         stem: r.stem, type: r.type, options: parseOptions(r),
+        /* typeLabel / selfGraded 和 publicQuestion 用同一份定义 ——
+         * 错题本里的题也要能直接进重练，前端不该为它再维护一套题型映射。 */
+        typeLabel: TYPE_LABEL[r.type] || r.type,
+        selfGraded: SELF_GRADED_TYPES.has(r.type),
         answer: r.answer, analysis: r.analysis, myAnswer: r.myAnswer,
+        steps: parseSteps(r),
         difficulty: r.difficulty, sourceType: r.source_type, sourceYear: r.source_year,
         wrongCount: r.n - r.c, attempts: r.n, lastAt: r.ts,
       })),

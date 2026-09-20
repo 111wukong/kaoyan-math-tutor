@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   Copy, Download, FileText, Layers, Plus, Printer, Search, Sparkles, Trash2, Zap,
 } from 'lucide-react';
+import { AppLink as Link } from '@/lib/links';
 import { api } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';

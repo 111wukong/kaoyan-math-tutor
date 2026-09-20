@@ -172,7 +172,10 @@ for (const k of knowledge) {
   fields.push([`${k.id}.example`, k.example, 'rich']);
 }
 
-ok('题目 204 道全在', questions.length === 204, `实际 ${questions.length}`);
+/* ★ 这里**不写死条数**。原先写的是 `=== 204`，题库一加题（补四种新题型那次
+ *   就加到了 248）它就变成一条假失败，而它本来想守的是「题目没丢、全扫到了」。
+ *   改成下限 + 打出实际值：题目只会越补越多，不该每次补题都来改测试。 */
+ok(`题目全在（≥ 204 道）`, questions.length >= 204, `实际 ${questions.length}`);
 ok('知识点 68 条全在', knowledge.length === 68, `实际 ${knowledge.length}`);
 ok('确实扫到了内容（不是空跑）',
   fields.some(([, v]) => String(v || '').includes('\\')),
@@ -237,6 +240,12 @@ section('5. 回归锚点（每个都对应一个修过的真 bug）');
       '解的特征方程是 |\\lambda E - ______| = 0。'],
     ['\\, 这类符号命令不能原样漏出去',
       'f_X(x) = \\int_{-\\infty}^{+\\infty} ______ \\, dy。'],
+    /* ★ 转义花括号必须能**起头**，不能等后面的 \command 才起步。
+     *   不认 \{ 的话，`\{X\le x_1\}` 会被切成 `\le x_1\` ——
+     *   末尾一个孤立反斜杠，KaTeX 报 Unexpected character '\'，源码漏屏。
+     *   概率论里「事件用花括号包起来」的写法遍地都是（实测题 q247 的解析）。 */
+    ['\\{ \\} 转义花括号要能起头（不能从中间截断）',
+      'F(x_1)\\le F(x_2) 说的是 \\{X\\le x_1\\}\\subseteq\\{X\\le x_2\\}。'],
   ];
   for (const [name, src] of cases) {
     const html = renderRich(src);

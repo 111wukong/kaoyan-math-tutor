@@ -1,9 +1,9 @@
 import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { AlertCircle, ArrowRight, Mail, Lock } from 'lucide-react';
 import { AuthLayout } from '@/components/layout/AuthLayout';
 import { Button, Input } from '@/components/ui/Primitives';
+import { AppLink as Link } from '@/lib/links';
 import { useAuth } from '@/stores/auth';
 import { ApiError } from '@/lib/api';
 import { useRegistrationOpen } from '@/lib/siteConfig';

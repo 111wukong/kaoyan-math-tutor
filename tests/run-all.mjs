@@ -43,6 +43,18 @@ const SUITES = [
   { name: 'LaTeX 全量检查', file: 'tests/latex-coverage.mjs' },
   { name: '渲染管线漏屏检查', file: 'tests/pipeline-leak.mjs' },
   { name: '公式库', file: 'tests/formulas.mjs' },
+  /* 公式演示引擎：覆盖度（257 条一条不能漏）+ 每个演示的参数空间体检。
+   * 它把 web/src/lib/demo 现场转译成 .mjs 再 import ——
+   * 演示定义是纯函数，所以不需要浏览器就能验「不是空壳、不会算出 NaN」。
+   * 自定义渲染（矩阵、集合图）用一个记录调用的 canvas 桩跑一遍。 */
+  { name: '公式演示', file: 'tests/formula-demos.mjs' },
+  /* 题型与判题器：同样是纯函数 + 数据，不走 HTTP。
+   * 它守的是**判分口径**——判错的失效方式是静默的（答对显示红叉），
+   * 页面不报错、构建通过、截图看不出，只能靠断言钉住。 */
+  { name: '题型与判题器', file: 'tests/question-types.mjs' },
+  /* 站内链接的「新标签页打开」是个全局约定，最容易在某次加页面时漏掉一处。
+   * 静态扫一遍源码，比每次靠人眼看靠谱。 */
+  { name: '站内链接约定', file: 'tests/nav-newtab.mjs' },
   /* 图谱套件也是**确定性全量**检查，而且自己建临时库、不走 HTTP ——
    * 放在这里跑得最快，挂了能立刻看出是数据问题还是接口问题。 */
   { name: '图谱与诊断', file: 'tests/graph.mjs' },
