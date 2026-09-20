@@ -25,7 +25,7 @@ const TYPE_META: Record<string, { label: string; tone: any }> = {
 export default function Deck() {
   const pushToast = useApp((s) => s.pushToast);
   const refreshSnapshot = useApp((s) => s.refreshSnapshot);
-  const { data, loading, reload } = useAsync(() => api.deck.list(), []);
+  const { data, loading, reload } = useAsync(() => api.deck.list(), [], { key: 'deck.list' });
 
   const [filter, setFilter] = useState<'all' | 'point' | 'pitfall' | 'formula' | 'problem'>('all');
   const [query, setQuery] = useState('');

@@ -6,23 +6,10 @@ import { AppShell } from '@/components/layout/AppShell';
 
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
-import Dashboard from '@/pages/Dashboard';
-import Knowledge from '@/pages/Knowledge';
-import KnowledgeDetail from '@/pages/KnowledgeDetail';
-import Quiz from '@/pages/Quiz';
-import Review from '@/pages/Review';
-import Mistakes from '@/pages/Mistakes';
-import Questions from '@/pages/Questions';
-import Stats from '@/pages/Stats';
-import Lab from '@/pages/Lab';
-import Blitz from '@/pages/Blitz';
-import Deck from '@/pages/Deck';
-import Chat from '@/pages/Chat';
-import Classroom from '@/pages/Classroom';
-import Achievements from '@/pages/Achievements';
-import Settings from '@/pages/Settings';
-import Admin from '@/pages/Admin';
 
+/* 页面级路由搬到了 routes.tsx —— 因为顶栏面包屑也要用同一张表。
+ * 这里只剩「登录 / 未登录」这一层分支：登录后整块交给 AppShell，
+ * 由它里面的 KeepAlivePages 按路由表切换页面（带保活）。 */
 export default function App() {
   const { user, ready, refresh } = useAuth();
 
@@ -43,30 +30,7 @@ export default function App() {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.35 }}
           >
-            <Routes>
-              <Route element={<AppShell />}>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/learn" element={<Knowledge />} />
-                <Route path="/learn/:kid" element={<KnowledgeDetail />} />
-                <Route path="/quiz" element={<Quiz />} />
-                <Route path="/review" element={<Review />} />
-                <Route path="/mistakes" element={<Mistakes />} />
-                <Route path="/questions" element={<Questions />} />
-                <Route path="/stats" element={<Stats />} />
-                <Route path="/lab" element={<Lab />} />
-                <Route path="/blitz" element={<Blitz />} />
-                <Route path="/deck" element={<Deck />} />
-                <Route path="/chat" element={<Chat />} />
-                <Route path="/classroom" element={<Classroom />} />
-                <Route path="/achievements" element={<Achievements />} />
-                <Route path="/settings" element={<Settings />} />
-                {/* 管理台。这里不做角色判断 —— 页面自己会检查并跳回首页。
-                 * 真正的门在服务端：/api/admin/* 每条路由都挂 requireAdmin，
-                 * 非管理员即便把这一行删掉也拿不到数据。 */}
-                <Route path="/admin" element={<Admin />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Route>
-            </Routes>
+            <AppShell />
           </motion.div>
         ) : (
           <motion.div key="auth" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}>

@@ -763,6 +763,102 @@ section('13b. AI 正常路径（对着本地 stub 模型跑通）');
       JSON.stringify(cls.data?.prompt)?.slice(0, 60));
     ok('课堂没有 parseFailed 标记', cls.data?.parseFailed !== true);
 
+    /* ============================================================
+       ★ 课堂阶段状态机（走 HTTP 的那一半）
+       ============================================================
+       纯逻辑那一半在 tests/classroom.mjs 里测了（分类、推演、提示词、过滤）。
+       这里验的是**真的发一次请求之后**接口回给前端的东西对不对 ——
+       尤其是「提示词有没有按阶段拼」，只有翻上游收到的请求体才知道。
+       两边都要有：纯函数测不出「接口忘了把 phase 传给提示词构造函数」这种漏接。
+       ============================================================ */
+    const upstreamPrompt = () =>
+      String((stub.captured.last?.messages || []).map((m) => m.content).join('\n'));
+
+    ok('★ 首轮判为 lecture（把理论讲透，而不是热身）',
+      cls.data?.phase === 'lecture', `实得 ${cls.data?.phase}`);
+    ok('★ 首轮结尾是回忆式问题（不出计算题）',
+      cls.data?.promptKind === 'recall', `实得 ${cls.data?.promptKind}`);
+    ok('★ 上游提示词要求首轮讲透理论',
+      upstreamPrompt().includes('把理论讲透'), '提示词里没有「讲透」这条');
+    ok('★ 上游提示词放宽了首轮字数（120 字讲不透）',
+      upstreamPrompt().includes('400 字'), '还是老的一刀切 120 字');
+
+    /* ---------- 说「不知道」→ 三个学生必须静默 ----------
+     * 这是用户报的第一个问题：「我在说不知道的时候，那三个学生还是一直跟着提问」。
+     * stub 每轮固定回 4 条（老师 + 三个学生），所以只要过滤没生效，
+     * turns 就会是 4 条 —— 断言直接看得出来。 */
+    const confused = await POST('/api/ai/classroom', {
+      kid, mode: 'lesson', round: 1, userInput: '我不知道',
+      lastPrompt: cls.data?.prompt, lastPromptRound: 0, prevPhase: 'lecture',
+    });
+    ok('说「不知道」→ clarify 阶段', confused.data?.phase === 'clarify', `实得 ${confused.data?.phase}`);
+    ok('意图判定为 confused', confused.data?.intent === 'confused', `实得 ${confused.data?.intent}`);
+    ok('★ 三个学生全部静默（stub 回了 4 条，只剩老师 1 条）',
+      (confused.data?.turns || []).length === 1 && confused.data?.turns?.[0]?.role === 'teacher',
+      `实得 ${(confused.data?.turns || []).map((t) => t.role).join('/')}`);
+    ok('★ 静默条数如实上报（前端要能显示「同学已安静」）',
+      confused.data?.silenced === 3, `实得 ${confused.data?.silenced}`);
+    ok('★ 这一轮结尾是理解确认，不是算题',
+      confused.data?.promptKind === 'check', `实得 ${confused.data?.promptKind}`);
+    ok('★ 上游提示词要求三个学生全部静默',
+      upstreamPrompt().includes('三个学生全部静默'), '提示词里没有静默要求');
+    ok('★ 上游提示词明令这一轮不许出题',
+      upstreamPrompt().includes('不许出题'), '提示词里没有禁出题那条');
+
+    /* ---------- 留痕：老师得知道自己在回答哪一问 ---------- */
+    ok('★ 上游提示词带上了「学生正在回答的问题」',
+      upstreamPrompt().includes('学生正在回答的问题'), '提示词里没有在回答哪一问的上下文');
+    ok('★ 并且标明是第几轮留的',
+      upstreamPrompt().includes('第 1 轮老师留的'), '没有轮次标注');
+    ok('★ 要求老师先点明在回应哪一问',
+      upstreamPrompt().includes('先点明在回应哪一问'), '没有这条要求');
+
+    /* ---------- 模型不听劝时，硬过滤要顶上 ----------
+     * 提示词是请求，不是保证。这里故意让 stub 在答疑阶段回一道算题，
+     * 验「说好的只讲不考」有没有被兜住。 */
+    stub.setRaw(JSON.stringify({
+      board: ['换个角度：先看左边的定义'],
+      turns: [
+        { role: 'teacher', name: '老师', text: '行，我们退回去看定义。' },
+        { role: 'xiaoming', name: '小明', text: '那我先求个导试试？' },
+      ],
+      prompt: '求 $\\lim_{x\\to 0}\\frac{\\sin x}{x}$ 的值',
+    }));
+    const stillCalc = await POST('/api/ai/classroom', {
+      kid, mode: 'lesson', round: 2, userInput: '还是不懂', prevPhase: 'clarify',
+    });
+    ok('★ 答疑阶段里模型出的算题被拦下来了',
+      stillCalc.data?.promptAdjusted === true, `实得 ${stillCalc.data?.promptAdjusted}`);
+    ok('★ 被换成理解确认，且明确说了「先不做题」',
+      /先不做题/.test(String(stillCalc.data?.prompt || '')), JSON.stringify(stillCalc.data?.prompt)?.slice(0, 80));
+    ok('★ 学生插话同样被静默（只剩老师）',
+      (stillCalc.data?.turns || []).length === 1, `实得 ${(stillCalc.data?.turns || []).length}`);
+    stub.setRaw(null);
+
+    /* ---------- 说「懂了」才进练习 ---------- */
+    const gotIt = await POST('/api/ai/classroom', {
+      kid, mode: 'lesson', round: 3, userInput: '懂了',
+      lastPrompt: stillCalc.data?.prompt, lastPromptRound: 2, prevPhase: 'clarify',
+    });
+    ok('说「懂了」→ practice 阶段', gotIt.data?.phase === 'practice', `实得 ${gotIt.data?.phase}`);
+    ok('★ 练习阶段结尾才是「一道题」',
+      gotIt.data?.promptKind === 'practice', `实得 ${gotIt.data?.promptKind}`);
+    ok('★ 练习阶段学生恢复发言（不再静默）',
+      (gotIt.data?.turns || []).length === 4, `实得 ${(gotIt.data?.turns || []).length}`);
+
+    /* ---------- 答疑阶段里继续追问，不许被推进练习 ----------
+     * 这条是「人家还在问，你就让他算」的防线。 */
+    const stillAsking = await POST('/api/ai/classroom', {
+      kid, mode: 'lesson', round: 4, userInput: '为什么这里一定要加上那个条件？', prevPhase: 'clarify',
+    });
+    ok('★ 答疑阶段里追问 → 仍留在 clarify',
+      stillAsking.data?.phase === 'clarify', `实得 ${stillAsking.data?.phase}`);
+    ok('追问的意图判为 question',
+      stillAsking.data?.intent === 'question', `实得 ${stillAsking.data?.intent}`);
+    ok('★ 答疑阶段里点「继续」但没说话 → 也不许滑进练习',
+      (await POST('/api/ai/classroom', { kid, mode: 'lesson', round: 5, userInput: '', prevPhase: 'clarify' }))
+        .data?.phase === 'clarify', '没说话就被推去出题了');
+
     /* ---------- ★ 小模型的不完美输出 ----------
      * 提示词里写着「role 用 teacher|xiaoming|xiaohong|xiaogang」
      * 和「不要 markdown 代码块」，但 9B 级别的小模型基本不听。

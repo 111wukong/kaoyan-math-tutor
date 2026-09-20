@@ -42,8 +42,8 @@ export default function Questions() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const list = useAsync(() => api.catalog.questions({ limit: 300 }), []);
-  const tree = useAsync(() => api.catalog.tree(), []);
+  const list = useAsync(() => api.catalog.questions({ limit: 300 }), [], { key: 'catalog.questions:300' });
+  const tree = useAsync(() => api.catalog.tree(), [], { key: 'catalog.tree:math1' });
 
   /* 把「分类 → 章节 → 知识点」拍平成下拉选项。
    * 录题时必须挂到一个具体考点上 —— 不然它不参与任何掌握度计算，

@@ -32,8 +32,8 @@ export default function Chat() {
   const pushToast = useApp((s) => s.pushToast);
   const refreshSnapshot = useApp((s) => s.refreshSnapshot);
 
-  const tree = useAsync(() => api.catalog.tree('math1'), []);
-  const settings = useAsync(() => api.settings.llm(), []);
+  const tree = useAsync(() => api.catalog.tree('math1'), [], { key: 'catalog.tree:math1' });
+  const settings = useAsync(() => api.settings.llm(), [], { key: 'settings.llm' });
 
   const [kid, setKid] = useState(params.get('kid') || '');
   const [persona, setPersona] = useState('strict');

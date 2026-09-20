@@ -20,7 +20,7 @@ export default function KnowledgeDetail() {
   const nav = useNavigate();
   const pushToast = useApp((s) => s.pushToast);
   const refreshSnapshot = useApp((s) => s.refreshSnapshot);
-  const { data, loading, reload } = useAsync(() => api.catalog.knowledge(kid), [kid]);
+  const { data, loading, reload } = useAsync(() => api.catalog.knowledge(kid), [kid], { key: `catalog.knowledge:${kid}` });
 
   const [noteText, setNoteText] = useState('');
   const [savingNote, setSavingNote] = useState(false);

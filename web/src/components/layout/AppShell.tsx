@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   LayoutDashboard, Network, PenLine, RotateCcw, CircleAlert, FlaskConical,
   Zap, Layers, MessagesSquare, Users, ChartNoAxesColumn, Trophy, Settings,
   Menu, X, Volume2, VolumeX, Flame, ChevronsUpDown, LogOut, ShieldCheck, SquarePen,
+  ChevronRight,
 } from 'lucide-react';
 import { CyberGrid } from '@/components/fx/CyberGrid';
 import { Starfield } from '@/components/fx/Starfield';
 import { Meter } from '@/components/fx/Motion';
 import { Toaster } from '@/components/ui/Toaster';
+import { KeepAlivePages } from '@/components/layout/KeepAlivePages';
+import { TopicDirectory } from '@/components/layout/TopicDirectory';
+import { APP_PAGES } from '@/routes';
+import { api } from '@/lib/api';
+import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
 import { useAuth } from '@/stores/auth';
 import { useTheme } from '@/stores/theme';
@@ -91,10 +97,10 @@ export function AppShell() {
     setSfxEnabled(sfx);
   }, [sfx]);
 
-  // 路由变化时滚回顶部 —— 从长列表进详情页却停在半空很奇怪
-  useEffect(() => {
-    document.getElementById('main-scroll')?.scrollTo({ top: 0 });
-  }, [location.pathname]);
+  /* ★ 这里原来有一条「路由变化时滚回顶部」。
+   *   保活之后不能这么干了 —— 每个页面各有各的滚动位置，
+   *   统一切到 0 等于把「切回来还在原地」这件事又抹掉。
+   *   现在由 KeepAlivePages 负责按页存取滚动位置。 */
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -146,22 +152,33 @@ export function AppShell() {
       >
         <Brand />
 
-        <nav className="flex-1 overflow-y-auto px-2.5 pb-3" aria-label="主导航">
-          {NAV.map((g) => (
-            <div key={g.group} className="mb-3">
-              <div className="px-2.5 pb-1.5 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
-                {g.group}
+        {/* 滚动容器。里面是**两个** nav：内容目录（考点）和页面入口（主导航）。
+            分开是有意的 —— 混在一个 nav 里的话，「侧栏有几项入口」这件事
+            就再也数不清了（目录展开后多出几十个链接）。
+
+            ★ 目录放在**主导航之前**。一开始它挂在最底下，结果 14 个入口
+            一列下来，它在折叠状态下根本不在首屏 —— 手机上要滚过整屏才看得到，
+            等于没做。收起来时它只占一行，放最上面代价很小。 */}
+        <div className="flex-1 overflow-y-auto px-2.5 pb-3">
+          <TopicDirectory />
+
+          <nav aria-label="主导航">
+            {NAV.map((g) => (
+              <div key={g.group} className="mb-3">
+                <div className="px-2.5 pb-1.5 pt-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
+                  {g.group}
+                </div>
+                {g.items.map((it) => (
+                  <NavItem
+                    key={it.to}
+                    {...it}
+                    badgeCount={it.badge === 'due' ? dueCount : it.badge === 'wrong' ? wrongCount : 0}
+                  />
+                ))}
               </div>
-              {g.items.map((it) => (
-                <NavItem
-                  key={it.to}
-                  {...it}
-                  badgeCount={it.badge === 'due' ? dueCount : it.badge === 'wrong' ? wrongCount : 0}
-                />
-              ))}
-            </div>
-          ))}
-        </nav>
+            ))}
+          </nav>
+        </div>
 
         <SideFooter
           level={snapshot?.level ?? 1}
@@ -178,7 +195,9 @@ export function AppShell() {
         <TopBar onMenu={() => setNavOpen(true)} />
         <main id="main-scroll" className="min-w-0 flex-1 px-4 pb-16 pt-4 sm:px-6 lg:px-8 lg:pt-6">
           <div className="mx-auto w-full max-w-[1180px]">
-            <Outlet />
+            {/* 页面在这里切换。带保活 —— 切走的页面不卸载，只是藏起来，
+                所以本地状态和滚动位置都留着，数据靠 lib/hooks.ts 的缓存不重拉。 */}
+            <KeepAlivePages pages={APP_PAGES} />
           </div>
         </main>
       </div>
@@ -282,23 +301,88 @@ function SideFooter({
   );
 }
 
+/* ---------- 面包屑 ----------
+ *
+ * 顶栏原来只有一个页面名，看不出「我从哪来、上一层是什么」。
+ * 加了目录导航之后这件事更明显：从目录点进某个考点，得能一键退回知识树。
+ *
+ * 每一段都从**导航表**反查，不另写一张路由→标题的映射 ——
+ * 两份映射迟早会漂移，漂移的表现是「侧栏高亮知识树、顶栏写着别的」。
+ */
+function Crumbs() {
+  const location = useLocation();
+  const { user } = useAuth();
+  const { pathname } = location;
+
+  /* 考点页要显示考点标题，得查一次目录。
+   * 用的是和侧栏目录、知识树页**同一个缓存 key**，所以这一查基本不花钱。 */
+  const kid = pathname.startsWith('/learn/') ? pathname.slice('/learn/'.length) : '';
+  const tree = useAsync(() => api.catalog.tree('math1'), [], {
+    key: 'catalog.tree:math1',
+    staleTime: 5 * 60_000,
+  });
+
+  const trail = useMemo(() => {
+    const groups = navGroups(user?.role === 'admin');
+    let group = '';
+    let label = '研数';
+    for (const g of groups) {
+      for (const it of g.items) {
+        if (it.to === '/' ? pathname === '/' : pathname.startsWith(it.to)) {
+          group = g.group;
+          label = it.label;
+        }
+      }
+    }
+
+    if (kid) {
+      const node = tree.data?.categories
+        .flatMap((c) => c.chapters)
+        .flatMap((ch) => ch.nodes)
+        .find((n) => n.id === kid);
+      return [
+        { label: '首页', to: '/' },
+        { label: '知识树', to: '/learn' },
+        { label: node?.title || '考点' },
+      ];
+    }
+
+    if (pathname === '/') return [{ label }];
+    return [{ label: '首页', to: '/' }, { label: group }, { label }];
+  }, [pathname, kid, tree.data, user?.role]);
+
+  const last = trail.length - 1;
+
+  return (
+    <nav aria-label="面包屑" className="min-w-0 flex-1">
+      <ol className="flex min-w-0 items-center gap-1.5">
+        {trail.map((c, i) => (
+          <li key={`${c.label}-${i}`} className={cn('flex min-w-0 items-center gap-1.5', i < last && 'shrink-0')}>
+            {i > 0 && <ChevronRight size={13} className="shrink-0 text-fg-faint" />}
+            {i === last ? (
+              /* 最后一段就是页面标题，仍然用 h1 —— 顶栏只有一个主标题，
+               * 别为了面包屑多造一个层级出来。 */
+              <h1 className="truncate text-[15px] font-semibold tracking-tight text-fg">{c.label}</h1>
+            ) : c.to ? (
+              <Link
+                to={c.to}
+                className="truncate text-[12.5px] text-fg-mute transition-colors hover:text-fg-soft"
+              >
+                {c.label}
+              </Link>
+            ) : (
+              <span className="truncate text-[12.5px] text-fg-faint">{c.label}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
 function TopBar({ onMenu }: { onMenu: () => void }) {
   const { user, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
-  const location = useLocation();
-
-  /* 标题从导航表里反查，保证「侧栏高亮哪一项」和「顶栏写什么」永远一致 ——
-   * 两处各写一张路由→标题的映射，迟早会漂移。
-   * 这里自己调一次 navGroups 而不是接 props：TopBar 不是 AppShell 的直接子元素
-   * （它和 <Outlet/> 平级），传下去要绕一层，不如就地算。 */
-  const title = (() => {
-    for (const g of navGroups(user?.role === 'admin')) {
-      for (const it of g.items) {
-        if (it.to === '/' ? location.pathname === '/' : location.pathname.startsWith(it.to)) return it.label;
-      }
-    }
-    return '研数';
-  })();
 
   const hue = user?.avatarHue ?? 200;
 
@@ -313,7 +397,7 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
           <Menu size={18} />
         </button>
 
-        <h1 className="flex-1 truncate text-[15px] font-semibold tracking-tight text-fg">{title}</h1>
+        <Crumbs />
 
         <div className="relative">
           <button
