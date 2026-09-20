@@ -183,22 +183,55 @@ for (const c of allCards.slice(0, 10)) {
 }
 console.log(`   复习卡共 ${allCards.length} 张，已评 ${graded} 张`);
 
-/* 课堂存档：让课堂页不是空态 */
-await api('PUT', `/api/classroom/${kids[0]}`, {
+/* 课堂存档：让课堂页不是空态。
+ *
+ * ★ 灌的字段必须跟着**界面真正会读的**字段走。
+ *   2026-09-20 加了阶段机与留痕（phase / promptKind / asked / replyTo）之后，
+ *   这段存档如果还只灌 turns + board + round，截出来的课堂页就是**旧界面** ——
+ *   没有阶段标、没有「本课问答留痕」、我的发言里也没有引用。
+ *   而且它不会报错：那些字段读不到时都有默认值，页面看着"正常"，只是少了几块。
+ *   所以每次给课堂加状态字段，这里都要同步 —— 它和真实存档是同一条协议。 */
+const CLASS_KID = kids[0];
+const CLASS_PROMPT = '你能用自己的话说说，为什么 $\\frac{0}{0}$ 不能直接把 $x=0$ 代进去？';
+
+await api('PUT', `/api/classroom/${CLASS_KID}`, {
   payload: {
     turns: [
-      { role: 'teacher', name: '老师', text: '今天我们看一个典型错误：求 $\\lim_{x\\to 0}\\frac{\\sin x}{x}$ 时，直接把 $x=0$ 代进去。' },
-      { role: 'xiaoming', name: '小明', text: '代进去是 $\\frac{0}{0}$，那答案就是 0 吧？' },
-      { role: 'teacher', name: '老师', text: '这就是**概念性错误**。$\\frac{0}{0}$ 是未定式，不是 0 —— 它只说明需要变形。' },
-      { role: 'xiaohong', name: '小红', text: '那用等价无穷小 $\\sin x \\sim x$，就变成 $\\frac{x}{x}=1$。' },
-      { role: 'xiaogang', name: '小刚', text: '为什么这里可以用等价无穷小替换？条件是什么？' },
+      {
+        role: 'teacher', name: '老师', round: 0,
+        text: '先把定义摆清楚：$\\lim_{x\\to x_0}f(x)=A$ 说的是「$x$ 无限接近 $x_0$ 但不等于 $x_0$ 时，$f(x)$ 无限接近 $A$」。'
+          + '注意 $x_0$ 这一点**有没有定义、取什么值，都不影响极限**。',
+      },
+      { role: 'xiaoming', name: '小明', round: 0, text: '那 $\\frac{0}{0}$ 是不是就等于 0？' },
+      { role: 'xiaohong', name: '小红', round: 0, text: '我觉得是 1，但说不清为什么，是不是用洛必达？' },
+      { role: 'xiaogang', name: '小刚', round: 0, text: '如果把 $\\sin x$ 换成 $x$，极限显然是 1；那这个结论去掉「$x\\to 0$」还成立吗？' },
+      {
+        role: 'teacher', name: '我', round: 1,
+        text: '我不知道',
+        replyTo: { text: CLASS_PROMPT, round: 0 },
+      },
+      {
+        role: 'teacher', name: '老师', round: 1,
+        text: '卡住是正常的，这个点九成的人都绕过。换个角度看：$\\frac{0}{0}$ 不是「一个数」，'
+          + '它是**「两个都在往 0 跑的量」的比值**。分母缩小的同时分子也在缩小，谁快谁慢才决定结果 ——'
+          + '所以它叫未定式，不能代值，只能比较两者的快慢。',
+      },
     ],
     board: [
-      '$\\lim_{x\\to 0}\\frac{\\sin x}{x}$',
-      '$\\sin x \\sim x \\ (x\\to 0)$',
-      '$\\Rightarrow \\lim_{x\\to 0}\\frac{x}{x} = 1$',
+      '$\\lim_{x\\to x_0}f(x)=A$ 与 $f(x_0)$ 无关',
+      '$\\frac{0}{0}$ 是未定式，不是数',
+      '$\\sin x \\sim x\\ (x\\to 0)$',
     ],
     round: 1,
+    mode: 'lesson',
+    /* 答疑阶段：三个同学静默，结尾只确认理解 —— 截图要能看出这个状态 */
+    phase: 'clarify',
+    promptKind: 'check',
+    prompt: '这样讲跟得上吗？卡在「为什么不能代值」，还是卡在「谁快谁慢怎么比」？',
+    asked: [
+      { round: 0, text: CLASS_PROMPT, kind: 'recall' },
+      { round: 1, text: '这样讲跟得上吗？卡在「为什么不能代值」，还是卡在「谁快谁慢怎么比」？', kind: 'check' },
+    ],
   },
 });
 
@@ -324,7 +357,18 @@ try {
     return { value: r.result?.value };
   };
 
-  async function shoot(name, route, { waitFor, settle = 1400 } = {}) {
+  /**
+   * @param {string} name    文件名（不含扩展名）
+   * @param {string} route   路径
+   * @param {object} [opts]
+   * @param {string} [opts.waitFor] 就绪判据（默认 readyState）
+   * @param {number} [opts.settle]  就绪后再等几毫秒（让动画/canvas/图表跑几帧）
+   * @param {string} [opts.after]   拍照**之前**再执行的一段 JS。
+   *   用途：页面里最该看的东西在首屏下面时（比如课堂页的「问答留痕」和
+   *   理解确认按钮），需要先滚过去再拍。不给这个钩子的话，只能拍个首屏，
+   *   而"要展示的那块没拍到"这件事在日志里完全看不出来。
+   */
+  async function shoot(name, route, { waitFor, settle = 1400, after } = {}) {
     await client.send('Page.navigate', { url: `${BASE}${route}${route.includes('?') ? '&' : '?'}cb=${Date.now()}` });
     // 轮询等就绪条件，别赌固定 sleep
     const deadline = Date.now() + 12000;
@@ -334,6 +378,12 @@ try {
       await sleep(180);
     }
     await sleep(settle);   // 让动画 / canvas / 图表跑几帧
+
+    if (after) {
+      const r = await ev(after);
+      if (r.error) console.log(`\x1b[33m   · ${name} 的 after 钩子报错：${r.error}\x1b[0m`);
+      await sleep(900);    // 平滑滚动要时间，别在滚到一半时按快门
+    }
 
     /* 每一张都报一次"背景到底走的是哪条路"。
      * 不报的话，WebGL 悄悄降级了也看不出来 —— 截图依旧是"有背景"的样子，
@@ -408,7 +458,17 @@ try {
   await shoot('10-公式实验室', '/lab', { waitFor: SHELL, settle: 2400 });
   await shoot('11-闪电战', '/blitz', { waitFor: SHELL, settle: 1800 });
   await shoot('12-卡片库', '/deck', { waitFor: SHELL, settle: 1600 });
-  await shoot('13-课堂', '/classroom', { waitFor: SHELL, settle: 1800 });
+  /* ★ 课堂必须带上 ?kid=。不带的话页面停在「先选一个知识点」的空态 ——
+   *   而上面刚灌好的那份存档（在 CLASS_KID 上）一个字都看不到。
+   *   这张图以前就是这么拍空的：看着不报错，只是拍了个空页面。 */
+  await shoot('13-课堂', `/classroom?kid=${CLASS_KID}`, { waitFor: SHELL, settle: 2200 });
+  /* 再拍一张滚到底的。这一页最该看的两样东西（「我的发言引用了哪一问」和
+   * 「还是没懂 / 懂了，继续」）都在首屏下面 —— 只拍首屏等于没展示。 */
+  await shoot('13b-课堂-留痕', `/classroom?kid=${CLASS_KID}`, {
+    waitFor: SHELL,
+    settle: 2200,
+    after: 'window.scrollTo(0, document.documentElement.scrollHeight)',
+  });
   await shoot('14-成就', '/achievements', { waitFor: SHELL, settle: 1800 });
   await shoot('15-设置', '/settings', { waitFor: SHELL, settle: 1600 });
 
