@@ -831,6 +831,148 @@ export default async function aiRoutes(fastify) {
     };
   });
 
+  /* ---------- 批量生成：一次给多个考点补题 ----------
+   *
+   * 单考点生成（/api/ai/generate）解决的是「这道错了，给我几道同类型的」，
+   * 属于**点补**；这个接口解决的是「这一章一道解答题都没有」，属于**面补**。
+   *
+   * ── 为什么不是前端循环调 N 次单考点接口 ──────────────────────
+   *   · 去重：批量要把**跨考点**的重复题干也滤掉，前端各自为战做不到；
+   *   · 失败域：一个考点失败不该让整批白跑，前端循环同样要自己处理；
+   *   · 往返：N 次 HTTP 往返意味着 N 次鉴权、N 次限流计数。
+   *
+   * ── 规模上限 ────────────────────────────────────────────────
+   * 这个接口是**同步**的，串行跑十几个考点，每个等一次模型。
+   * 所以上限卡在 12 个考点 × 5 道。再大就该换成「任务 + 轮询」，
+   * 那是另一套东西了 —— 现在这个规模下同步够用，也更好调试。
+   *
+   * ── 事务粒度 ────────────────────────────────────────────────
+   * ★ 每个考点**单独一个事务**。整批一个大事务的话，第 10 个考点
+   * 抛个异常就把前 9 个的成果一起回滚了 —— 而前 9 个本身是好的，
+   * 用户白等两分钟什么都没得到。
+   */
+  fastify.post('/api/ai/generate-batch', {
+    config: { rateLimit: AI_LIMIT },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['kids'],
+        properties: {
+          kids: { type: 'array', items: { type: 'string' }, maxItems: 12 },
+          perKid: { type: 'integer' },
+          mode: { type: 'string' },
+          save: { type: 'boolean' },
+        },
+      },
+    },
+  }, async (req, reply) => {
+    const { cfg, error } = await llmOrError(req);
+    if (error) return reply.code(400).send(error);
+
+    const rawKids = Array.isArray(req.body?.kids) ? req.body.kids : [];
+    const perKid = Math.min(5, Math.max(1, Number(req.body?.perKid) || 3));
+    const mode = ['objective', 'subjective', 'mixed'].includes(req.body?.mode) ? req.body.mode : 'objective';
+    const save = req.body?.save !== false;
+
+    const tree = getTree();
+    const targets = [];
+    const unknownKids = [];
+    for (const kid of rawKids.slice(0, 12)) {
+      const node = tree.nodeById.get(String(kid));
+      if (node) targets.push(node);
+      else unknownKids.push(String(kid));
+    }
+    if (!targets.length) {
+      return reply.code(404).send({ error: '没有一个是有效考点', unknownKids });
+    }
+
+    const dupInDb = db.prepare('SELECT 1 FROM questions WHERE kid = ? AND stem = ? LIMIT 1');
+    const ins = db.prepare(`INSERT INTO questions (id,kid,type,difficulty,stem,options,answer,analysis,steps,source_type,source_year,source,owner_id)
+      VALUES (@id,@kid,@type,@difficulty,@stem,@options,@answer,@analysis,@steps,@sourceType,NULL,@source,@ownerId)`);
+
+    const created = [];
+    const perKidCount = Object.create(null);
+    const failed = [];
+    /* ★ 跨批次共享：模型很容易在相邻考点出同一道题换个数字 */
+    const seenStem = new Set();
+    let skippedDuplicate = 0;
+    let skippedUnjudgeable = 0;
+
+    for (const node of targets) {
+      const kid = node.id;
+      perKidCount[kid] = 0;
+
+      const examples = db.prepare('SELECT stem, answer FROM questions WHERE kid = ? AND owner_id IS NULL LIMIT 2').all(kid);
+      const prompt = buildGeneratePrompt({
+        node, examples, fromQ: null, userAnswer: '', errorType: '',
+        count: perKid + 2,    // 多要两道当缓冲，理由同单考点接口
+        mode,
+      });
+
+      let content = '';
+      try {
+        content = await callLlm(cfg, prompt, { temperature: 0.8 });
+      } catch (e) {
+        /* ★ 单个考点失败只记一笔，继续跑下一个。
+         * 中断整批的话，前面考点已经生成的题也拿不到（因为前端只收到一个错误）。 */
+        failed.push({ kid, title: node.title, reason: String(e?.message || e).slice(0, 200) });
+        continue;
+      }
+
+      const arr = parseJsonArray(content);
+
+      /* 每个考点一个独立事务 */
+      const runOne = db.transaction(() => {
+        for (const rawQ of arr.slice(0, perKid + 2)) {
+          if (perKidCount[kid] >= perKid) break;
+          const q = sanitizeGenerated(rawQ, kid);
+          if (!q) { skippedUnjudgeable += 1; continue; }
+          if (seenStem.has(q.stem) || dupInDb.get(kid, q.stem)) { skippedDuplicate += 1; continue; }
+          seenStem.add(q.stem);
+
+          const id = 'g_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e6).toString(36);
+          const row = {
+            id, kid, type: q.type, difficulty: q.difficulty, stem: q.stem,
+            options: q.options ? JSON.stringify(q.options) : null,
+            answer: q.answer, analysis: q.analysis,
+            steps: JSON.stringify(q.steps || []),
+            sourceType: 'AI 变式', source: 'AI 批量', ownerId: req.userId,
+          };
+          if (save) ins.run(row);
+          perKidCount[kid] += 1;
+          created.push({
+            id, kid, type: q.type, difficulty: q.difficulty, stem: q.stem,
+            options: q.options, answer: q.answer, analysis: q.analysis,
+            steps: q.steps, sourceType: 'AI 变式', saved: save,
+            typeLabel: TYPE_LABEL[q.type] || q.type,
+            selfGraded: SELF_GRADED_TYPES.has(q.type),
+          });
+        }
+      });
+
+      /* 事务本身也可能因为约束冲突抛异常 —— 同样不能让它掀翻整批 */
+      try {
+        runOne();
+      } catch (e) {
+        failed.push({ kid, title: node.title, reason: `落库失败：${String(e?.message || e).slice(0, 160)}` });
+      }
+    }
+
+    return {
+      created,
+      total: created.length,
+      perKid: perKidCount,
+      requested: targets.length,
+      /* 一个考点都没出来才算失败；出了一部分也返回，前端把已有的显示出来。
+       * 全丢的话用户等了两分钟只看到「生成失败」，不知道是模型不行还是网络断了。 */
+      ok: created.length > 0,
+      failed,
+      unknownKids,
+      skippedDuplicate,
+      skippedUnjudgeable,
+    };
+  });
+
   /* ---------- AI 批改（解答题 / 证明题）----------
    *
    * ── 为什么需要它 ────────────────────────────────────────────────
@@ -1287,8 +1429,16 @@ function parseJsonObject(content) {
 
 /* ---------- 错因归类用到的三个辅助 ---------- */
 
+/* 单次模型调用的超时。
+ *
+ * 单考点生成时超时只是「这次没出成题」，重试就行；但批量生成会**串行**跑
+ * 十几个考点，一个考点卡死就整批卡死 —— 而 HTTP 客户端那边早就超时断开了，
+ * 服务端还在傻等，白占一个连接。所以这个超时是批量接口的**前置条件**，
+ * 不是锦上添花。 */
+const LLM_TIMEOUT_MS = 60_000;
+
 /** 非流式调用一次模型，只取文本。三处（extract / 课堂 / 错因）共用。 */
-async function callLlm(cfg, prompt, { temperature = 0.2 } = {}) {
+async function callLlm(cfg, prompt, { temperature = 0.2, timeoutMs = LLM_TIMEOUT_MS } = {}) {
   const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
@@ -1298,6 +1448,7 @@ async function callLlm(cfg, prompt, { temperature = 0.2 } = {}) {
       temperature,
       stream: false,
     }),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
     const t = await res.text().catch(() => '');

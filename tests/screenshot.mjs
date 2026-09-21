@@ -553,6 +553,28 @@ try {
       return 'ok';
     })()`,
   });
+  /* AI 批量补题面板。
+   * 只拍**面板展开**的状态，不点「开始生成」—— 截图环境没有配模型，
+   * 点了只会拿到一个错误 toast，反而看不到面板本体长什么样。
+   * 面板里那些「0 题 / 2 题」的角标正是它的卖点：直接告诉用户哪里缺题。 */
+  await shoot('12d-AI批量补题', '/questions', {
+    waitFor: SHELL,
+    settle: 1800,
+    after: `(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const btn = Array.from(document.querySelectorAll('button'))
+        .find((x) => (x.textContent || '').indexOf('AI 批量补题') >= 0);
+      if (!btn) return 'NO_BATCH_BTN';
+      btn.click();
+      await wait(1100);
+      /* 滚到面板标题附近，但**不要**用 scrollTo(0, 0) —— 那样会把工具栏滚走，
+       * 看不到「AI 批量补题」按钮自己。小幅度滚动 80px 就够露出标题 + 按钮。 */
+      window.scrollTo(0, 100);
+      await wait(250);
+      return 'ok';
+    })()`,
+  });
+
   /* AI 批改解答题。这一张要拍的是「逐条给分 + 指出卡在哪一步」，
    * 所以得走完整链路：错题本 → 重练 → 写答案 → 提交对答案 → 让 AI 批改。
    *

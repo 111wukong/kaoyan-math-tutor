@@ -1168,6 +1168,73 @@ section('13b. AI 正常路径（对着本地 stub 模型跑通）');
       stub.setRaw(null);
     }
 
+    /* ---------- AI 批量生成 ----------
+     *
+     * 单考点生成是「点补」（这道错了，给我几道同类型的）；
+     * 批量是「面补」（这一章一道大题都没有）。
+     *
+     * 这里最要紧的一条断言是「上游全挂时每个考点各记一笔失败」——
+     * 如果实现成「第一个考点失败就整批抛异常」，用户等一分钟只拿到一个 500，
+     * 而前面考点已经生成好的题也一并丢了。这正是批量接口存在的意义之一。 */
+    {
+      const tr = await GET('/api/catalog/tree');
+      const ns = [];
+      for (const c of tr.data?.categories || []) {
+        for (const ch of c.chapters || []) {
+          for (const n of ch.nodes || []) ns.push(n.id);
+        }
+      }
+      const three = ns.slice(0, 3);
+      ok('拿得到考点列表（批量生成要用）', three.length === 3, `实得 ${three.length}`);
+
+      const BATCH_Q = JSON.stringify([
+        {
+          type: 'choice', difficulty: 2, stem: '批量生成的选择题一',
+          options: [{ k: 'A', t: '1' }, { k: 'B', t: '2' }, { k: 'C', t: '3' }, { k: 'D', t: '4' }],
+          answer: 'A', analysis: '略。',
+        },
+        { type: 'blank', difficulty: 2, stem: '批量生成的填空题二', answer: '1', analysis: '略。' },
+      ]);
+      stub.setRaw(BATCH_Q);
+
+      const b = await POST('/api/ai/generate-batch', { kids: three, perKid: 2 });
+      ok('批量生成返回 200', b.status === 200, `实得 ${b.status} ${JSON.stringify(b.data)?.slice(0, 160)}`);
+      ok('★ 每个考点都出了题（不是只有第一个）',
+        three.every((k) => (b.data?.perKid?.[k] || 0) > 0),
+        JSON.stringify(b.data?.perKid));
+      ok('★ 每个考点不超过要求的道数',
+        three.every((k) => (b.data?.perKid?.[k] || 0) <= 2),
+        JSON.stringify(b.data?.perKid));
+      ok('上报的考点数对得上', b.data?.requested === 3, `实得 ${b.data?.requested}`);
+      ok('正常批次里没有 failed', (b.data?.failed || []).length === 0,
+        JSON.stringify(b.data?.failed)?.slice(0, 160));
+
+      /* 无效考点要单独报出来 —— 混进 failed 会让人以为是模型坏了，
+       * 然后去查上游，实际只是前端传了个不存在的 id。 */
+      const mixed = await POST('/api/ai/generate-batch', { kids: [three[0], 'no-such-kid'] });
+      ok('★ 不存在的考点进 unknownKids', (mixed.data?.unknownKids || []).length === 1,
+        JSON.stringify(mixed.data?.unknownKids));
+      ok('★ 无效考点不影响有效考点出题', (mixed.data?.total || 0) > 0,
+        `total=${mixed.data?.total}`);
+
+      /* 一个考点都不认时应当明确报 404，而不是空手返回 200 假装成功 */
+      const none = await POST('/api/ai/generate-batch', { kids: ['nope-1', 'nope-2'] });
+      ok('全是无效考点时返回 404', none.status === 404, `实得 ${none.status}`);
+
+      stub.setMode('500');
+      const allFail = await POST('/api/ai/generate-batch', { kids: three, perKid: 1 });
+      ok('★ 上游全挂时接口仍返回 200（不是整批抛异常）',
+        allFail.status === 200, `实得 ${allFail.status}`);
+      ok('★★ 每个失败考点都记了一笔（说明没有在第一个就中断）',
+        (allFail.data?.failed || []).length === 3,
+        `实得 ${(allFail.data?.failed || []).length} 笔`);
+      ok('全挂时 total 为 0 且 ok=false',
+        allFail.data?.total === 0 && allFail.data?.ok === false,
+        JSON.stringify({ total: allFail.data?.total, ok: allFail.data?.ok }));
+      stub.setMode('ok');
+      stub.setRaw(null);
+    }
+
     /* ---------- 错误路径 ---------- */
     stub.setMode('401');
     const bad = await POST('/api/ai/classroom', { kid, mode: 'lesson' });

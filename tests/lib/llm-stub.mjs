@@ -96,6 +96,8 @@ export async function startLlmStub() {
    *   重名会被内层遮蔽，结果是「模型输出」变成请求体本身 ——
    *   接口那边解析失败，症状看着像产品坏了。这个坑我踩过一次。 */
   let rawOverride = null;
+  /* 出题请求的调用序号 —— 见下面「给题干加批次号」的说明 */
+  let genSeq = 0;
 
   const server = http.createServer((req, res) => {
     const send = (code, body, headers = {}) => {
@@ -116,7 +118,13 @@ export async function startLlmStub() {
         captured.last = body;
         captured.count++;
 
-        if (mode === '401') return send(401, UNAUTHORIZED);
+        /* mode 是 'ok' 之外的任何值都当成故障注入；写成数字就返回那个状态码。
+         * 原来只认 '401'，而「上游全挂」这类场景需要 500 ——
+         * 批量生成的失败处理就是靠它验的。 */
+        if (mode !== 'ok') {
+          const n = Number(mode);
+          return send(Number.isFinite(n) ? n : 500, UNAUTHORIZED);
+        }
 
         /* 靠提示词里的特征短语区分是哪一类请求。
          *
@@ -127,12 +135,25 @@ export async function startLlmStub() {
          *   报出「课堂发言 0 条」这种看着像产品 bug 的假失败。
          * 这是 stub 自己的判断，不是接口约定。 */
         const flat = JSON.stringify(body.messages || []);
-        const content = rawOverride !== null
+        const isGenerate = flat.includes('变式练习题');
+        let content = rawOverride !== null
           ? rawOverride
           : flat.includes('阅卷老师') ? gradeFor(flat)
             : flat.includes('考研数学辅导老师') ? EXPLAIN_TEXT
               : flat.includes('turns') ? CLASSROOM_JSON
                 : CHAT_TEXT;
+
+        /* 批量生成会**连续多次**调用出题接口（每个考点一次），而 stub 每次
+         * 返回的内容是一模一样的。那样第二个考点之后会被跨考点去重全部跳过，
+         * 「多个考点都出了题」这条断言永远测不出来 —— 那是 stub 造出来的假象，
+         * 不是产品行为。给每次调用的题干追加一个批次号，让不同批次的题真的不同。
+         *
+         * ★ 同一批次内部不加工：如果模型一次给了两道题干相同的题，
+         *   那本来就该被去重跳过，stub 不该替它掩饰。 */
+        if (isGenerate && typeof content === 'string') {
+          genSeq += 1;
+          content = content.replace(/"stem":"((?:[^"\\]|\\.)*)"/g, (_m, s) => `"stem":"${s}·${genSeq}"`);
+        }
 
         if (!body.stream) {
           return send(200, JSON.stringify({

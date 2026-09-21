@@ -604,6 +604,38 @@ export const api = {
     }>('/api/ai/generate', { kid, ...opts }),
 
     /**
+     * 批量生成：一次给多个考点补题。
+     *
+     * 和 generate 的区别是**面补 vs 点补** —— 这个是「这一章一道解答题都没有」时用的。
+     * 服务端串行跑，所以一次别传太多（上限 12 个考点 × 5 道）；
+     * 单个考点失败会记在 failed 里，不影响其他考点，所以返回值要按「部分成功」处理。
+     */
+    generateBatch: (kids: string[], opts: {
+      perKid?: number; mode?: 'objective' | 'subjective' | 'mixed'; save?: boolean;
+    } = {}) => post<{
+      created: {
+        id: string; kid: string; type: QuestionType; difficulty: number;
+        stem: string; options: { k: string; t: string }[] | null;
+        answer: string; analysis: string;
+        steps: QuestionStep[] | null;
+        typeLabel: string; selfGraded: boolean;
+        sourceType: string; saved: boolean;
+      }[];
+      total: number;
+      /** 每个考点实际生成了几道（kid → 道数）。有的考点可能是 0。 */
+      perKid: Record<string, number>;
+      requested: number;
+      /** 一道都没出来才是 false。出了一部分也算 ok —— 前端要把已有的显示出来。 */
+      ok: boolean;
+      /** 失败的考点及原因。不为空说明这一批没跑全，值得提示用户重跑。 */
+      failed: { kid: string; title: string; reason: string }[];
+      /** 传进来但库里没有的考点 id */
+      unknownKids: string[];
+      skippedDuplicate: number;
+      skippedUnjudgeable: number;
+    }>('/api/ai/generate-batch', { kids, ...opts }),
+
+    /**
      * AI 批改一道解答题 / 证明题。
      *
      * **这个接口不写库** —— 它只返回分数和评语。真正的记账仍然走
