@@ -1450,6 +1450,86 @@ try {
   }
 
   /* ============================================================
+     4b. 公式实验室：257 条逐条点过，一条都不能让页面崩
+     ============================================================
+     ★ 这一节守的是一个**真实发生过**的 bug：切换公式时参数表里缺键，
+     Slider 拿 undefined 去调 toFixed 抛 TypeError，整个实验室页面被
+     ErrorBoundary 替换成「页面出错了 / 这一页没能渲染出来」。
+     实测 257 条里有 7 条一点就崩，而且崩的规律不明显
+     （取决于「上一条公式的控件键」和「这一条的控件键」是否重合）。
+
+     为什么单元测试守不住它：tests/formula-demos.mjs 用的是 canvas 桩，
+     验的是「演示函数不抛异常」；而这个 bug 在 **React 组件**里
+     （参数表的生命周期），只有真渲染一次才暴露。
+
+     ★ 判据用「console 里有没有『渲染期异常』」+「列表还在不在」两条。
+     实测过一个**不可靠**的判据，记在这里免得下次又走一遍：
+     一开始是「点完之后查 canvas 还在不在」—— 页面被错误边界替换时
+     canvas 在那一刻还挂在 DOM 上，于是它一直返回 true，
+     8 条就崩了的页面被这条判据判成「没有一条会崩」。
+     console 那条才是可靠的：componentDidCatch 里那一句是同步打的。 */
+  section('4b. 公式实验室：逐条点过 257 条公式，一条都不能崩');
+  {
+    await nav('/lab');
+    await waitFor('!!document.querySelector("button[data-formula]")', '实验列表就位');
+    await sleep(700);
+
+    const chapters = JSON.parse(await probe(
+      `return JSON.stringify(Array.from(document.querySelectorAll('select option')).map(o=>o.value).filter(Boolean))`));
+    ok('能拿到章节筛选列表', chapters.length >= 15, `${chapters.length} 章`);
+
+    const before = consoleErrors.length;
+    let clicked = 0;
+    let reloads = 0;
+    const dead = [];
+
+    const pickChapter = async (ch) => {
+      await probe(`
+        var sel = document.querySelector('select');
+        var set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+        set.call(sel, ${JSON.stringify(ch)});
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        return 1;`);
+      await sleep(260);
+    };
+
+    for (const ch of chapters) {
+      await pickChapter(ch);
+      const n = Number(await probe(`return document.querySelectorAll('button[data-formula]').length`)) || 0;
+      for (let i = 0; i < n; i++) {
+        const r = await probe(`
+          var bs = document.querySelectorAll('button[data-formula]');
+          var b = bs[${i}];
+          if (!b) return 'MISS';
+          var name = b.textContent.trim().slice(0, 40);
+          b.click();
+          return name;`);
+        if (r === 'MISS') {
+          /* 列表整个消失了。正常情况下列表一直在（章节筛选没变），
+           * 所以这只有一个解释：页面被错误边界换掉了。 */
+          dead.push(`第 ${ch} 章第 ${i + 1} 条`);
+          reloads++;
+          if (reloads > 30) { console.log('  \x1b[31m重载次数过多，停止扫描\x1b[0m'); break; }
+          await nav('/lab');
+          await waitFor('!!document.querySelector("button[data-formula]")', '实验列表恢复');
+          await sleep(600);
+          await pickChapter(ch);
+          continue;
+        }
+        clicked++;
+      }
+    }
+
+    await sleep(500);   // 等 console 事件把最后几条送过来
+    ok(`★ 逐条点过 ${clicked} 条公式（不是空跑）`, clicked >= 250, `实得 ${clicked}`);
+    ok('★★ 没有一条公式会让页面崩掉（列表不会中途消失）',
+      dead.length === 0, `崩了 ${dead.length} 次：${dead.slice(0, 6).join(' / ')}`);
+    const renderErrors = consoleErrors.slice(before).filter((t) => t.includes('渲染期异常'));
+    ok('★★ console 里也没有被错误边界接住的渲染期异常',
+      renderErrors.length === 0, renderErrors.slice(0, 2).join(' | '));
+  }
+
+  /* ============================================================
      8b. 页面切换：保活 + 缓存
      ============================================================
      用户的原话是「页面之间切换……切了页面全部刷新了」。这一节把「刷新」

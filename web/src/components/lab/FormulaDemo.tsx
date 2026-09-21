@@ -33,17 +33,41 @@ export function FormulaDemo({ formula, compact = false }: { formula: Formula; co
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const initial = useMemo<Params>(() => {
-    const p: Params = {};
-    for (const c of def?.controls || []) p[c.key] = c.init;
-    return p;
-  }, [def]);
-  const [params, setParams] = useState<Params>(initial);
+  /* ---------- 参数 ----------
+   *
+   * ★ 这里只存**用户拖过的值**，完整的参数表在渲染期算出来。
+   *
+   * 为什么不能像原来那样「useState 存一份完整的 params，换演示时用 useEffect 重置」：
+   *   useEffect 在**提交之后**才跑，而 def 已经变了的那一次渲染里，
+   *   params 还是**上一条公式**的表。两条公式的控件键不一样时
+   *   （比如从 `{x}` 切到 `{x0}`），`params[c.key]` 就是 undefined，
+   *   Slider 拿它去调 `toFixed` 直接抛 TypeError ——
+   *   整个实验室页面被 ErrorBoundary 替换成「页面出错了」。
+   *   实测 257 条里有 7 条一点就崩，全是这个原因。
+   *
+   * 现在的写法把「每个控件都一定有一个数」变成**结构性保证**：
+   *   `touched[k] ?? c.init` —— 缺键就退回该控件的初值，
+   *   永远不可能把 undefined 交给 Slider。
+   */
+  const [touched, setTouched] = useState<Params>({});
+  const [lastDef, setLastDef] = useState(def);
 
-  /* 换公式时把参数重置到新演示的初值。
-   * 不重置的话，上一条公式的 `n = 40` 会带到下一条上 ——
-   * 键名恰好相同的滑块（很多演示都有 x / n）就会带着一个越界的值开局。 */
-  useEffect(() => { setParams(initial); }, [initial]);
+  /* 换演示时清掉用户拖过的值。
+   * 这是 React 认可的「渲染期调整 state」写法（只对自己 setState）——
+   * React 会在本次渲染返回后**立刻**重渲染，不会有一次带着旧值的提交，
+   * 所以既不会闪一下旧值，也不会有 useEffect 那种「晚一帧」的窗口。 */
+  if (def !== lastDef) {
+    setLastDef(def);
+    setTouched({});
+  }
+
+  const params = useMemo<Params>(() => {
+    const p: Params = {};
+    for (const c of def?.controls || []) p[c.key] = touched[c.key] ?? c.init;
+    return p;
+  }, [def, touched]);
+
+  const reset = () => setTouched({});
 
   const height = compact ? 220 : 320;
 
@@ -150,11 +174,11 @@ export function FormulaDemo({ formula, compact = false }: { formula: Formula; co
                 max={c.max}
                 step={c.step}
                 fmt={c.fmt}
-                onChange={(v) => setParams((prev) => ({ ...prev, [c.key]: v }))}
+                onChange={(v) => setTouched((prev) => ({ ...prev, [c.key]: v }))}
               />
             ))}
             <button
-              onClick={() => setParams(initial)}
+              onClick={reset}
               className="flex items-center gap-1.5 text-[11.5px] text-fg-faint transition-colors hover:text-fg-soft"
             >
               <RotateCcw size={11} /> 复位
