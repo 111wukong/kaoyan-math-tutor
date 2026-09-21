@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { CircleAlert, ListChecks, Plus, SquarePen, Trash2, X } from 'lucide-react';
+import { CircleAlert, ListChecks, Plus, Sparkles, SquarePen, Trash2, X } from 'lucide-react';
 import { api, type QuestionDraft, type QuestionType, type QuestionStep } from '@/lib/api';
 import { useAsync } from '@/lib/hooks';
 import { useApp } from '@/stores/app';
@@ -71,6 +71,18 @@ export default function Questions() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
+  /* ---------- AI 批量补题 ---------- */
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchKids, setBatchKids] = useState<string[]>([]);
+  const [perKid, setPerKid] = useState(3);
+  const [batchMode, setBatchMode] = useState<'objective' | 'subjective' | 'mixed'>('mixed');
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchResult, setBatchResult] = useState<null | {
+    total: number; perKid: Record<string, number>;
+    failed: { kid: string; title: string; reason: string }[];
+    skippedDuplicate: number; skippedUnjudgeable: number;
+  }>(null);
+
   const list = useAsync(() => api.catalog.questions({ limit: 500 }), [], { key: 'catalog.questions:500' });
   const tree = useAsync(() => api.catalog.tree(), [], { key: 'catalog.tree:math1' });
 
@@ -132,6 +144,76 @@ export default function Questions() {
         steps: (r.question as any).steps || undefined,
       }));
     }).catch(() => { /* 取不到就留空，用户重填 */ });
+  };
+
+  /* ── 题最少的考点 ──
+   *
+   * 「批量补题」的默认目标。不给一张 46 个考点的清单让人自己挑 ——
+   * 那等于把「哪里缺题」这个本来该程序回答的问题推回给用户。
+   * 直接按现有题数升序排，缺得最狠的排在最前面，默认勾上。
+   *
+   * 上限 12 个是和服务端一致的（generate-batch 串行跑，再大就该换异步任务了）。 */
+  const scarce = useMemo(() => {
+    const byKid = new Map<string, number>();
+    for (const q of all) byKid.set(q.kid, (byKid.get(q.kid) || 0) + 1);
+    return nodes
+      .map((n) => ({ ...n, n: byKid.get(n.id) || 0 }))
+      .sort((a, b) => a.n - b.n || a.id.localeCompare(b.id))
+      .slice(0, 12);
+  }, [all, nodes]);
+
+  const openBatch = () => {
+    /* 默认勾前 8 个：太少补不满，太多一次等太久 */
+    setBatchKids(scarce.slice(0, 8).map((n) => n.id));
+    setBatchResult(null);
+    setBatchOpen(true);
+  };
+
+  const toggleBatchKid = (id: string) => {
+    setBatchKids((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const runBatch = async () => {
+    if (!batchKids.length || batchBusy) return;
+    setBatchBusy(true);
+    setBatchResult(null);
+    try {
+      const r = await api.ai.generateBatch(batchKids, { perKid, mode: batchMode });
+      setBatchResult({
+        total: r.total, perKid: r.perKid, failed: r.failed,
+        skippedDuplicate: r.skippedDuplicate, skippedUnjudgeable: r.skippedUnjudgeable,
+      });
+
+      if (r.total > 0) {
+        pushToast({
+          kind: 'success',
+          title: `生成了 ${r.total} 道题`,
+          desc: [
+            `${batchKids.length} 个考点，每个要 ${perKid} 道`,
+            r.skippedDuplicate ? `跳过 ${r.skippedDuplicate} 道重复` : '',
+            r.failed.length ? `${r.failed.length} 个考点没跑成` : '',
+          ].filter(Boolean).join(' · '),
+        });
+      } else {
+        pushToast({
+          kind: 'warn',
+          title: '一道都没生成',
+          desc: r.failed.length
+            ? `${r.failed.length} 个考点调用失败：${r.failed[0].reason.slice(0, 80)}`
+            : '模型这次给的内容全都判不了分，换个考点或再试一次',
+        });
+      }
+      /* 新题已经落库，列表要重拉 —— 不然用户得手动刷新才看得到 */
+      list.reload();
+    } catch (e: any) {
+      pushToast({
+        kind: 'error',
+        title: '批量生成失败',
+        desc: String(e?.message || e).slice(0, 160),
+      });
+    } finally {
+      setBatchBusy(false);
+    }
   };
 
   /** 换题型时把上一型的残留字段清掉 —— 不然「多选答案 ACD」会跟着
@@ -219,9 +301,19 @@ export default function Questions() {
               </p>
             </div>
           </div>
-          <Button onClick={openCreate} shimmer disabled={!nodes.length}>
-            <Plus size={14} /> 录一道题
-          </Button>
+          <div className="flex items-center gap-2.5">
+            <Button
+              variant="outline"
+              onClick={openBatch}
+              disabled={!nodes.length}
+              title="用 AI 给题最少的考点批量补题（需要在设置里配好模型）"
+            >
+              <Sparkles size={14} /> AI 批量补题
+            </Button>
+            <Button onClick={openCreate} shimmer disabled={!nodes.length}>
+              <Plus size={14} /> 录一道题
+            </Button>
+          </div>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2.5">
@@ -251,6 +343,130 @@ export default function Questions() {
           />
         </div>
       </Panel>
+
+      {/* ---------- AI 批量补题 ---------- */}
+      <AnimatePresence>
+        {batchOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <Panel className="p-5">
+              <SectionTitle
+                title="AI 批量补题"
+                desc="按现有题数升序排列 —— 缺得最狠的考点在最前面。生成的题落库后和内置题一视同仁：能作答、进错题本、算进掌握度"
+                right={
+                  <Button variant="ghost" size="sm" onClick={() => setBatchOpen(false)}>
+                    <X size={14} /> 收起
+                  </Button>
+                }
+                className="mb-4"
+              />
+
+              <div className="space-y-4">
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[12px] text-fg-mute">
+                      选考点（已选 {batchKids.length} 个 · 上限 12）
+                    </span>
+                    <div className="flex gap-2.5">
+                      <button
+                        className="text-[11.5px] text-cyan transition-opacity hover:opacity-70"
+                        onClick={() => setBatchKids(scarce.map((n) => n.id))}
+                      >
+                        全选
+                      </button>
+                      <button
+                        className="text-[11.5px] text-fg-faint transition-colors hover:text-fg-soft"
+                        onClick={() => setBatchKids([])}
+                      >
+                        清空
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                    {scarce.map((n) => (
+                      <button
+                        key={n.id}
+                        onClick={() => toggleBatchKid(n.id)}
+                        className={cn(
+                          'flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12px] transition-colors',
+                          batchKids.includes(n.id)
+                            ? 'border-cyan/40 bg-cyan/8 text-fg'
+                            : 'border-hairline bg-veil/3 text-fg-mute hover:border-veil/20',
+                        )}
+                      >
+                        <span className="truncate">{n.title}</span>
+                        <span
+                          className={cn(
+                            'shrink-0 tabular text-[11px]',
+                            n.n === 0 ? 'text-rose' : n.n <= 2 ? 'text-amber' : 'text-fg-faint',
+                          )}
+                        >
+                          {n.n} 题
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="每个考点几道">
+                    <Segmented
+                      value={String(perKid)}
+                      onChange={(v) => setPerKid(Number(v))}
+                      options={[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }))}
+                    />
+                  </Field>
+                  <Field
+                    label="题型"
+                    hint="真题卷面是 10 选 / 6 填 / 6 道大题，所以默认「混合」"
+                  >
+                    <Segmented
+                      value={batchMode}
+                      onChange={(v) => setBatchMode(v as 'objective' | 'subjective' | 'mixed')}
+                      options={[
+                        { value: 'objective', label: '客观' },
+                        { value: 'subjective', label: '大题' },
+                        { value: 'mixed', label: '混合' },
+                      ]}
+                    />
+                  </Field>
+                </div>
+
+                {batchResult && (
+                  <div className="rounded-xl border border-hairline bg-veil/3 px-3.5 py-3 text-[12.5px] leading-relaxed">
+                    <div className="font-medium text-fg">
+                      生成 {batchResult.total} 道
+                      {batchResult.skippedDuplicate > 0 && ` · 跳过重复 ${batchResult.skippedDuplicate} 道`}
+                      {batchResult.skippedUnjudgeable > 0 && ` · 判不了分丢掉 ${batchResult.skippedUnjudgeable} 道`}
+                    </div>
+                    {batchResult.failed.length > 0 && (
+                      <div className="mt-1 text-amber-200/90">
+                        {batchResult.failed.length} 个考点没跑成：
+                        {batchResult.failed.map((f) => f.title || f.kid).join('、')}
+                        （可以只勾这几个再跑一次）
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <Button onClick={runBatch} loading={batchBusy} disabled={!batchKids.length}>
+                    <Sparkles size={14} />
+                    {batchBusy ? '生成中…' : `开始生成（约 ${batchKids.length * perKid} 道）`}
+                  </Button>
+                  <span className="text-[11.5px] text-fg-faint">
+                    串行调用模型，{batchKids.length} 个考点可能要等一分钟左右
+                  </span>
+                </div>
+              </div>
+            </Panel>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ---------- 录题 / 改题表单 ---------- */}
       <AnimatePresence>

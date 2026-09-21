@@ -3570,5 +3570,1342 @@
     "sourceType": "经典例题",
     "sourceYear": 2019,
     "source": "经典例题"
+  },
+  {
+    "id": "q249",
+    "kid": "c1n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求极限 \\lim_{x\\to\\infty}\\left(\\frac{x+1}{x-1}\\right)^{x}。",
+    "options": null,
+    "answer": "e^{2}",
+    "analysis": "这是 1^{\\infty} 型，标准做法是先凑出重要极限的形状，再处理多出来的那一项。直接说「底数趋于 1、指数趋于无穷，所以是 1」是错的 —— 1^{\\infty} 是未定式。",
+    "steps": [
+      {
+        "t": "化为 \\left(\\frac{x+1}{x-1}\\right)^{x}=\\left(1+\\frac{2}{x-1}\\right)^{x}",
+        "pts": 3
+      },
+      {
+        "t": "换元：令 t=\\frac{x-1}{2}，则 x=2t+1，原式化为 \\left(1+\\frac{1}{t}\\right)^{2t+1}",
+        "pts": 3
+      },
+      {
+        "t": "拆成 \\left[\\left(1+\\frac{1}{t}\\right)^{t}\\right]^{2}\\cdot\\left(1+\\frac{1}{t}\\right)",
+        "pts": 2
+      },
+      {
+        "t": "由重要极限得 e^{2}\\cdot 1=e^{2}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2020,
+    "source": "真题改编"
+  },
+  {
+    "id": "q250",
+    "kid": "c1n5",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "设 f(x)=\\begin{cases}\\frac{\\sin 2x}{x},&x<0\\\\ a+2x,&x\\geq 0\\end{cases} 在 x=0 处连续，求常数 a。",
+    "options": null,
+    "answer": "a=2",
+    "analysis": "分段函数在分界点连续，条件是「左极限 = 右极限 = 该点函数值」。这里右极限和 f(0) 都是 a，所以真正要算的只有左极限。",
+    "steps": [
+      {
+        "t": "左极限：\\lim_{x\\to 0^{-}}\\frac{\\sin 2x}{x}=2\\lim_{x\\to 0^{-}}\\frac{\\sin 2x}{2x}=2",
+        "pts": 3
+      },
+      {
+        "t": "右极限与函数值：\\lim_{x\\to 0^{+}}(a+2x)=a，且 f(0)=a",
+        "pts": 2
+      },
+      {
+        "t": "连续要求左右极限相等且等于 f(0)，即 2=a",
+        "pts": 3
+      },
+      {
+        "t": "得 a=2",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2021,
+    "source": "真题改编"
+  },
+  {
+    "id": "q251",
+    "kid": "c1n1",
+    "type": "proof",
+    "difficulty": 3,
+    "stem": "用极限定义证明：\\lim_{n\\to\\infty}\\frac{1}{n}=0。",
+    "options": null,
+    "answer": "由 \\varepsilon-N 定义，对任意 \\varepsilon>0 取 N=\\left[\\frac{1}{\\varepsilon}\\right]+1，当 n>N 时恒有 \\left|\\frac{1}{n}-0\\right|<\\varepsilon，故极限为 0。",
+    "analysis": "\\varepsilon-N 定义的证题格式是固定的四步：任给 \\varepsilon → 解不等式找 N → 取定 N → 验证。N 不要求取最小的，取个「明显够用」的整数就行。",
+    "steps": [
+      {
+        "t": "任给 \\varepsilon>0",
+        "pts": 2
+      },
+      {
+        "t": "要使 \\left|\\frac{1}{n}-0\\right|=\\frac{1}{n}<\\varepsilon，只需 n>\\frac{1}{\\varepsilon}",
+        "pts": 4
+      },
+      {
+        "t": "取 N=\\left[\\frac{1}{\\varepsilon}\\right]+1，则当 n>N 时上述不等式恒成立",
+        "pts": 3
+      },
+      {
+        "t": "由定义知 \\lim_{n\\to\\infty}\\frac{1}{n}=0",
+        "pts": 1
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2022,
+    "source": "真题改编"
+  },
+  {
+    "id": "q252",
+    "kid": "c2n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "设函数 y=y(x) 由方程 \\sin(xy)+y=x 确定，求 y'(0)。",
+    "options": null,
+    "answer": "y'(0)=1",
+    "analysis": "隐函数求导的关键是先**代入特定点**求出对应的 y 值，再对方程两边求导。先求导后代入会因为 y 未知而卡住 —— 这是最常见的失误顺序。",
+    "steps": [
+      {
+        "t": "先求 x=0 时的 y：代入方程得 \\sin 0+y=0，故 y(0)=0",
+        "pts": 2
+      },
+      {
+        "t": "方程两边对 x 求导：\\cos(xy)\\cdot(y+xy')+y'=1",
+        "pts": 4
+      },
+      {
+        "t": "代入 x=0, y=0：\\cos 0\\cdot(0+0\\cdot y'(0))+y'(0)=1",
+        "pts": 2
+      },
+      {
+        "t": "得 y'(0)=1",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2023,
+    "source": "真题改编"
+  },
+  {
+    "id": "q253",
+    "kid": "c2n7",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求函数 f(x)=x^{3}-3x^{2}-9x+5 在闭区间 [-2,4] 上的最大值与最小值。",
+    "options": null,
+    "answer": "最大值为 10（在 x=-1 处取得），最小值为 -22（在 x=3 处取得）",
+    "analysis": "闭区间上求最值的完整流程：求导找驻点 → **筛掉区间外的驻点** → 算驻点函数值 → 算两个端点的函数值 → 一起比较。漏掉端点是最常见的扣分点。",
+    "steps": [
+      {
+        "t": "求导：f'(x)=3x^{2}-6x-9=3(x-3)(x+1)",
+        "pts": 3
+      },
+      {
+        "t": "令 f'(x)=0 得驻点 x=-1 与 x=3，两者都在 [-2,4] 内",
+        "pts": 2
+      },
+      {
+        "t": "计算驻点处函数值：f(-1)=10，f(3)=-22",
+        "pts": 2
+      },
+      {
+        "t": "计算端点处函数值：f(-2)=3，f(4)=-15",
+        "pts": 2
+      },
+      {
+        "t": "比较四个值，最大为 10，最小为 -22",
+        "pts": 1
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2024,
+    "source": "真题改编"
+  },
+  {
+    "id": "q254",
+    "kid": "c2n5",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求极限 \\lim_{x\\to 0^{+}}x\\ln x。",
+    "options": null,
+    "answer": "0",
+    "analysis": "这是 0\\cdot\\infty 型未定式，洛必达法则只能处理 \\frac{0}{0} 和 \\frac{\\infty}{\\infty} 两种，所以第一步必须是**把乘积改写成商**。取倒数时把谁放分子要看哪个求导后更简单。",
+    "steps": [
+      {
+        "t": "识别为 0\\cdot\\infty 型未定式",
+        "pts": 2
+      },
+      {
+        "t": "改写为商：x\\ln x=\\frac{\\ln x}{1/x}，此时为 \\frac{\\infty}{\\infty} 型",
+        "pts": 3
+      },
+      {
+        "t": "用洛必达法则：\\lim_{x\\to 0^{+}}\\frac{\\ln x}{1/x}=\\lim_{x\\to 0^{+}}\\frac{1/x}{-1/x^{2}}",
+        "pts": 3
+      },
+      {
+        "t": "化简得 \\lim_{x\\to 0^{+}}(-x)=0",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2020,
+    "source": "真题改编"
+  },
+  {
+    "id": "q255",
+    "kid": "c2n4",
+    "type": "proof",
+    "difficulty": 3,
+    "stem": "证明：当 x>0 时，\\ln(1+x)<x。",
+    "options": null,
+    "answer": "在 [0,x] 上对 f(t)=\\ln(1+t) 用拉格朗日中值定理，得 \\ln(1+x)=\\frac{x}{1+\\xi}<x（\\xi\\in(0,x)），故不等式成立。",
+    "analysis": "用中值定理证不等式的套路：把不等式一端看成函数在两点的差值，用中值定理把它换成导数乘区间长度，再估计导数的范围。构造函数时取哪个端点作起点，取决于哪一端的值好算。",
+    "steps": [
+      {
+        "t": "令 f(t)=\\ln(1+t)，则 f 在 [0,x] 上连续、在 (0,x) 内可导",
+        "pts": 2
+      },
+      {
+        "t": "由拉格朗日中值定理：\\ln(1+x)-\\ln 1=f'(\\xi)(x-0)=\\frac{x}{1+\\xi}，其中 \\xi\\in(0,x)",
+        "pts": 4
+      },
+      {
+        "t": "因为 \\xi>0，所以 1+\\xi>1，从而 \\frac{x}{1+\\xi}<x",
+        "pts": 3
+      },
+      {
+        "t": "又 \\ln 1=0，故 \\ln(1+x)<x",
+        "pts": 1
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2021,
+    "source": "真题改编"
+  },
+  {
+    "id": "q256",
+    "kid": "c2n3",
+    "type": "proof",
+    "difficulty": 4,
+    "stem": "证明：方程 x^{3}+3x-1=0 有且只有一个实根。",
+    "options": null,
+    "answer": "令 f(x)=x^{3}+3x-1。由 f'(x)=3x^{2}+3>0 知 f 严格单调，故至多一个零点；又 f(0)=-1<0、f(1)=3>0，由零点定理至少有一个零点。故恰有一个实根。",
+    "analysis": "「有且只有一个」要分两半证：**存在性**用零点定理（找两个异号的点），**唯一性**用单调性（导数恒正或恒负）。两半缺一不可。",
+    "steps": [
+      {
+        "t": "令 f(x)=x^{3}+3x-1，求导得 f'(x)=3x^{2}+3",
+        "pts": 2
+      },
+      {
+        "t": "因 f'(x)>0 对一切 x 成立，f 严格单调递增，故零点至多一个",
+        "pts": 3
+      },
+      {
+        "t": "计算 f(0)=-1<0，f(1)=3>0，由零点定理在 (0,1) 内至少有一个零点",
+        "pts": 3
+      },
+      {
+        "t": "综合两步，方程有且只有一个实根",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2022,
+    "source": "真题改编"
+  },
+  {
+    "id": "q257",
+    "kid": "c3n3",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "计算定积分 \\int_{0}^{1}xe^{2x}dx。",
+    "options": null,
+    "answer": "\\frac{e^{2}+1}{4}",
+    "analysis": "被积函数是「多项式 × 指数函数」，用分部积分并且把多项式取作 u —— 每做一次分部积分，多项式的次数就降一次。取反了会越算越复杂。",
+    "steps": [
+      {
+        "t": "取 u=x，dv=e^{2x}dx，则 du=dx，v=\\frac{1}{2}e^{2x}",
+        "pts": 2
+      },
+      {
+        "t": "分部积分：\\int_{0}^{1}xe^{2x}dx=\\left[\\frac{x}{2}e^{2x}\\right]_{0}^{1}-\\frac{1}{2}\\int_{0}^{1}e^{2x}dx",
+        "pts": 4
+      },
+      {
+        "t": "代入上下限：\\frac{1}{2}e^{2}-\\frac{1}{4}(e^{2}-1)",
+        "pts": 2
+      },
+      {
+        "t": "化简得 \\frac{e^{2}+1}{4}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2023,
+    "source": "真题改编"
+  },
+  {
+    "id": "q258",
+    "kid": "c3n6",
+    "type": "solve",
+    "difficulty": 4,
+    "stem": "计算反常积分 \\int_{0}^{+\\infty}xe^{-x}dx。",
+    "options": null,
+    "answer": "1",
+    "analysis": "无穷限反常积分按定义是「先积到 b，再令 b\\to+\\infty」。分部积分后出现的 -xe^{-x} 在无穷远处的极限要用「指数增长快于幂函数」来判，不能用代入法硬代。",
+    "steps": [
+      {
+        "t": "取 u=x，dv=e^{-x}dx，则 du=dx，v=-e^{-x}",
+        "pts": 2
+      },
+      {
+        "t": "分部积分：\\left[-xe^{-x}\\right]_{0}^{+\\infty}+\\int_{0}^{+\\infty}e^{-x}dx",
+        "pts": 3
+      },
+      {
+        "t": "第一项：\\lim_{x\\to+\\infty}(-xe^{-x})=0，且 x=0 处该项也是 0，故为 0",
+        "pts": 3
+      },
+      {
+        "t": "第二项：\\left[-e^{-x}\\right]_{0}^{+\\infty}=0-(-1)=1，故原积分等于 1",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2024,
+    "source": "真题改编"
+  },
+  {
+    "id": "q259",
+    "kid": "c3n7",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求由曲线 y=x^{2}、直线 x=1 与 x 轴围成的平面图形绕 x 轴旋转一周所得旋转体的体积。",
+    "options": null,
+    "answer": "\\frac{\\pi}{5}",
+    "analysis": "绕 x 轴旋转用「垫片法」：V=\\pi\\int_{a}^{b}[f(x)]^{2}dx。注意平方的是**整个半径** f(x)，不是 f(x) 的自变量 —— 写成 \\pi\\int x^{2}dx 是错的。",
+    "steps": [
+      {
+        "t": "旋转体体积公式：V=\\pi\\int_{a}^{b}[f(x)]^{2}dx",
+        "pts": 2
+      },
+      {
+        "t": "代入 f(x)=x^{2} 与区间 [0,1]：V=\\pi\\int_{0}^{1}x^{4}dx",
+        "pts": 3
+      },
+      {
+        "t": "计算积分：\\pi\\left[\\frac{x^{5}}{5}\\right]_{0}^{1}",
+        "pts": 3
+      },
+      {
+        "t": "得 V=\\frac{\\pi}{5}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2020,
+    "source": "真题改编"
+  },
+  {
+    "id": "q260",
+    "kid": "c3n4",
+    "type": "proof",
+    "difficulty": 3,
+    "stem": "设 f(x) 在 [0,1] 上连续且 f(x)\\geq 0，证明 \\int_{0}^{1}f(x)dx\\geq 0。",
+    "options": null,
+    "answer": "由定积分定义，\\int_{0}^{1}f(x)dx=\\lim_{\\lambda\\to 0}\\sum_{i=1}^{n}f(\\xi_{i})\\Delta x_{i}。每一项非负，故和式非负，取极限后仍非负。",
+    "analysis": "定积分的保号性（以及保序性、绝对值不等式）都可以从黎曼和的定义直接推出来，不必绕道。核心是「每一项非负 → 和式非负 → 极限非负」。",
+    "steps": [
+      {
+        "t": "由定积分定义：\\int_{0}^{1}f(x)dx=\\lim_{\\lambda\\to 0}\\sum_{i=1}^{n}f(\\xi_{i})\\Delta x_{i}",
+        "pts": 3
+      },
+      {
+        "t": "由条件 f(x)\\geq 0，每个取样点处都有 f(\\xi_{i})\\geq 0",
+        "pts": 3
+      },
+      {
+        "t": "又 \\Delta x_{i}>0，故每一项 f(\\xi_{i})\\Delta x_{i}\\geq 0，和式非负",
+        "pts": 2
+      },
+      {
+        "t": "对非负数列取极限仍非负，故 \\int_{0}^{1}f(x)dx\\geq 0",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2021,
+    "source": "真题改编"
+  },
+  {
+    "id": "q261",
+    "kid": "c4n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "设 z=f(u,v)，其中 u=xy，v=x+y，f 具有连续偏导数，求 \\frac{\\partial z}{\\partial x}。",
+    "options": null,
+    "answer": "\\frac{\\partial z}{\\partial x}=y\\frac{\\partial f}{\\partial u}+\\frac{\\partial f}{\\partial v}",
+    "analysis": "多元复合函数求导用链式法则，关键是**画清变量依赖图**：z 依赖 u 和 v，而 u、v 都依赖 x，所以有两条路径，两条要相加。",
+    "steps": [
+      {
+        "t": "链式法则：\\frac{\\partial z}{\\partial x}=\\frac{\\partial f}{\\partial u}\\frac{\\partial u}{\\partial x}+\\frac{\\partial f}{\\partial v}\\frac{\\partial v}{\\partial x}",
+        "pts": 3
+      },
+      {
+        "t": "计算 \\frac{\\partial u}{\\partial x}=\\frac{\\partial}{\\partial x}(xy)=y",
+        "pts": 2
+      },
+      {
+        "t": "计算 \\frac{\\partial v}{\\partial x}=\\frac{\\partial}{\\partial x}(x+y)=1",
+        "pts": 2
+      },
+      {
+        "t": "代入得 \\frac{\\partial z}{\\partial x}=y\\frac{\\partial f}{\\partial u}+\\frac{\\partial f}{\\partial v}",
+        "pts": 3
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2022,
+    "source": "真题改编"
+  },
+  {
+    "id": "q262",
+    "kid": "c4n3",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求函数 f(x,y)=x^{2}+y^{2}-2x-4y+5 的极值。",
+    "options": null,
+    "answer": "在 (1,2) 处取得极小值 0",
+    "analysis": "二元函数求极值的标准三步：一阶偏导为零找驻点 → 算二阶偏导 A、B、C → 用判别式 AC-B^{2} 判断。AC-B^{2}>0 时看 A 的符号定极大还是极小。",
+    "steps": [
+      {
+        "t": "求一阶偏导：f_{x}=2x-2，f_{y}=2y-4",
+        "pts": 2
+      },
+      {
+        "t": "令两个偏导为零，解得驻点 (1,2)",
+        "pts": 2
+      },
+      {
+        "t": "求二阶偏导：A=f_{xx}=2，B=f_{xy}=0，C=f_{yy}=2",
+        "pts": 2
+      },
+      {
+        "t": "判别式 AC-B^{2}=4>0 且 A=2>0，故 (1,2) 是极小值点",
+        "pts": 2
+      },
+      {
+        "t": "代入得极小值 f(1,2)=0",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2023,
+    "source": "真题改编"
+  },
+  {
+    "id": "q263",
+    "kid": "c5n2",
+    "type": "solve",
+    "difficulty": 4,
+    "stem": "交换积分次序并计算：\\int_{0}^{1}dx\\int_{x}^{1}e^{-y^{2}}dy。",
+    "options": null,
+    "answer": "\\frac{1-e^{-1}}{2}",
+    "analysis": "e^{-y^{2}} 的原函数不是初等函数，按原次序根本积不出来 —— 这正是命题人想考「交换积分次序」的信号。交换前必须先**画区域**确定新的上下限，凭感觉改上下限必错。",
+    "steps": [
+      {
+        "t": "确定积分区域：D=\\{(x,y)\\mid 0\\leq x\\leq 1,\\ x\\leq y\\leq 1\\}",
+        "pts": 2
+      },
+      {
+        "t": "改写成先 x 后 y：0\\leq y\\leq 1，0\\leq x\\leq y",
+        "pts": 3
+      },
+      {
+        "t": "交换次序：\\int_{0}^{1}dy\\int_{0}^{y}e^{-y^{2}}dx=\\int_{0}^{1}ye^{-y^{2}}dy",
+        "pts": 3
+      },
+      {
+        "t": "计算得 \\left[-\\frac{1}{2}e^{-y^{2}}\\right]_{0}^{1}=\\frac{1-e^{-1}}{2}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2024,
+    "source": "真题改编"
+  },
+  {
+    "id": "q264",
+    "kid": "c5n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "用极坐标计算二重积分 \\iint_{D}\\sqrt{x^{2}+y^{2}}d\\sigma，其中 D 为圆域 x^{2}+y^{2}\\leq 1。",
+    "options": null,
+    "answer": "\\frac{2\\pi}{3}",
+    "analysis": "积分区域是圆（或圆的一部分）、被积函数含 x^{2}+y^{2} —— 两个条件同时出现就该换极坐标。最容易漏的是面积元里的那个 r：d\\sigma=rdrd\\theta，不是 drd\\theta。",
+    "steps": [
+      {
+        "t": "被积函数化为 \\sqrt{x^{2}+y^{2}}=r，面积元 d\\sigma=rdrd\\theta",
+        "pts": 3
+      },
+      {
+        "t": "区域 D 的极坐标表示：0\\leq\\theta\\leq 2\\pi，0\\leq r\\leq 1",
+        "pts": 3
+      },
+      {
+        "t": "化为累次积分：\\int_{0}^{2\\pi}d\\theta\\int_{0}^{1}r\\cdot r\\,dr=\\int_{0}^{2\\pi}d\\theta\\int_{0}^{1}r^{2}dr",
+        "pts": 2
+      },
+      {
+        "t": "计算得 2\\pi\\cdot\\frac{1}{3}=\\frac{2\\pi}{3}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2020,
+    "source": "真题改编"
+  },
+  {
+    "id": "q265",
+    "kid": "c6n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求幂级数 \\sum_{n=1}^{\\infty}nx^{n-1} 的和函数（|x|<1）。",
+    "options": null,
+    "answer": "\\frac{1}{(1-x)^{2}}",
+    "analysis": "求和函数的常规手法是把待求级数通过**逐项求导或逐项积分**化成几何级数。这里 \\sum nx^{n-1} 恰好是 \\sum x^{n} 的逐项导数，所以从几何级数出发求导即可。",
+    "steps": [
+      {
+        "t": "从几何级数出发：\\sum_{n=0}^{\\infty}x^{n}=\\frac{1}{1-x}，|x|<1",
+        "pts": 3
+      },
+      {
+        "t": "幂级数在收敛区间内可以逐项求导",
+        "pts": 2
+      },
+      {
+        "t": "两边对 x 求导：\\sum_{n=1}^{\\infty}nx^{n-1}=\\frac{d}{dx}\\left(\\frac{1}{1-x}\\right)",
+        "pts": 3
+      },
+      {
+        "t": "计算导数得 \\frac{1}{(1-x)^{2}}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2021,
+    "source": "真题改编"
+  },
+  {
+    "id": "q266",
+    "kid": "c6n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "将函数 f(x)=\\frac{1}{2-x} 展开成 x 的幂级数，并指出收敛区间。",
+    "options": null,
+    "answer": "\\sum_{n=0}^{\\infty}\\frac{x^{n}}{2^{n+1}}，收敛区间为 (-2,2)",
+    "analysis": "展开的第一步永远是**凑成 \\frac{1}{1-t} 的形状**，再套几何级数。收敛区间由 |t|<1 反解，端点要单独代入检验（本题两端点都发散）。",
+    "steps": [
+      {
+        "t": "提因子凑标准形：\\frac{1}{2-x}=\\frac{1}{2}\\cdot\\frac{1}{1-\\frac{x}{2}}",
+        "pts": 3
+      },
+      {
+        "t": "套用几何级数 \\frac{1}{1-t}=\\sum_{n=0}^{\\infty}t^{n}，这里 t=\\frac{x}{2}",
+        "pts": 3
+      },
+      {
+        "t": "得 \\frac{1}{2}\\sum_{n=0}^{\\infty}\\left(\\frac{x}{2}\\right)^{n}=\\sum_{n=0}^{\\infty}\\frac{x^{n}}{2^{n+1}}",
+        "pts": 2
+      },
+      {
+        "t": "收敛条件 \\left|\\frac{x}{2}\\right|<1，即 |x|<2，收敛区间 (-2,2)",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2022,
+    "source": "真题改编"
+  },
+  {
+    "id": "q267",
+    "kid": "c6n1",
+    "type": "proof",
+    "difficulty": 3,
+    "stem": "证明级数 \\sum_{n=1}^{\\infty}\\frac{1}{n(n+1)} 收敛，并求其和。",
+    "options": null,
+    "answer": "收敛，且其和为 1。",
+    "analysis": "这类题的标准做法是**裂项**后考察部分和 S_{N}，中间项成对相消，剩下的头尾两项一取极限就得到和。不必先证收敛再求和 —— 部分和有极限本身就证明了收敛。",
+    "steps": [
+      {
+        "t": "部分分式分解：\\frac{1}{n(n+1)}=\\frac{1}{n}-\\frac{1}{n+1}",
+        "pts": 3
+      },
+      {
+        "t": "写出前 N 项部分和：S_{N}=\\sum_{n=1}^{N}\\left(\\frac{1}{n}-\\frac{1}{n+1}\\right)",
+        "pts": 2
+      },
+      {
+        "t": "中间项相消：S_{N}=1-\\frac{1}{N+1}",
+        "pts": 3
+      },
+      {
+        "t": "取极限 \\lim_{N\\to\\infty}S_{N}=1，故级数收敛且和为 1",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2023,
+    "source": "真题改编"
+  },
+  {
+    "id": "q268",
+    "kid": "c7n1",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求微分方程 y'+2y=e^{-x} 的通解。",
+    "options": null,
+    "answer": "y=e^{-x}+Ce^{-2x}（C 为任意常数）",
+    "analysis": "一阶线性方程 y'+P(x)y=Q(x) 有现成的通解公式，直接套即可。公式里的积分因子是 e^{\\int P(x)dx}，不是 e^{-\\int P(x)dx} —— 符号错一步全盘皆错。",
+    "steps": [
+      {
+        "t": "识别为一阶线性方程，其中 P(x)=2，Q(x)=e^{-x}",
+        "pts": 2
+      },
+      {
+        "t": "写出通解公式：y=e^{-\\int P dx}\\left(\\int Qe^{\\int P dx}dx+C\\right)",
+        "pts": 2
+      },
+      {
+        "t": "计算积分因子 e^{\\int 2dx}=e^{2x}，以及 \\int e^{-x}\\cdot e^{2x}dx=\\int e^{x}dx=e^{x}",
+        "pts": 4
+      },
+      {
+        "t": "代入得 y=e^{-2x}(e^{x}+C)=e^{-x}+Ce^{-2x}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2024,
+    "source": "真题改编"
+  },
+  {
+    "id": "q269",
+    "kid": "c7n3",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求微分方程 y''=x 满足初值条件 y(0)=0、y'(0)=1 的特解。",
+    "options": null,
+    "answer": "y=\\frac{x^{3}}{6}+x",
+    "analysis": "可降阶方程 y''=f(x) 的解法就是**连积两次、每次定一个常数**。注意两个初值要按积分次序依次使用：先用 y'(0) 定第一个常数，再用 y(0) 定第二个。",
+    "steps": [
+      {
+        "t": "第一次积分：y'=\\frac{x^{2}}{2}+C_{1}",
+        "pts": 3
+      },
+      {
+        "t": "由 y'(0)=1 定出 C_{1}=1",
+        "pts": 2
+      },
+      {
+        "t": "第二次积分：y=\\frac{x^{3}}{6}+x+C_{2}",
+        "pts": 3
+      },
+      {
+        "t": "由 y(0)=0 定出 C_{2}=0，特解为 y=\\frac{x^{3}}{6}+x",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2020,
+    "source": "真题改编"
+  },
+  {
+    "id": "q270",
+    "kid": "l1n1",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "计算三阶行列式 D=\\begin{vmatrix}1&2&3\\\\ 4&5&6\\\\ 7&8&10\\end{vmatrix}。",
+    "options": null,
+    "answer": "-3",
+    "analysis": "三阶行列式按行展开即可，也可以用对角线法则。按行展开时注意**代数余子式的符号是交错的** (-1)^{i+j}，副对角位置的项容易漏掉负号。",
+    "steps": [
+      {
+        "t": "按第一行展开：D=1\\cdot M_{11}-2\\cdot M_{12}+3\\cdot M_{13}",
+        "pts": 2
+      },
+      {
+        "t": "计算 M_{11}=\\begin{vmatrix}5&6\\\\ 8&10\\end{vmatrix}=50-48=2",
+        "pts": 2
+      },
+      {
+        "t": "计算 M_{12}=\\begin{vmatrix}4&6\\\\ 7&10\\end{vmatrix}=40-42=-2，M_{13}=\\begin{vmatrix}4&5\\\\ 7&8\\end{vmatrix}=32-35=-3",
+        "pts": 3
+      },
+      {
+        "t": "代入得 D=1\\cdot 2-2\\cdot(-2)+3\\cdot(-3)=-3",
+        "pts": 3
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2021,
+    "source": "真题改编"
+  },
+  {
+    "id": "q271",
+    "kid": "l2n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求矩阵 A=\\begin{pmatrix}1&2\\\\ 3&4\\end{pmatrix} 的逆矩阵 A^{-1}。",
+    "options": null,
+    "answer": "A^{-1}=\\begin{pmatrix}-2&1\\\\ \\frac{3}{2}&-\\frac{1}{2}\\end{pmatrix}",
+    "analysis": "二阶矩阵求逆有口诀：主对角线元素换位、副对角线元素变号、整体除以行列式。第一步必须先确认行列式不为零，否则矩阵根本不可逆。",
+    "steps": [
+      {
+        "t": "计算行列式：|A|=1\\cdot 4-2\\cdot 3=-2\\neq 0，故 A 可逆",
+        "pts": 3
+      },
+      {
+        "t": "写出伴随矩阵：主对角换位、副对角变号，得 \\begin{pmatrix}4&-2\\\\ -3&1\\end{pmatrix}",
+        "pts": 3
+      },
+      {
+        "t": "由 A^{-1}=\\frac{1}{|A|}A^{*} 得 A^{-1}=\\frac{1}{-2}\\begin{pmatrix}4&-2\\\\ -3&1\\end{pmatrix}",
+        "pts": 2
+      },
+      {
+        "t": "化简得 \\begin{pmatrix}-2&1\\\\ \\frac{3}{2}&-\\frac{1}{2}\\end{pmatrix}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2022,
+    "source": "真题改编"
+  },
+  {
+    "id": "q272",
+    "kid": "l2n3",
+    "type": "proof",
+    "difficulty": 4,
+    "stem": "设 A 为 m\\times n 矩阵，B 为 n\\times s 矩阵，且 AB=O。证明：r(A)+r(B)\\leq n。",
+    "options": null,
+    "answer": "将 B 按列分块，由 AB=O 知 B 的每个列向量都是齐次方程组 Ax=0 的解，故 r(B) 不超过解空间维数 n-r(A)，移项即得结论。",
+    "analysis": "这是秩的西尔维斯特不等式的特例，也是最常用的一个。核心思路是**把矩阵乘法看成对列向量的线性映射**，于是 B 的列被限制在 A 的零空间里，维数自然被卡住。",
+    "steps": [
+      {
+        "t": "将 B 按列分块为 B=(\\beta_{1},\\beta_{2},\\dots,\\beta_{s})",
+        "pts": 2
+      },
+      {
+        "t": "由 AB=O 得 A\\beta_{j}=0，即每个 \\beta_{j} 都满足齐次方程组 Ax=0",
+        "pts": 3
+      },
+      {
+        "t": "齐次方程组 Ax=0 的解空间维数为 n-r(A)",
+        "pts": 3
+      },
+      {
+        "t": "故 r(B)\\leq n-r(A)，移项得 r(A)+r(B)\\leq n",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2023,
+    "source": "真题改编"
+  },
+  {
+    "id": "q273",
+    "kid": "l3n1",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "判定向量组 \\alpha_{1}=(1,2,3)，\\alpha_{2}=(2,4,6)，\\alpha_{3}=(1,0,1) 的线性相关性。",
+    "options": null,
+    "answer": "线性相关",
+    "analysis": "判断线性相关有两种路子：一是**观察法**（能直接看出成比例就秒了），二是构造矩阵算秩。先用眼睛扫一遍成比例关系，能省下大量计算。",
+    "steps": [
+      {
+        "t": "观察发现 \\alpha_{2}=2\\alpha_{1}，即第二列是第一列的 2 倍",
+        "pts": 3
+      },
+      {
+        "t": "于是存在不全为零的系数 (-2,1,0)，使 -2\\alpha_{1}+\\alpha_{2}+0\\alpha_{3}=0",
+        "pts": 4
+      },
+      {
+        "t": "由线性相关的定义，该向量组线性相关",
+        "pts": 3
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2024,
+    "source": "真题改编"
+  },
+  {
+    "id": "q274",
+    "kid": "l3n2",
+    "type": "proof",
+    "difficulty": 3,
+    "stem": "证明：两个等价的向量组必有相同的秩。",
+    "options": null,
+    "answer": "设向量组 (I) 与 (II) 等价，则 (II) 可由 (I) 线性表示，故 r(II)\\leq r(I)；同理 r(I)\\leq r(II)。两式合并即得 r(I)=r(II)。",
+    "analysis": "证明秩相等的标准手法是**两边夹**：分别证 r(I)\\leq r(II) 和 r(II)\\leq r(I)。背后的定理是「若向量组 \\Alpha 可由 \\Beta 线性表示，则 r(\\Alpha)\\leq r(\\Beta)」。",
+    "steps": [
+      {
+        "t": "设向量组 (I) 与 (II) 等价，即两组可以互相线性表示",
+        "pts": 2
+      },
+      {
+        "t": "由 (II) 可由 (I) 表示，据定理得 r(II)\\leq r(I)",
+        "pts": 4
+      },
+      {
+        "t": "由 (I) 可由 (II) 表示，同理得 r(I)\\leq r(II)",
+        "pts": 3
+      },
+      {
+        "t": "两式同时成立，故 r(I)=r(II)",
+        "pts": 1
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2020,
+    "source": "真题改编"
+  },
+  {
+    "id": "q275",
+    "kid": "l4n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求线性方程组 \\begin{cases}x_{1}+x_{2}+x_{3}=1\\\\ x_{1}+2x_{2}+3x_{3}=2\\end{cases} 的通解。",
+    "options": null,
+    "answer": "\\begin{pmatrix}x_{1}\\\\ x_{2}\\\\ x_{3}\\end{pmatrix}=\\begin{pmatrix}0\\\\ 1\\\\ 0\\end{pmatrix}+t\\begin{pmatrix}1\\\\ -2\\\\ 1\\end{pmatrix}（t 为任意常数）",
+    "analysis": "方程个数少于未知数个数时，先化增广矩阵为行最简形，再选自由变量。通解写成「一个特解 + 导出组基础解系的线性组合」最清晰。",
+    "steps": [
+      {
+        "t": "写出增广矩阵 \\begin{pmatrix}1&1&1&1\\\\ 1&2&3&2\\end{pmatrix} 并作初等行变换",
+        "pts": 3
+      },
+      {
+        "t": "化为行最简形 \\begin{pmatrix}1&0&-1&0\\\\ 0&1&2&1\\end{pmatrix}",
+        "pts": 3
+      },
+      {
+        "t": "得同解方程组：x_{1}=x_{3}，x_{2}=1-2x_{3}，取 x_{3} 为自由变量",
+        "pts": 2
+      },
+      {
+        "t": "令 x_{3}=t，通解为 (0,1,0)^{T}+t(1,-2,1)^{T}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2021,
+    "source": "真题改编"
+  },
+  {
+    "id": "q276",
+    "kid": "l4n2",
+    "type": "solve",
+    "difficulty": 4,
+    "stem": "讨论 a 取何值时，方程组 \\begin{cases}ax_{1}+x_{2}+x_{3}=1\\\\ x_{1}+ax_{2}+x_{3}=1\\\\ x_{1}+x_{2}+ax_{3}=1\\end{cases} 有唯一解、有无穷多解、无解。",
+    "options": null,
+    "answer": "a\\neq 1 且 a\\neq -2 时有唯一解；a=1 时有无穷多解；a=-2 时无解",
+    "analysis": "含参数的方程组，第一步永远是算系数行列式，找出使它为零的参数值；然后**逐个代入**这些特殊值，看增广矩阵的秩与系数矩阵的秩是否相等。这一步没有捷径，漏掉一个特殊值就少一种情形。",
+    "steps": [
+      {
+        "t": "计算系数行列式 |A|=\\begin{vmatrix}a&1&1\\\\ 1&a&1\\\\ 1&1&a\\end{vmatrix}=(a+2)(a-1)^{2}",
+        "pts": 4
+      },
+      {
+        "t": "当 a\\neq 1 且 a\\neq -2 时 |A|\\neq 0，由克拉默法则有唯一解",
+        "pts": 2
+      },
+      {
+        "t": "当 a=1 时三个方程相同，等价于 x_{1}+x_{2}+x_{3}=1，有无穷多解",
+        "pts": 2
+      },
+      {
+        "t": "当 a=-2 时三式相加得 0=3，矛盾，故无解",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2022,
+    "source": "真题改编"
+  },
+  {
+    "id": "q277",
+    "kid": "l5n1",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "求矩阵 A=\\begin{pmatrix}2&1\\\\ 1&2\\end{pmatrix} 的全部特征值与特征向量。",
+    "options": null,
+    "answer": "\\lambda_{1}=1 对应特征向量 k(1,-1)^{T}；\\lambda_{2}=3 对应特征向量 k(1,1)^{T}（k\\neq 0）",
+    "analysis": "求特征值解特征方程 |\\lambda E-A|=0，求特征向量则是对每个 \\lambda 解 (\\lambda E-A)x=0。特征向量要写成「基础解系的任意非零倍数」，漏掉 k\\neq 0 会被扣分。",
+    "steps": [
+      {
+        "t": "写特征方程：|\\lambda E-A|=(\\lambda-2)^{2}-1=\\lambda^{2}-4\\lambda+3=0",
+        "pts": 3
+      },
+      {
+        "t": "解得特征值 \\lambda_{1}=1，\\lambda_{2}=3",
+        "pts": 2
+      },
+      {
+        "t": "\\lambda=1 时解 (E-A)x=0，得 x_{1}+x_{2}=0，特征向量为 k(1,-1)^{T}",
+        "pts": 3
+      },
+      {
+        "t": "\\lambda=3 时解 (3E-A)x=0，得 x_{1}=x_{2}，特征向量为 k(1,1)^{T}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2023,
+    "source": "真题改编"
+  },
+  {
+    "id": "q278",
+    "kid": "l5n2",
+    "type": "solve",
+    "difficulty": 4,
+    "stem": "对矩阵 A=\\begin{pmatrix}2&1\\\\ 1&2\\end{pmatrix}，求可逆矩阵 P 与对角矩阵 \\Lambda，使 P^{-1}AP=\\Lambda。",
+    "options": null,
+    "answer": "P=\\begin{pmatrix}1&1\\\\ -1&1\\end{pmatrix}，\\Lambda=\\begin{pmatrix}1&0\\\\ 0&3\\end{pmatrix}",
+    "analysis": "对角化的操作是固定的：以特征向量为列拼成 P，对角阵就是对应的特征值。**列向量的排列顺序必须和特征值的顺序一致** —— 换来换去会导致 P^{-1}AP 对不上号。",
+    "steps": [
+      {
+        "t": "先求特征值：|\\lambda E-A|=(\\lambda-1)(\\lambda-3)=0，得 \\lambda_{1}=1，\\lambda_{2}=3",
+        "pts": 2
+      },
+      {
+        "t": "对应的特征向量分别为 (1,-1)^{T} 与 (1,1)^{T}，以它们为列构造 P=\\begin{pmatrix}1&1\\\\ -1&1\\end{pmatrix}",
+        "pts": 3
+      },
+      {
+        "t": "验证 |P|=1\\cdot 1-1\\cdot(-1)=2\\neq 0，P 确实可逆",
+        "pts": 2
+      },
+      {
+        "t": "对角阵由特征值按相同顺序排成：\\Lambda=\\mathrm{diag}(1,3)",
+        "pts": 3
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2024,
+    "source": "真题改编"
+  },
+  {
+    "id": "q279",
+    "kid": "l6n1",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "用配方法把二次型 f(x_{1},x_{2})=x_{1}^{2}+2x_{2}^{2}+2x_{1}x_{2} 化为标准形。",
+    "options": null,
+    "answer": "标准形为 y_{1}^{2}+y_{2}^{2}",
+    "analysis": "拉格朗日配方的要点是**每次只对一个变量配方**，把含该变量的项全部收进一个完全平方里，剩下的部分不再含它。最后要写清所作的线性变换，并确认它可逆。",
+    "steps": [
+      {
+        "t": "对 x_{1} 配方：x_{1}^{2}+2x_{1}x_{2}=(x_{1}+x_{2})^{2}-x_{2}^{2}",
+        "pts": 4
+      },
+      {
+        "t": "代回原式：f=(x_{1}+x_{2})^{2}-x_{2}^{2}+2x_{2}^{2}=(x_{1}+x_{2})^{2}+x_{2}^{2}",
+        "pts": 2
+      },
+      {
+        "t": "作可逆线性变换 y_{1}=x_{1}+x_{2}，y_{2}=x_{2}",
+        "pts": 2
+      },
+      {
+        "t": "得标准形 f=y_{1}^{2}+y_{2}^{2}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2020,
+    "source": "真题改编"
+  },
+  {
+    "id": "q280",
+    "kid": "l6n1",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "写出二次型 f(x_{1},x_{2},x_{3})=x_{1}^{2}+4x_{2}^{2}+x_{3}^{2}+4x_{1}x_{2} 的矩阵 A，并求 A 的秩。",
+    "options": null,
+    "answer": "A=\\begin{pmatrix}1&2&0\\\\ 2&4&0\\\\ 0&0&1\\end{pmatrix}，r(A)=2",
+    "analysis": "写二次型矩阵的口诀：平方项系数直接落对角，交叉项系数**除以 2** 分给两个对称位置。忘记除以 2 是最常见的错误。",
+    "steps": [
+      {
+        "t": "平方项系数落在主对角线：a_{11}=1，a_{22}=4，a_{33}=1",
+        "pts": 2
+      },
+      {
+        "t": "交叉项 4x_{1}x_{2} 的系数除以 2，得 a_{12}=a_{21}=2",
+        "pts": 3
+      },
+      {
+        "t": "其余交叉项系数为 0，故 A=\\begin{pmatrix}1&2&0\\\\ 2&4&0\\\\ 0&0&1\\end{pmatrix}",
+        "pts": 3
+      },
+      {
+        "t": "第二行是第一行的 2 倍，第三行独立，故 r(A)=2",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2021,
+    "source": "真题改编"
+  },
+  {
+    "id": "q281",
+    "kid": "p1n4",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "在区间 (0,1) 内随机独立地取两个数 x 与 y，求两数之和小于 \\frac{1}{2} 的概率。",
+    "options": null,
+    "answer": "\\frac{1}{8}",
+    "analysis": "几何概型把概率化成面积之比。样本空间是单位正方形（面积 1），有利区域由不等式组画出——本题是直线 x+y=\\frac{1}{2} 下方的直角三角形。关键是**把不等式组准确地翻译成平面区域**。",
+    "steps": [
+      {
+        "t": "样本空间为 (0,1)\\times(0,1)，面积为 1",
+        "pts": 2
+      },
+      {
+        "t": "有利区域满足 x+y<\\frac{1}{2} 且 x>0,y>0，是第一象限内的直角三角形",
+        "pts": 3
+      },
+      {
+        "t": "两直角边长均为 \\frac{1}{2}，面积 \\frac{1}{2}\\cdot\\frac{1}{2}\\cdot\\frac{1}{2}=\\frac{1}{8}",
+        "pts": 3
+      },
+      {
+        "t": "所求概率 P=\\frac{1/8}{1}=\\frac{1}{8}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2022,
+    "source": "真题改编"
+  },
+  {
+    "id": "q282",
+    "kid": "p2n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "设 X\\sim N(1,4)，求 P(0<X<2)。已知标准正态分布函数值 \\Phi(0.5)=0.6915。",
+    "options": null,
+    "answer": "0.383",
+    "analysis": "一般正态分布求概率的通用流程是**先标准化**：Z=\\frac{X-\\mu}{\\sigma}\\sim N(0,1)。注意第二个参数是方差 4，标准差是 2 而不是 4 —— 这是最容易错的地方。",
+    "steps": [
+      {
+        "t": "标准化：令 Z=\\frac{X-1}{2}，则 Z\\sim N(0,1)",
+        "pts": 3
+      },
+      {
+        "t": "转化区间：P(0<X<2)=P\\left(-\\frac{1}{2}<Z<\\frac{1}{2}\\right)",
+        "pts": 3
+      },
+      {
+        "t": "用分布函数表示：\\Phi(0.5)-\\Phi(-0.5)=2\\Phi(0.5)-1",
+        "pts": 2
+      },
+      {
+        "t": "代入 \\Phi(0.5)=0.6915 得 2\\times 0.6915-1=0.383",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2023,
+    "source": "真题改编"
+  },
+  {
+    "id": "q283",
+    "kid": "p2n4",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "设 X\\sim U(0,1)，求 Y=2X+1 的概率密度 f_{Y}(y)。",
+    "options": null,
+    "answer": "f_{Y}(y)=\\begin{cases}\\frac{1}{2},&1<y<3\\\\ 0,&\\text{其他}\\end{cases}",
+    "analysis": "单调函数的密度变换公式是 f_{Y}(y)=f_{X}(h(y))\\cdot|h'(y)|，其中 h 是反函数。两个易错点：一是忘了乘导数（雅可比）因子，二是忘了**写清 y 的取值范围**。",
+    "steps": [
+      {
+        "t": "X 的密度为 f_{X}(x)=1（0<x<1），其余为 0",
+        "pts": 2
+      },
+      {
+        "t": "Y=2X+1 严格单调，反函数 x=h(y)=\\frac{y-1}{2}，h'(y)=\\frac{1}{2}",
+        "pts": 2
+      },
+      {
+        "t": "由 0<x<1 确定 y 的范围：1<y<3",
+        "pts": 2
+      },
+      {
+        "t": "代入公式：f_{Y}(y)=f_{X}\\left(\\frac{y-1}{2}\\right)\\cdot\\frac{1}{2}=\\frac{1}{2}（1<y<3）",
+        "pts": 4
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2024,
+    "source": "真题改编"
+  },
+  {
+    "id": "q284",
+    "kid": "p3n1",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "设二维随机变量 (X,Y) 的联合密度为 f(x,y)=\\begin{cases}2,&0<x<y<1\\\\ 0,&\\text{其他}\\end{cases}，求 X 的边缘概率密度 f_{X}(x)。",
+    "options": null,
+    "answer": "f_{X}(x)=\\begin{cases}2(1-x),&0<x<1\\\\ 0,&\\text{其他}\\end{cases}",
+    "analysis": "求边缘密度就是对另一个变量积掉：f_{X}(x)=\\int_{-\\infty}^{+\\infty}f(x,y)dy。难点只在**确定积分限**——把非零区域画出来，对固定的 x 看 y 从哪走到哪。",
+    "steps": [
+      {
+        "t": "边缘密度定义：f_{X}(x)=\\int_{-\\infty}^{+\\infty}f(x,y)dy",
+        "pts": 2
+      },
+      {
+        "t": "对固定的 x\\in(0,1)，非零区域要求 x<y<1",
+        "pts": 3
+      },
+      {
+        "t": "计算：\\int_{x}^{1}2dy=2(1-x)",
+        "pts": 3
+      },
+      {
+        "t": "得 f_{X}(x)=2(1-x)（0<x<1），其余为 0",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2020,
+    "source": "真题改编"
+  },
+  {
+    "id": "q285",
+    "kid": "p3n3",
+    "type": "solve",
+    "difficulty": 4,
+    "stem": "已知 (X,Y) 的联合分布律为 P(X=0,Y=0)=0.4，P(X=0,Y=1)=0.1，P(X=1,Y=0)=0.1，P(X=1,Y=1)=0.4，求相关系数 \\rho_{XY}。",
+    "options": null,
+    "answer": "\\rho_{XY}=0.6",
+    "analysis": "相关系数的计算链条是：边缘分布 → E(X)、E(Y) → E(XY) → \\mathrm{Cov}(X,Y) → D(X)、D(Y) → \\rho。用公式 \\mathrm{Cov}=E(XY)-E(X)E(Y) 比用定义式省事得多。",
+    "steps": [
+      {
+        "t": "由联合分布求和得边缘分布，进而 E(X)=E(Y)=0.5",
+        "pts": 3
+      },
+      {
+        "t": "计算 E(XY)=1\\cdot 1\\cdot P(X=1,Y=1)=0.4",
+        "pts": 2
+      },
+      {
+        "t": "协方差 \\mathrm{Cov}(X,Y)=E(XY)-E(X)E(Y)=0.4-0.25=0.15",
+        "pts": 3
+      },
+      {
+        "t": "方差 D(X)=D(Y)=0.5-0.25=0.25，故 \\rho=\\frac{0.15}{\\sqrt{0.25\\times 0.25}}=0.6",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2021,
+    "source": "真题改编"
+  },
+  {
+    "id": "q286",
+    "kid": "p4n1",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "设随机变量 X 的概率密度为 f(x)=\\begin{cases}2x,&0<x<1\\\\ 0,&\\text{其他}\\end{cases}，求 E(X)。",
+    "options": null,
+    "answer": "E(X)=\\frac{2}{3}",
+    "analysis": "连续型随机变量的期望是 E(X)=\\int_{-\\infty}^{+\\infty}xf(x)dx，被积函数是「x 乘密度」。积分限由密度非零的区间决定，别积到无穷去。",
+    "steps": [
+      {
+        "t": "连续型期望公式：E(X)=\\int_{-\\infty}^{+\\infty}xf(x)dx",
+        "pts": 2
+      },
+      {
+        "t": "代入密度与非零区间：\\int_{0}^{1}x\\cdot 2x\\,dx=\\int_{0}^{1}2x^{2}dx",
+        "pts": 3
+      },
+      {
+        "t": "计算积分：\\left[\\frac{2x^{3}}{3}\\right]_{0}^{1}",
+        "pts": 3
+      },
+      {
+        "t": "得 E(X)=\\frac{2}{3}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2022,
+    "source": "真题改编"
+  },
+  {
+    "id": "q287",
+    "kid": "p4n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "设随机变量 X 的概率密度为 f(x)=\\begin{cases}2x,&0<x<1\\\\ 0,&\\text{其他}\\end{cases}，求 D(X)。",
+    "options": null,
+    "answer": "D(X)=\\frac{1}{18}",
+    "analysis": "方差用计算式 D(X)=E(X^{2})-[E(X)]^{2} 比用定义式简单。注意 E(X^{2})=\\int x^{2}f(x)dx，被积函数是 x^{2} 乘密度，不是 [xf(x)]^{2}。",
+    "steps": [
+      {
+        "t": "使用公式 D(X)=E(X^{2})-[E(X)]^{2}",
+        "pts": 2
+      },
+      {
+        "t": "计算 E(X^{2})=\\int_{0}^{1}x^{2}\\cdot 2x\\,dx=\\int_{0}^{1}2x^{3}dx",
+        "pts": 3
+      },
+      {
+        "t": "得 E(X^{2})=\\left[\\frac{x^{4}}{2}\\right]_{0}^{1}=\\frac{1}{2}",
+        "pts": 2
+      },
+      {
+        "t": "代入 E(X)=\\frac{2}{3}，得 D(X)=\\frac{1}{2}-\\frac{4}{9}=\\frac{1}{18}",
+        "pts": 3
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2023,
+    "source": "真题改编"
+  },
+  {
+    "id": "q288",
+    "kid": "p5n2",
+    "type": "solve",
+    "difficulty": 4,
+    "stem": "设 X_{1},X_{2},\\dots,X_{100} 独立同分布，都服从参数 \\lambda=2 的指数分布（E(X_{i})=\\frac{1}{2}，D(X_{i})=\\frac{1}{4}）。用中心极限定理近似求 P\\left(\\sum_{i=1}^{100}X_{i}>55\\right)。已知 \\Phi(1)=0.8413。",
+    "options": null,
+    "answer": "0.1587",
+    "analysis": "独立同分布和的概率用中心极限定理近似为正态：先算和的期望与方差，再标准化查表。指数分布参数 \\lambda 的期望是 \\frac{1}{\\lambda}、方差是 \\frac{1}{\\lambda^{2}}。",
+    "steps": [
+      {
+        "t": "记 S=\\sum_{i=1}^{100}X_{i}，则 E(S)=100\\times\\frac{1}{2}=50",
+        "pts": 2
+      },
+      {
+        "t": "方差 D(S)=100\\times\\frac{1}{4}=25，标准差 \\sigma=5",
+        "pts": 3
+      },
+      {
+        "t": "标准化：P(S>55)=1-P\\left(\\frac{S-50}{5}\\leq 1\\right)\\approx 1-\\Phi(1)",
+        "pts": 3
+      },
+      {
+        "t": "代入 \\Phi(1)=0.8413 得 0.1587",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2024,
+    "source": "真题改编"
+  },
+  {
+    "id": "q289",
+    "kid": "p6n2",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "设总体 X\\sim U(0,\\theta)，\\theta>0 未知，X_{1},\\dots,X_{n} 为来自该总体的样本，求 \\theta 的矩估计量。",
+    "options": null,
+    "answer": "\\hat{\\theta}=2\\bar{X}",
+    "analysis": "矩估计法的操作是固定的：算总体的一阶矩（含未知参数），令它等于样本均值 \\bar{X}，再解出参数。参数是几维就列几个矩等式。",
+    "steps": [
+      {
+        "t": "计算总体一阶矩：E(X)=\\frac{\\theta}{2}",
+        "pts": 3
+      },
+      {
+        "t": "矩估计法令样本一阶矩等于总体一阶矩：\\bar{X}=E(X)",
+        "pts": 3
+      },
+      {
+        "t": "即 \\bar{X}=\\frac{\\hat{\\theta}}{2}",
+        "pts": 2
+      },
+      {
+        "t": "解得 \\hat{\\theta}=2\\bar{X}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2020,
+    "source": "真题改编"
+  },
+  {
+    "id": "q290",
+    "kid": "p6n2",
+    "type": "solve",
+    "difficulty": 4,
+    "stem": "设总体 X 的密度为 f(x)=\\begin{cases}\\theta x^{\\theta-1},&0<x<1\\\\ 0,&\\text{其他}\\end{cases}，\\theta>0 未知，X_{1},\\dots,X_{n} 为样本，求 \\theta 的极大似然估计量。",
+    "options": null,
+    "answer": "\\hat{\\theta}=-\\frac{n}{\\sum_{i=1}^{n}\\ln X_{i}}",
+    "analysis": "极大似然估计的标准流程：写似然函数 → **取对数**把连乘变连加 → 对参数求导令为零 → 解出参数。取对数这步不能省，否则连乘没法求导。",
+    "steps": [
+      {
+        "t": "写似然函数：L(\\theta)=\\prod_{i=1}^{n}\\theta X_{i}^{\\theta-1}=\\theta^{n}\\prod_{i=1}^{n}X_{i}^{\\theta-1}",
+        "pts": 3
+      },
+      {
+        "t": "取对数：\\ln L(\\theta)=n\\ln\\theta+(\\theta-1)\\sum_{i=1}^{n}\\ln X_{i}",
+        "pts": 3
+      },
+      {
+        "t": "求导并令为零：\\frac{n}{\\theta}+\\sum_{i=1}^{n}\\ln X_{i}=0",
+        "pts": 2
+      },
+      {
+        "t": "解得 \\hat{\\theta}=-\\frac{n}{\\sum_{i=1}^{n}\\ln X_{i}}",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2021,
+    "source": "真题改编"
+  },
+  {
+    "id": "q291",
+    "kid": "p6n3",
+    "type": "solve",
+    "difficulty": 3,
+    "stem": "从正态总体 N(\\mu,1) 中抽取容量为 16 的样本，样本均值 \\bar{x}=5，求 \\mu 的置信水平为 95\\% 的置信区间。已知 u_{0.025}=1.96。",
+    "options": null,
+    "answer": "(4.51, 5.49)",
+    "analysis": "方差已知时用 U=\\frac{\\bar{X}-\\mu}{\\sigma/\\sqrt{n}}\\sim N(0,1) 构造区间；方差未知才改用 t 分布。区间半径是 u_{\\alpha/2}\\cdot\\frac{\\sigma}{\\sqrt{n}}，注意是双侧分位点。",
+    "steps": [
+      {
+        "t": "方差 \\sigma^{2}=1 已知，用 U=\\frac{\\bar{X}-\\mu}{\\sigma/\\sqrt{n}}\\sim N(0,1)",
+        "pts": 3
+      },
+      {
+        "t": "置信区间公式：\\bar{x}\\pm u_{\\alpha/2}\\frac{\\sigma}{\\sqrt{n}}",
+        "pts": 2
+      },
+      {
+        "t": "代入 n=16，\\sigma=1，u_{0.025}=1.96：5\\pm 1.96\\times\\frac{1}{4}",
+        "pts": 3
+      },
+      {
+        "t": "得 5\\pm 0.49，即置信区间 (4.51,\\ 5.49)",
+        "pts": 2
+      }
+    ],
+    "sourceType": "真题改编",
+    "sourceYear": 2022,
+    "source": "真题改编"
   }
 ]
