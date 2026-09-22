@@ -16,6 +16,12 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { TEST_ADMIN_EMAIL, TEST_ADMIN_PASSWORD } from './lib/server.mjs';
 import { startLlmStub } from './lib/llm-stub.mjs';
+/* ★ 找浏览器只用 lib/browser.mjs 那一份。
+ *   这里原来有一份**逐行复制**的副本，于是「BROWSER 环境变量优先」这类
+ *   改动只改了 lib 那份，本套件照旧用缓存里的 headless-shell ——
+ *   排查 CI 红时想在本机复现「完整版 Chrome」的行为，指不过去，只能另写探针。
+ *   两处实现迟早漂移，索性只留一处。 */
+import { findBrowser } from './lib/browser.mjs';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5180';
 
@@ -48,36 +54,8 @@ function skip(name, why) {
 const section = (t) => console.log(`\n\x1b[36m【${t}】\x1b[0m`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* ---------- 找浏览器 ---------- */
-function findBrowser() {
-  const home = os.homedir();
-  const candidates = [];
-  // Playwright 缓存的 headless shell：不需要显示器，启动最快
-  for (const base of [`${home}/Library/Caches/ms-playwright`, `${home}/.cache/ms-playwright`]) {
-    if (!fs.existsSync(base)) continue;
-    for (const d of fs.readdirSync(base)) {
-      if (!d.startsWith('chromium_headless_shell-')) continue;
-      for (const rel of [
-        'chrome-headless-shell-mac-arm64/chrome-headless-shell',
-        'chrome-headless-shell-mac-x64/chrome-headless-shell',
-        'chrome-headless-shell-linux64/chrome-headless-shell',
-      ]) {
-        candidates.push({ bin: path.join(base, d, rel), kind: 'shell' });
-      }
-    }
-  }
-  candidates.push(
-    { bin: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', kind: 'chrome' },
-    { bin: '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge', kind: 'chrome' },
-    { bin: '/usr/bin/google-chrome', kind: 'chrome' },
-    { bin: '/usr/bin/google-chrome-stable', kind: 'chrome' },
-    { bin: '/usr/bin/chromium', kind: 'chrome' },
-    { bin: '/usr/bin/chromium-browser', kind: 'chrome' },
-    { bin: '/opt/google/chrome/chrome', kind: 'chrome' },
-    { bin: '/snap/bin/chromium', kind: 'chrome' },
-  );
-  return candidates.find((c) => fs.existsSync(c.bin)) || null;
-}
+/* 找浏览器用 lib/browser.mjs 的 findBrowser（见顶部 import 的说明）。
+ * 这里不再保留副本 —— 两份实现漂移过一次，代价是 CI 连红 7 次。 */
 
 /* ---------- 极简 CDP 客户端 ---------- */
 function cdp(wsUrl) {
@@ -143,7 +121,13 @@ try {
   const args = [
     '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
     '--no-first-run', '--no-default-browser-check', '--disable-extensions',
-    /* ★ 软件 WebGL2。没有这三个参数，headless 下 getContext('webgl2') 直接返回 null，
+    /* ★ 关掉弹窗拦截 —— 站内链接一律 target="_blank"，而**完整版 Chrome
+     * 在 --headless=new 下会把这种点击当成「无用户手势的自动弹窗」拦掉**，
+     * 一个标签都不会多出来。本机（命中 Playwright 缓存的 headless-shell）
+     * 一路绿，CI（Ubuntu + /usr/bin/google-chrome）连续红在「没等到新标签页」。
+     * 实测对照见 lib/browser.mjs 里同一处注释。 */
+    '--disable-popup-blocking',
+    /* ★ 软件 WebGL2。没有这三个参数，headless 下 getContext('webgl2') 直接返回 null,
      * 赛博网格背景会静默降级成 CSS 备胎 —— 于是「背景画出来了」这条断言
      * 测的其实是备胎，主胎装没装上根本不知道。
      * SwiftShader 是纯 CPU 实现，慢但确定性好。 */
@@ -739,6 +723,33 @@ try {
     ok('★ 拖动后不会误跳进考点（moved>6 那道闸还在）', stillHere === '/learn', `实得 ${stillHere}`);
 
     /* ---------- ② 干净的一点：必须**在新标签页里**打开考点 ---------- */
+
+    /* ★ 环境自检：完整版 Chrome 必须关掉弹窗拦截。
+     *
+     *   下面这一整组断言都建立在「点 target="_blank" 链接能真的开出新标签」上，
+     *   而这个能力**是环境相关的，产品代码一模一样**：
+     *
+     *     完整版 Chrome + --headless=new    → page 1 → 1   拦掉
+     *     完整版 Chrome + 关掉弹窗拦截       → page 1 → 2   放行
+     *     chrome-headless-shell             → page 1 → 2   放行
+     *
+     *   （完整版 Chrome 把「无用户手势的 target="_blank" 点击」当成自动弹窗拦了。
+     *     真实用户点击带手势，本来不会被拦；无头环境缺的正是那个手势。）
+     *
+     * ── 为什么检查参数，而不是「点一下试试」──────────────────────────
+     *   试过行为自检：造一个 <a target="_blank"> 然后 a.click()，看标签数变不变。
+     *   **它抓不到这个问题** —— 实测把 flag 去掉再跑，自检照样打勾，
+     *   而后面三条真断言全红。原因是程序化的 a.click() 不走弹窗拦截那条路径，
+     *   被拦的是 CDP 派发的**真实鼠标事件**。
+     *   一个会漏报的自检比没有自检更糟：它给出「环境没问题」的错误信号，
+     *   把人往「是不是产品代码坏了」的方向引。
+     *   所以这里退一步，直接断言启动参数 —— 不够优雅，但它说的是实话。 */
+    if (browser.kind === 'chrome') {
+      ok('环境自检：完整版 Chrome 关掉了弹窗拦截（否则 target=_blank 开不出新标签）',
+        args.includes('--disable-popup-blocking'),
+        '启动参数缺 --disable-popup-blocking —— 下面五条新标签页断言必然失败');
+    }
+
     await sleep(300);
     const cn = await frontNode();
     await probe(`window.__clickTarget = null; return 1;`);
@@ -1256,10 +1267,32 @@ try {
      *   「管理台渲染出内容 276 字」这种假红：实测撞到过一次，同一份代码重跑就绿。
      *   假红的代价不是"多看一眼"，是让人开始不信任测试。
      *   改成等条件成立（最多 8 秒）：慢不再等于错，真的渲染不出来照样红。 */
-    await waitFor(
-      'document.getElementById("main-scroll").innerText.replace(/\\s/g,"").length > 300',
-      '管理台内容渲染完成', 8000,
+    /* ★ 这里只断言一次。waitFor 超时时它自己会记一笔失败，原来后面还跟着
+     *   一条 `ok('管理台渲染出内容', ad.len > 300)`，于是**同一个问题在报告里
+     *   显示成两条**（「等待超时：管理台内容渲染完成」+「管理台渲染出内容 273 字」），
+     *   看着像两个 bug，排查时先怀疑自己刚改的东西。
+     *
+     *   超时也从 8 秒提到 12 秒：完整版 Chrome 下管理台要等三个接口
+     *   （overview / users / logs）都回来，CI 的 runner 比开发机慢得多。 */
+    /* ★ 阈值 200，不是 300。
+     *
+     *   这个数只用来区分「页面渲染出来了」和「还停在骨架屏」，
+     *   **不该受库里有多少数据影响**。原来写 300 是照着
+     *   `npm test` 的环境定的 —— 那时接口套件已经注册了一堆用户，
+     *   用户表格行多、字数自然上得去。但单独跑本套件时库里只有
+     *   管理员 + 一个普通用户，正文稳定在 222 字，于是必然超时。
+     *   症状是「单独跑浏览器测试就红，npm test 就绿」，
+     *   看起来像测试之间互相污染，实际是阈值钉在了数据量上。 */
+    const rendered = await waitFor(
+      'document.getElementById("main-scroll").innerText.replace(/\\s/g,"").length > 200',
+      '管理台渲染出内容（正文 > 200 字）', 12000,
     );
+    if (!rendered) {
+      /* 失败时把实际字数打出来 —— 否则只知道「没到 200」，
+       * 不知道是差一点点还是整块内容没出来。 */
+      const len = await probe('return (document.getElementById("main-scroll")||{innerText:""}).innerText.replace(/\\s/g,"").length');
+      console.log(`  \x1b[90m   （实际正文 ${len} 字，阈值 200）\x1b[0m`);
+    }
 
     if (gotTable) {
       const ad = JSON.parse(await probe(`return JSON.stringify({
@@ -1274,7 +1307,7 @@ try {
       ok('★ 管理员能进入 /admin', ad.path === '/admin', ad.path);
       ok('★ 管理台列出了用户行', ad.rows >= 2, `${ad.rows} 行`);
       ok('管理台标题正确', ad.h1.indexOf('用户管理') >= 0, ad.h1);
-      ok('管理台渲染出内容', ad.len > 300, `${ad.len} 字`);
+      /* 「渲染出内容」不在这里再断言 —— 上面那条 waitFor 已经管了（见注释）。 */
       ok('★ 管理员侧栏多了「管理」分组与入口', ad.navItems === 15 && ad.groups === 5,
         `${ad.navItems} 项 / ${ad.groups} 组`);
       ok('管理台有搜索框', ad.search === true);

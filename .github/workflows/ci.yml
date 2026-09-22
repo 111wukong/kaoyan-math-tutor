@@ -84,8 +84,22 @@ jobs:
       #
       # runner 上自带 Chrome，先确认它在，否则这次绿是假的。
       #
-      # 候选列表要和 tests/browser-smoke.mjs 的 findBrowser() 保持一致
+      # 候选列表要和 tests/lib/browser.mjs 的 findBrowser() 保持一致
       # （workflow 没法 import 测试脚本，只能手动同步这两处）。
+      #
+      # ★★ 别把这里换成 chrome-headless-shell —— 换了之后新标签页那组断言会
+      #    **假绿**。两个内核在「点 target="_blank" 开不开新标签」上行为不同：
+      #
+      #      完整版 Chrome + --headless=new   → 拦掉（要靠 --disable-popup-blocking 放行）
+      #      chrome-headless-shell            → 直接放行，不需要那个 flag
+      #
+      #    完整版 Chrome 把「无用户手势的 target="_blank" 点击」当自动弹窗拦了。
+      #    真实用户点击带手势，本来不会被拦；无头环境缺的正是那个手势。
+      #
+      #    后果是：这个 runner（完整 Chrome）是**唯一**能验出
+      #    「--disable-popup-blocking 被误删」的地方。开发机命中 Playwright 缓存的
+      #    headless-shell，删了 flag 照样全绿 —— 典型的「本机绿、CI 红」。
+      #    历史上这套 CI 因此连红 7 次（每个 PR 都红），而本机一直绿着。
       - name: 确认浏览器存在（防止冒烟测试静默跳过）
         run: |
           node -e '

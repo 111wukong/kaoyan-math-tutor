@@ -26,6 +26,27 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * 那套逻辑已经在 CI（Ubuntu + Playwright 缓存）上验证过了。
  */
 export function findBrowser() {
+  /* ★ BROWSER 环境变量优先于一切自动探测。
+   *
+   * 它是**显式覆盖**，语义上就该压过探测结果。原来这段排在 Playwright
+   * 缓存查找之后，于是只要本机装过 Playwright 缓存，这个变量就永远
+   * 不起作用 —— 而 launchPage 找不到浏览器时抛的错里还写着
+   * 「可用 BROWSER 环境变量指定」。那是承诺了一件做不到的事。
+   *
+   * 修它的直接动机：排查 CI 红时想在本机复现「完整版 Chrome」的行为，
+   * 发现根本指不过去，只能另写探针。
+   *
+   * kind 要按文件名判断：headless-shell 本身就是 headless，
+   * 再给它加 --headless=new 会直接报错起不来。 */
+  if (process.env.BROWSER) {
+    try {
+      if (fs.existsSync(process.env.BROWSER)) {
+        const isShell = /headless-shell/i.test(process.env.BROWSER);
+        return { bin: process.env.BROWSER, kind: isShell ? 'shell' : 'chrome' };
+      }
+    } catch { /* 权限问题就当没设过 */ }
+  }
+
   const home = os.homedir();
   // Playwright 缓存的 headless shell：不需要显示器，启动最快
   for (const base of [`${home}/Library/Caches/ms-playwright`, `${home}/.cache/ms-playwright`]) {
@@ -42,8 +63,9 @@ export function findBrowser() {
       }
     }
   }
+  /* BROWSER 不在这里 —— 它在函数开头就处理掉了（显式覆盖优先）。
+   * 留着这条会让人以为「候选列表里也会看 BROWSER」，而实际上永远到不了。 */
   const cands = [
-    { bin: process.env.BROWSER, kind: 'chrome' },
     { bin: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', kind: 'chrome' },
     { bin: '/Applications/Chromium.app/Contents/MacOS/Chromium', kind: 'chrome' },
     { bin: '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge', kind: 'chrome' },
@@ -112,6 +134,23 @@ export async function launchPage({ width = 1440, height = 900, browser = null } 
   const args = [
     '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage',
     '--no-first-run', '--no-default-browser-check', '--disable-extensions',
+    /* ★ 关掉弹窗拦截。
+     *
+     * 站内链接一律 target="_blank"，而**完整版 Chrome 在 `--headless=new`
+     * 下会把这种点击当成「无用户手势的自动弹窗」拦掉** —— 页面里点一下，
+     * 一个标签都不会多出来。实测对照（同一台机器、同一个测试页）：
+     *
+     *   chrome-headless-shell                     → page 1 → 2  ✓
+     *   chrome --headless=new                     → page 1 → 1  ✗
+     *   chrome --headless=new + 这个参数           → page 1 → 2  ✓
+     *
+     * 这条差别很坑：本机（macOS，命中 Playwright 缓存的 headless-shell）
+     * 一路绿，而 CI（Ubuntu，用 /usr/bin/google-chrome）连续 7 次红在
+     * 「没等到新标签页」上 —— 而且只在干净检出上暴露。
+     *
+     * 加这个参数不是「为了让测试过」而放水：真实用户点链接是带手势的，
+     * 本来就不会被拦。无头环境缺的正是那个手势，所以要显式关掉。 */
+    '--disable-popup-blocking',
     /* ★ 软件 WebGL2，缺一不可（见文件头注释） */
     '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
     `--window-size=${width},${height}`,
