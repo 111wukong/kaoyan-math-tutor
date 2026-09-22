@@ -74,7 +74,10 @@ const app = Fastify({
  *      而前端 api.ts 正好读 `body.error` 当提示文案 —— 中文界面弹英文；
  *   2. 参数校验错误回 `FST_ERR_VALIDATION` + `"Bad Request"`，同样是英文；
  *   3. 未捕获异常回 `err.message` 原文（SQL 报错、文件路径都在里面）。
- * 位置写错一次，这三条就一起回来，所以下面留了断言（tests/security.mjs）。
+ * 位置写错一次，这三条就一起回来，所以 server/scripts/hardening.mjs 的
+ * 「错误响应格式」一节留了断言。
+ * （★ 这里原来写的是 `tests/security.mjs` —— 那个文件**从来没存在过**。
+ *  注释里写「留了断言」而断言其实不在，比不写更糟：它让人以为有人守着。）
  */
 app.setErrorHandler((err, req, reply) => {
   if (err.statusCode === 429) {
@@ -185,7 +188,7 @@ await app.register(cookie);
  * 上限可调：RATE_LIMIT_MAX。
  *   · 功能测试套件会把它开到很大 —— 它们不是来测限流的，
  *     几十上百次请求互相挤兑只会制造假红（见 tests/lib/server.mjs）；
- *   · tests/security.mjs 反过来用一台限值很小的私有服务，
+ *   · server/scripts/hardening.mjs 反过来用一台限值很小的私有服务，
  *     专门验「这个闸门真的会拦」。 */
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 600;
 await app.register(rateLimit, {

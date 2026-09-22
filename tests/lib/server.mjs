@@ -100,7 +100,7 @@ async function waitForHealth(base, { proc, logPath, timeoutMs = 30000 }) {
  * @param {string} [opts.dbPath]  不传就在临时目录建一次性库
  * @param {string} [opts.tag]     日志文件名用的标记
  * @param {object} [opts.env]     额外/覆盖的环境变量。
- *                                用途：tests/security.mjs 要一台限值很小的
+ *                                用途：server/scripts/hardening.mjs 要一台限值很小的
  *                                服务来验限流，而默认那台把闸门开到很大。
  */
 export async function startServer({ port, dbPath, tag = 'run', env: extraEnv } = {}) {
@@ -131,8 +131,8 @@ export async function startServer({ port, dbPath, tag = 'run', env: extraEnv } =
        * 超过默认的 600 次 —— 然后报出一堆看不懂的 429 失败，
        * 而代码一行没错。这正是「假红」的典型来源。
        *
-       * 限流本身由 tests/security.mjs 验：它自己起一台限值很小的私有服务，
-       * 专门确认「这个闸门真的会拦」。要测的东西分开测，互不干扰。 */
+       * 限流本身由 server/scripts/hardening.mjs 验：它自己起一台限值很小的
+       * 私有服务，专门确认「这个闸门真的会拦」。要测的东西分开测，互不干扰。 */
       RATE_LIMIT_MAX: '100000',
       ...(extraEnv || {}),
     },

@@ -265,7 +265,8 @@ kaoyan-math-tutor/
 │       ├── extract-seed.mjs    用 node:vm 沙箱从原 window.KDATA/QDATA 提取
 │       ├── gen-edges.mjs       ★ 图谱校验 + 导入（环检测是硬门禁）
 │       ├── backup.mjs          ★ 在线备份（WAL 下别用 cp）
-│       ├── hardening.mjs       ★ 加固回归：限流 / 注册开关 / 存量坏地址（自起服务）
+│       ├── hardening.mjs       ★ 加固回归：限流 / 注册开关 / 存量坏地址 /
+│       │                         错误响应格式 / 鉴权白名单下的敏感路由（自起服务）
 │       └── smoke.mjs           接口端到端测试（393 项）
 ├── deploy/                     现成的部署配置
 │   ├── Caddyfile               HTTPS + 反代 + 压缩
@@ -1155,7 +1156,7 @@ q247.analysis [throw: KaTeX parse error: Unexpected character: '\' at position 8
 ```bash
 npm test               # 跑全部：16 + 13 + 23 + 79 + 35 + 123 + 14 + 393 + 17 + 225 + 1 = 939 项
 npm run test:api       # 只跑接口
-npm run test:hardening # 只跑加固回归（自己起服务验限流 / 注册开关 / 存量坏地址）
+npm run test:hardening # 只跑加固回归（自己起服务验限流 / 注册开关 / 存量坏地址 / 错误格式 / 鉴权白名单）
 npm run test:browser   # 只跑浏览器
 npm run test:latex     # 只跑公式渲染全量检查
 npm run test:pipeline  # 只跑渲染管线漏屏检查
