@@ -77,10 +77,100 @@ const CARDS = [
     front: '当 $x\\to 0$ 时，$\\frac{\\tan x}{x}\\to 1$',
     back: '**重点**：分子分母同阶',
   },
+  /* ★ 第六张：专门覆盖「会带上应用 tailwind 颜色类」的那些元素。
+   *
+   * 为什么非有不可：卡片正文里 p / td / blockquote 带的是 text-fg-soft、
+   * strong / th / h3 带的是 text-fg、del 带 text-fg-mute —— 这些类在应用里
+   * 解析成 var(--color-fg-*)，深色主题下全是浅色，打印到白纸上就淡了。
+   * 这正是「公式看不见」的根因所在的那一层。
+   *
+   * 少了这张卡，全量对比度扫描就只看得到公式那一种颜色 ——
+   * 断言照样绿，但守的是一个没被覆盖的窄口子（换一种假绿罢了）。 */
+  {
+    kid: 'dx-test-rich', title: '富文本形态', type: 'question',
+    front: [
+      '### 常见错误',
+      '',
+      '**粗体**与~~删除线~~，行内代码 `f(x)=x^2`，公式 \\int_0^1 x\\,dx=\\frac{1}{2}',
+      '',
+      '> 引用块里的公式：$\\lim_{x\\to 0}\\frac{\\sin x}{x}=1$',
+      '',
+      '- 列表项一：\\frac{a}{b}',
+      '- 列表项二：\\sqrt{x}',
+      '',
+      '| 函数 | 导数 |',
+      '| --- | --- |',
+      '| $x^2$ | $2x$ |',
+      '',
+      '```',
+      'const eps = 1e-6;',
+      '```',
+    ].join('\n'),
+    back: '**要点**：逐项对照上面的表',
+  },
 ];
 
 /** 卡片里出现的 LaTeX 命令 —— 打印正文里一个都不许剩 */
-const TEX_COMMANDS = ['\\frac', '\\lim', '\\sin', '\\to', '\\begin{', '\\le', '\\int', '\\tan'];
+const TEX_COMMANDS = ['\\frac', '\\lim', '\\sin', '\\to', '\\begin{', '\\le', '\\int', '\\tan', '\\sqrt'];
+
+/* ============================================================
+   对比度（WCAG）
+   ============================================================
+   为什么需要它：上面那些断言只查「公式结构在不在」，而这次真出问题的是
+   「结构全对、字也在，但在白纸上几乎看不见」—— index.css 的
+   `.katex { color: var(--color-fg) }` 跟着应用主题走，深色主题下是浅色，
+   导出到白纸就成了淡灰的幽灵。截图不放大根本看不出，DOM 断言全绿。
+
+   所以判据得是「可见性」，而不是「存在性」。 */
+function parseRgb(s) {
+  const m = String(s || '').match(/(\d+(?:\.\d+)?)/g);
+  return m && m.length >= 3 ? m.slice(0, 3).map(Number) : null;
+}
+/** 相对亮度（WCAG 2.x 公式） */
+function relLum([r, g, b]) {
+  const f = (v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+/** 这个颜色压在纯白上的对比度（1 = 完全看不见，21 = 纯黑） */
+function contrastOnWhite(rgb) {
+  return 1.05 / (relLum(rgb) + 0.05);
+}
+
+/** 把「对比度扫描」抽成一段给两处探针共用的代码。
+ *
+ *  ★ 为什么不各写一份：这类探测函数最怕被复制 —— 改一份漏一份，
+ *    然后一边红一边绿，查半天才发现是两份代码。这个项目里已经因为
+ *    findBrowser() 被复制成两份而吃过一次亏（本机与 CI 行为相反那次）。
+ *
+ *  扫的是「直接带文字的元素」：只看 computed color，不看结构。
+ *  纯容器（div/section）没有直接文字节点，不算 —— 它们的 color 不决定
+ *  任何东西可不可见，算进来只会稀释信号。 */
+const SWEEP_JS = `
+function __sweep(root) {
+  var out = {}, els = root.querySelectorAll('.p-card-front *, .p-card-back *');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i], hasText = false;
+    for (var j = 0; j < el.childNodes.length; j++) {
+      var n = el.childNodes[j];
+      if (n.nodeType === 3 && n.textContent.replace(/\\s/g, '')) { hasText = true; break; }
+    }
+    if (!hasText) continue;
+    var c = getComputedStyle(el).color;
+    if (!out[c]) out[c] = el.tagName.toLowerCase()
+      + (el.className ? '.' + String(el.className).split(' ')[0] : '');
+  }
+  return out;
+}
+`;
+
+/** 卡片正文里的颜色都压在**白底**上（.p-card 的 background 是 #fff），
+ *  所以统一按白底算对比度，取最差的那个报出来。 */
+function dimmest(colors) {
+  return Object.entries(colors || {})
+    .map(([c, who]) => ({ c, who, ratio: contrastOnWhite(parseRgb(c)) }))
+    .filter((x) => x.ratio < 4.5)
+    .sort((a, b) => a.ratio - b.ratio);
+}
 
 console.log('\x1b[1m研数 · 卡片库导出（打印 / 独立 HTML）\x1b[0m');
 console.log(`目标 ${BASE}`);
@@ -265,6 +355,7 @@ try {
     await client.send('Emulation.setEmulatedMedia', { media: 'print' });
 
     const clicked = await probe(`
+      ${SWEEP_JS}
       window.__printCalls = 0;
       window.print = function(){ window.__printCalls++; };
       var btn = Array.prototype.slice.call(document.querySelectorAll('button'))
@@ -282,6 +373,18 @@ try {
       var left = cmds.filter(function(c){ return text.indexOf(c) >= 0; });
       var katexEls = p.querySelectorAll('.katex');
       var ff = katexEls.length ? getComputedStyle(katexEls[0]).fontFamily : '';
+      /* ★ 公式在纸上的**颜色**。
+       *
+       * 为什么单独取它：这一轮真正翻车的不是「结构」，是「看不见」。
+       * index.css 有一条 .katex { color: var(--color-fg) }，跟着应用主题走；
+       * 而 #print-portal 挂在 body 里，**主题 token 照样作用到它身上**。
+       * 深色主题下 --color-fg 是 #e9ebf4（浅色），打印到白纸上就是一层淡灰幽灵：
+       * 中文清清楚楚、公式几乎不见，而上面所有 DOM 断言**全绿**。
+       *
+       * 取第一段公式的 computed color，回 Node 侧算 WCAG 对比度。
+       * （注意：这段是塞进 Node 模板字符串里的 JS，注释里不能出现反引号，
+       *   否则会把模板字符串提前截断 —— 这个坑我踩过两次了。） */
+      var kc = katexEls.length ? getComputedStyle(katexEls[0]).color : '';
       /* 「本次这几张都在」——比数数更精确：库里可能有别的卡片，
        * 单看总数说不出漏的是哪一张。 */
       var titles = ${JSON.stringify(CARDS.map((c) => c.title))};
@@ -293,6 +396,21 @@ try {
         err: (html.match(/katex-error/g) || []).length,
         left: left,
         font: ff,
+        katexColor: kc,
+      /* 卡片正文本色，作为对照 —— 公式的 color 是 inherit 时应当与它一致。
+       * 不一致就说明有别的规则把公式的颜色截走了。 */
+      frontColor: (function(){
+        var f = p.querySelector('.p-card-front');
+        return f ? getComputedStyle(f).color : '';
+      })(),
+      /* ★ 全量扫描：卡片正文里**每个直接带文字的元素**的颜色。
+       *
+       * 为什么不能只看 .katex：真正的根因是主题 token 泄漏 ——
+       * renderRich 输出的 p / td / blockquote 带着 text-fg-soft，
+       * 在应用里解析成 var(--color-fg-soft)，深色主题下是浅灰。
+       * 公式只是**受害者**（它 color:inherit 继承了父亲的颜色）。
+       * 只盯公式的话，修好公式、漏掉正文，一样是纸上没法读。 */
+      colors: __sweep(p),
         missing: missing,
         /* 打印媒体下：容器要显示、应用界面要藏起来。
          * 这两条一起才说明「纸上印的就是这份卡片」，只有一条不够 ——
@@ -308,6 +426,23 @@ try {
           var m = document.getElementById('main-scroll');
           return m ? m.getClientRects().length > 0 : 'MISSING';
         })(),
+        /* ★ 纸张本身是不是白的。
+         *
+         * 为什么单列一条：这一层的失效**看不见**在样式里 ——
+         * html 的 background 在打印媒体下量出来就是 rgb(255,255,255)，
+         * 一切正常；但 Chrome 生成 PDF 时是用 **color-scheme** 决定纸张底色的，
+         * 而应用是深色主题（html { color-scheme: dark }），于是页边距被涂成
+         * #121212。只有把 PDF 转成 PNG 采样页边才发现「白纸套黑框」。
+         *
+         * 所以这里把三件事一起钉住：color-scheme 翻了、背景是白的、
+         * 装饰性的伪元素（赛博网格/星尘）没在纸上继续画。 */
+        paper: {
+          colorScheme: getComputedStyle(document.documentElement).colorScheme,
+          htmlBg: getComputedStyle(document.documentElement).backgroundColor,
+          bodyBg: getComputedStyle(document.body).backgroundColor,
+          before: getComputedStyle(document.body, '::before').display,
+          after: getComputedStyle(document.body, '::after').display,
+        },
       });`);
 
     if (clicked === 'NO_BUTTON' || clicked === 'DISABLED' || clicked === 'NO_PORTAL') {
@@ -323,9 +458,59 @@ try {
       ok('打印容器里没有 KaTeX 报错块', d.err === 0, `${d.err} 个`);
       ok('打印正文里没有残留 LaTeX 源码', d.left.length === 0, d.left.join(' '));
       ok('公式拿到了 KaTeX 字体（CSS 生效）', /KaTeX/i.test(d.font), `font-family="${d.font}"`);
+
+      /* ★ 全量对比度扫描 —— 卡片正文里**任何**一段文字在纸上都得看得见。
+       *
+       * 这一条是这次故障的「根治型」断言。前面那些查的都是**存在性**
+       * （有没有 .katex 结构、有没有残留 LaTeX），而真实故障是**可见性**：
+       * 结构全对、字也在、DOM 全绿，纸上一片淡灰。
+       *
+       * 为什么扫全部元素而不只扫公式：根因是**主题 token 泄漏**
+       * （renderRich 输出的 p/td/blockquote 带 text-fg-soft，在应用里
+       * 解析成 var(--color-fg-soft)，深色主题下是浅灰 #a8b0c6）。
+       * 公式只是第一个受害者 —— 它 color:inherit 继承了父亲的颜色。
+       * 只盯公式的话，修好公式、漏掉正文，纸上照样没法读。
+       *
+       * 阈值 4.5 是 WCAG AA 对普通正文的要求（白底）。修好之后正文与公式
+       * 都在 7.6 ~ 17.7，余量很大；坏的时候是 1.19 —— 一眼就能分开。
+       * 这条断言是**真红过**的：修之前它报
+       * 「p.text-fg-soft rgb(168, 176, 198) → 2.17」。 */
+      const swept = Object.entries(d.colors || {});
+      ok('对比度扫描确实扫到了卡片正文（不是空跑）',
+        swept.length >= 3, `${swept.length} 种文字颜色`);
+      /* 把扫描结果打出来。测试全绿时也要能看见「扫了什么」——
+       * 否则断言一旦因为测试数据退化而空转，输出里毫无痕迹。 */
+      console.log('    \x1b[90m扫描到 ' + swept.length + ' 种正文颜色：'
+        + swept.map(([c, who]) => `${who}=${c}(${contrastOnWhite(parseRgb(c)).toFixed(1)})`).join(', ')
+        + '\x1b[0m');
+      const dim = dimmest(d.colors);
+      ok('打印时卡片正文里每段文字在白纸上都够清楚',
+        dim.length === 0,
+        dim.slice(0, 4).map((x) => `${x.who} ${x.c} → ${x.ratio.toFixed(2)}`).join(' | '));
+
+      const katexContrast = d.katexColor ? contrastOnWhite(parseRgb(d.katexColor)) : 0;
+      ok('打印容器里的公式在白纸上有足够对比度（不是隐形）',
+        katexContrast >= 4.5,
+        `公式色 ${d.katexColor} → 白底对比度 ${katexContrast.toFixed(2)}（正文色 ${d.frontColor}）`);
+      /* 这里原来还有一条「公式颜色必须等于 .p-card-front 的颜色」。
+       * 删掉了 —— 它是个**过严**的判据：公式的 color 是 inherit，
+       * 当它落在 <h2 class="text-fg"> 里时就该是 #111827，跟 .p-card-front
+       * 的 #374151 不同，但那完全正常。真正要守的「看得见」已经由上面
+       * 那条全量扫描覆盖，而且覆盖得更宽。 */
       ok('打印媒体下：卡片容器真的可见', d.portalVisible === true, `可见=${d.portalVisible}`);
       ok('打印媒体下：应用界面不再生成盒子（纸上不会两套内容叠着）',
         d.appVisible === false, `应用可见=${d.appVisible}`);
+
+      /* ---- 纸张必须是白的 ---- */
+      const paper = d.paper || {};
+      ok('打印时 color-scheme 翻成浅色（否则 PDF 页边会被涂成深色）',
+        !/dark/.test(paper.colorScheme || ''), `color-scheme=${paper.colorScheme}`);
+      ok('打印时 html / body 的背景都是白的',
+        /255,\s*255,\s*255/.test(paper.htmlBg || '') && /255,\s*255,\s*255/.test(paper.bodyBg || ''),
+        `html=${paper.htmlBg} body=${paper.bodyBg}`);
+      ok('打印时装饰性伪元素不再绘制（赛博网格 / 星尘）',
+        paper.before === 'none' && paper.after === 'none',
+        `::before=${paper.before} ::after=${paper.after}`);
     }
 
     /* 恢复屏幕媒体 —— 后面几节要在正常状态下跑。 */
@@ -437,16 +622,27 @@ try {
     await sleep(1200);
 
     const d = JSON.parse(await probe(`
+      ${SWEEP_JS}
       var cmds = ${JSON.stringify(TEX_COMMANDS)};
       var text = document.body.textContent || '';
       var left = cmds.filter(function(c){ return text.indexOf(c) >= 0; });
       var els = document.querySelectorAll('.katex');
       var ff = els.length ? getComputedStyle(els[0]).fontFamily : '';
+      /* 独立文件同样要查颜色：这份是发给别人的，底色由 DOC_CSS 定为 #fff。
+       * 同一份 DOC_CSS 两处共用，这里再钉一次是因为**导出路径可以独立走样** ——
+       * 比如将来有人给导出单独加样式表、或者 body 底色改了。
+       * （这条目前是**守**，不是抓 bug：单文件里没有 tailwind、也没有主题 token，
+       *   它本来就是对的。打印路径才是真正出问题的那条。） */
+      var kc = els.length ? getComputedStyle(els[0]).color : '';
+      var fEl = document.querySelector('.p-card-front');
       return JSON.stringify({
         cards: document.querySelectorAll('.p-card').length,
         katex: els.length,
         left: left,
+        colors: __sweep(document),
         font: ff,
+        katexColor: kc,
+        frontColor: fEl ? getComputedStyle(fEl).color : '',
         /* @font-face 规则真的被浏览器解析了吗。
          * 内联的 CSS 是**字符串**，字符串里写着 @font-face 不等于它生效 ——
          * 语法坏了、或者被前面的规则吃掉，都会静默失效。document.fonts
@@ -465,6 +661,13 @@ try {
     ok('file:// 独立打开：公式仍是渲染态', d.katex >= CARDS.length, `${d.katex} 个`);
     ok('file:// 独立打开：没有残留 LaTeX 源码', d.left.length === 0, d.left.join(' '));
     ok('file:// 独立打开：KaTeX 字体已应用', /KaTeX/i.test(d.font), `font-family="${d.font}"`);
+    const kc2 = d.katexColor ? contrastOnWhite(parseRgb(d.katexColor)) : 0;
+    ok('file:// 独立打开：公式在白底上有足够对比度',
+      kc2 >= 4.5, `公式色 ${d.katexColor} → 白底对比度 ${kc2.toFixed(2)}`);
+    const dim2 = dimmest(d.colors);
+    ok('file:// 独立打开：卡片正文里每段文字在白底上都够清楚',
+      dim2.length === 0,
+      dim2.slice(0, 4).map((x) => `${x.who} ${x.c} → ${x.ratio.toFixed(2)}`).join(' | '));
     ok('file:// 独立打开：@font-face 规则真的立起来了',
       d.fontFaces > 0, `document.fonts 里 ${d.fontFaces} 条 KaTeX 家族`);
   }

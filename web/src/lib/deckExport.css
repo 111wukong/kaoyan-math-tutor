@@ -1,0 +1,175 @@
+/* 导出文档的版式（打印路径与独立 HTML 共用）
+ *
+ * ── 为什么是独立的 .css 而不是 TS 里的模板字符串 ──────────────────
+ * 这段 CSS 原来写在 deckExport.ts 的 BASE_CSS 模板字符串里，代价是：
+ * **注释里不能出现反引号**，一出现就把模板字符串提前截断。
+ * 我在同一轮里连踩三次（一次 tsc 报 TS1005，两次 rolldown 报
+ * 'Expected a semicolon'），每次都要重跑一遍构建才发现。
+ *
+ * 挪到 .css 之后这个雷永久拆掉：CSS 就是 CSS，注释想怎么写怎么写，
+ * 编辑器也能正常高亮。deckExport.ts 用 ?inline 把它读成字符串
+ * （和 KaTeX 的 CSS 一样），所以它不会变成单独的产物文件。
+ *
+ * ── 这份 CSS 有一条硬约束 ────────────────────────────────────────
+ * 它服务的是**白纸**，不是屏幕。凡是颜色都必须写成具体值，
+ * 不许引用应用的主题 token（--color-fg 这类）—— 打印时 #print-portal
+ * 挂在 body 里，主题 token 会照常作用上来，深色主题下就把文字变成浅色、
+ * 在纸上隐形。这是「导出公式看不见」的真正根因，详见下面 .p-root 那段。
+ * tests/deck-export.mjs 里有一条全量对比度扫描守着这条约束。
+ */
+
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #111827;
+  font-family: "PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif; }
+.p-root { max-width: 820px; margin: 0 auto; padding: 26px 22px 40px; }
+
+/* ★★ 把应用的主题 token 在纸面上**重新定义**。
+ *
+ * 这是「公式在纸上隐形」的**真正根因**，比下面那条 .katex 规则更根本。
+ *
+ * renderRich 输出的 HTML 带的是应用的 tailwind 类：正文 p 是 text-fg-soft、
+ * strong 是 text-fg、td 是 text-fg-soft、删除线是 text-fg-mute……
+ * 这些工具类编译出来是 `color: var(--color-fg-soft)` 这种**间接引用**
+ * （index.css 的文件头自己就写明了这一点，连优先级都算过）。
+ *
+ * 导出成单文件时这些类根本不存在，一切正常继承 .p-card-front 的颜色 ——
+ * 所以「存 HTML」这条路径一直是好的。但**打印路径不是**：
+ * #print-portal 挂在 body 里，应用的主题 token 照样作用到它身上，
+ * 深色主题下 --color-fg-soft 是 #a8b0c6，于是公式拿到一个浅灰、纸上看不见。
+ *
+ * 实测证据：只加 .katex 那条规则时，对比度只从 1.19 升到 2.17 ——
+ * 因为 color:inherit 忠实地继承了**父级 p 的错误颜色**，等于把问题
+ * 从公式身上挪到了它父亲身上。
+ *
+ * 所以正确的修法是釜底抽薪：在 .p-root 上把这些 token 重定义成
+ * 「给白纸用的值」。自定义属性是**继承**的，在这里声明就压过 html 上的
+ * 主题值（跟优先级无关），整棵子树一起回到纸面配色 —— 不用逐个元素去堵。
+ *
+ * 值都按「白底对比度 ≥ 4.5（WCAG AA）」挑过：fg 17.7 / fg-soft 10.3 /
+ * fg-mute 7.6 / fg-faint 4.8。tests/deck-export.mjs 里有一条**全量扫描**，
+ * 把卡片正文里每个有文字的元素的颜色都算一遍对比度，漏网的会被当场抓住 ——
+ * 所以将来 renderRich 多输出一种类、或者有人加了新 token，不会静默复发。 */
+.p-root {
+  --color-fg: #111827;
+  --color-fg-soft: #374151;
+  --color-fg-mute: #4b5563;
+  --color-fg-faint: #6b7280;
+  --color-hairline: #e5e7eb;
+  --color-hairline-strong: #d1d5db;
+  /* veil 在暗色主题里是**白色**（往暗底上叠白），到了白纸上必须反过来用深色，
+     否则 bg-veil/8 这类底色等于没有。 */
+  --color-veil: #0f172a;
+  --color-cyan: #0e7490;
+  --color-ink-900: #f8fafc;
+}
+.p-header { display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; padding-bottom: 14px; border-bottom: 2px solid #111827; margin-bottom: 22px; }
+.p-header h1 { margin: 0; font-size: 21px; letter-spacing: -0.01em; }
+.p-sub { margin: 5px 0 0; font-size: 12.5px; color: #6b7280; }
+.p-meta { font-size: 12px; color: #6b7280; white-space: nowrap; }
+.p-group { margin-bottom: 26px; }
+.p-group-title { margin: 0 0 11px; font-size: 14.5px; color: #0f172a;
+  padding-left: 9px; border-left: 3px solid #0e7490; }
+.p-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.p-card { border: 1px solid #e5e7eb; border-left: 3px solid var(--c);
+  border-radius: 8px; padding: 11px 13px; background: #fff; }
+.p-card-head { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+.p-tag { flex-shrink: 0; font-size: 10.5px; font-weight: 600; color: var(--c);
+  background: var(--bg); border-radius: 4px; padding: 1.5px 6px; }
+.p-card-title { margin: 0; font-size: 13px; font-weight: 600; color: #111827; }
+.p-card-front { font-size: 12.5px; line-height: 1.72; color: #374151; }
+.p-card-back { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e5e7eb;
+  font-size: 12.5px; line-height: 1.72; color: #111827; }
+.p-back-label { display: inline-block; font-size: 10.5px; font-weight: 600; color: #047857;
+  background: #ecfdf5; border-radius: 4px; padding: 1px 5px; margin-right: 6px; }
+.p-footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #e5e7eb;
+  font-size: 11px; color: #9ca3af; text-align: center; }
+
+/* ★ 卡片正文是 renderRich 渲染的，它带的是**应用的 tailwind 类**
+   （text-fg-soft / my-2 / border-hairline…）。这些类在导出文档里没有
+   对应的 CSS —— 导出文件不带 tailwind。所以这里按元素名补一套最小版式，
+   否则段落会挤在一起、表格没有边框、代码块变成白底黑字的一坨。
+   改 renderRich 的结构时，这一节要跟着看一眼。 */
+.p-card-front > :first-child, .p-card-back > :first-child { margin-top: 0; }
+.p-card-front > :last-child, .p-card-back > :last-child { margin-bottom: 0; }
+.p-card-front p, .p-card-back p { margin: 0.45em 0; }
+.p-card-front ul, .p-card-front ol,
+.p-card-back ul, .p-card-back ol { margin: 0.45em 0; padding-left: 1.35em; }
+.p-card-front ul, .p-card-back ul { list-style: disc; }
+.p-card-front ol, .p-card-back ol { list-style: decimal; }
+.p-card-front li, .p-card-back li { margin: 0.15em 0; }
+.p-card-front h2, .p-card-front h3, .p-card-front h4, .p-card-front h5,
+.p-card-back h2, .p-card-back h3, .p-card-back h4, .p-card-back h5 {
+  margin: 0.6em 0 0.25em; font-size: 1.02em; font-weight: 600; color: #111827; }
+.p-card-front strong, .p-card-back strong { font-weight: 600; color: #111827; }
+.p-card-front a, .p-card-back a { color: #0e7490; text-decoration: underline; }
+.p-card-front code, .p-card-back code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em; background: #f3f4f6; border-radius: 4px;
+  padding: 1px 4px; color: #0f172a; }
+.p-card-front pre, .p-card-back pre { margin: 0.5em 0; padding: 8px 10px;
+  background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; overflow-x: auto; }
+.p-card-front pre code, .p-card-back pre code { background: none; padding: 0; }
+.p-card-front blockquote, .p-card-back blockquote { margin: 0.5em 0;
+  padding-left: 10px; border-left: 2px solid #cbd5e1; color: #4b5563; }
+.p-card-front hr, .p-card-back hr { margin: 0.6em 0; border: none;
+  border-top: 1px solid #e5e7eb; }
+.p-card-front table, .p-card-back table { width: 100%; margin: 0.5em 0;
+  border-collapse: collapse; font-size: 12px; }
+.p-card-front th, .p-card-front td,
+.p-card-back th, .p-card-back td { border: 1px solid #e5e7eb; padding: 4px 6px; text-align: left; }
+.p-card-front th, .p-card-back th { background: #f8fafc; font-weight: 600; }
+
+/* 公式失败时的降级块（renderRich 里那条 catch 分支）——
+   它是浅色文字配深底，在白纸上几乎看不见，这里改成深色。 */
+.p-card-front code.katex-fallback, .p-card-back code.katex-fallback {
+  background: #fffbeb; color: #92400e; }
+
+/* ★ 公式的颜色必须**钉死在纸上**，不能跟着应用主题走。
+ *
+ * index.css 里有一条 .katex { color: var(--color-fg) } —— 那是给屏幕上的
+ * 多主题准备的（它还专门注释过「以前写死 #e9ebf4，亮色主题下公式整段隐形」）。
+ * 但导出走的是白纸，而 #print-portal 挂在 body 里，**应用的主题 token 照样
+ * 作用到它身上**：深色主题下 --color-fg 是浅色（#e9ebf4），于是公式在纸上
+ * 结构全对、字也在，就是**几乎完全看不见**。
+ *
+ * 实测就是这么发现的：把导出的 PDF 转成 PNG 一看，中文清清楚楚，公式全是一层
+ * 淡灰的幽灵。DOM 断言一条都拦不住 —— 它只查「有没有 .katex 结构」。
+ * tests/deck-export.mjs 现在按 WCAG 算对比度，坏的时候只有 1.19（阈值 4.5）。
+ *
+ * 用 .p-card-front .katex 这个两级选择器压过 index.css 里的单级 .katex，
+ * 把颜色收回正文的继承链。分数线同理：index.css 用的是 --katex-rule，
+ * 也是主题相关的浅色。
+ *
+ * 注意：只改公式的颜色**不够**。它 color:inherit，会老老实实继承父级 p 的
+ * 错误颜色 —— 实测只加下面这条时对比度只从 1.19 升到 2.17。
+ * 真正根治的是上面 .p-root 那段（把主题 token 重定义成纸面配色）。 */
+.p-card-front .katex, .p-card-back .katex { color: inherit; font-size: 1em; }
+.p-card-front .katex .frac-line,
+.p-card-back .katex .frac-line { border-bottom-color: currentColor; }
+.p-card-front .katex-display,
+.p-card-back .katex-display { margin: 0.6em 0; background: none; }
+
+@media print {
+  /* ★ 纸张必须是白的，而且**连 color-scheme 也要翻过来**。
+   *
+   * 这一条是量出来的，不是猜的。index.css 里 html 有 color-scheme: dark
+   * （应用是深色主题），它的打印块翻白了 background，但**漏了 color-scheme**。
+   * 而 Chrome 生成 PDF 时是用 color-scheme 决定「纸张」本色的 ——
+   * 于是每一页的页边距被涂成 #121212（Chrome 深色模式的默认画布色）。
+   *
+   * 实测：把 printToPDF 的产物转成 PNG 采样，页边 (18,18,18)、
+   * 正文区 (243,244,246) —— 一张白纸套着黑框。同一时刻
+   * getComputedStyle(documentElement).backgroundColor 明明是 rgb(255,255,255)，
+   * 所以只看 background 的断言完全抓不到它。
+   *
+   * 放在这里而不是只放在 index.css：printDeck 是**故意**自带一份样式的
+   * （见 deckExport.ts 里「样式随 portal 一起挂：不依赖应用全局的样式表还在不在」），
+   * 所以这份契约得由它自己带着。 */
+  html { color-scheme: light !important; }
+
+  .p-root { max-width: none; padding: 0; }
+  .p-card { break-inside: avoid; page-break-inside: avoid; }
+  .p-group { break-inside: auto; }
+  @page { margin: 14mm 12mm; }
+}

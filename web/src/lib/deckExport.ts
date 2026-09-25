@@ -41,6 +41,7 @@
 
 import { renderRich } from '@/components/ui/Math';
 import katexCssRaw from 'katex/dist/katex.min.css?inline';
+import baseCssRaw from './deckExport.css?inline';
 
 export interface DeckCard {
   id: string;
@@ -109,85 +110,12 @@ export const katexInlineCss = String(katexCssRaw).replace(
   (_m, q, name, ext) => `url(${q}${KATEX_FONT_BASE}${name}.${ext}${q})`,
 );
 
-/** 页面/导出共用的版式。字体族和配色是给**白纸**定的，跟应用主题无关。 */
-const BASE_CSS = `
-  * { box-sizing: border-box; }
-  body { margin: 0; background: #fff; color: #111827;
-    font-family: "PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif; }
-  .p-root { max-width: 820px; margin: 0 auto; padding: 26px 22px 40px; }
-  .p-header { display: flex; align-items: flex-end; justify-content: space-between;
-    gap: 16px; padding-bottom: 14px; border-bottom: 2px solid #111827; margin-bottom: 22px; }
-  .p-header h1 { margin: 0; font-size: 21px; letter-spacing: -0.01em; }
-  .p-sub { margin: 5px 0 0; font-size: 12.5px; color: #6b7280; }
-  .p-meta { font-size: 12px; color: #6b7280; white-space: nowrap; }
-  .p-group { margin-bottom: 26px; }
-  .p-group-title { margin: 0 0 11px; font-size: 14.5px; color: #0f172a;
-    padding-left: 9px; border-left: 3px solid #0e7490; }
-  .p-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
-  .p-card { border: 1px solid #e5e7eb; border-left: 3px solid var(--c);
-    border-radius: 8px; padding: 11px 13px; background: #fff; }
-  .p-card-head { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
-  .p-tag { flex-shrink: 0; font-size: 10.5px; font-weight: 600; color: var(--c);
-    background: var(--bg); border-radius: 4px; padding: 1.5px 6px; }
-  .p-card-title { margin: 0; font-size: 13px; font-weight: 600; color: #111827; }
-  .p-card-front { font-size: 12.5px; line-height: 1.72; color: #374151; }
-  .p-card-back { margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e5e7eb;
-    font-size: 12.5px; line-height: 1.72; color: #111827; }
-  .p-back-label { display: inline-block; font-size: 10.5px; font-weight: 600; color: #047857;
-    background: #ecfdf5; border-radius: 4px; padding: 1px 5px; margin-right: 6px; }
-  .p-footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #e5e7eb;
-    font-size: 11px; color: #9ca3af; text-align: center; }
-
-  /* ★ 卡片正文是 renderRich 渲染的，它带的是**应用的 tailwind 类**
-     （text-fg-soft / my-2 / border-hairline…）。这些类在导出文档里没有
-     对应的 CSS —— 导出文件不带 tailwind。所以这里按元素名补一套最小版式，
-     否则段落会挤在一起、表格没有边框、代码块变成白底黑字的一坨。
-     改 renderRich 的结构时，这一节要跟着看一眼。 */
-  .p-card-front > :first-child, .p-card-back > :first-child { margin-top: 0; }
-  .p-card-front > :last-child, .p-card-back > :last-child { margin-bottom: 0; }
-  .p-card-front p, .p-card-back p { margin: 0.45em 0; }
-  .p-card-front ul, .p-card-front ol,
-  .p-card-back ul, .p-card-back ol { margin: 0.45em 0; padding-left: 1.35em; }
-  .p-card-front ul, .p-card-back ul { list-style: disc; }
-  .p-card-front ol, .p-card-back ol { list-style: decimal; }
-  .p-card-front li, .p-card-back li { margin: 0.15em 0; }
-  .p-card-front h2, .p-card-front h3, .p-card-front h4, .p-card-front h5,
-  .p-card-back h2, .p-card-back h3, .p-card-back h4, .p-card-back h5 {
-    margin: 0.6em 0 0.25em; font-size: 1.02em; font-weight: 600; color: #111827; }
-  .p-card-front strong, .p-card-back strong { font-weight: 600; color: #111827; }
-  .p-card-front a, .p-card-back a { color: #0e7490; text-decoration: underline; }
-  .p-card-front code, .p-card-back code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.9em; background: #f3f4f6; border-radius: 4px;
-    padding: 1px 4px; color: #0f172a; }
-  .p-card-front pre, .p-card-back pre { margin: 0.5em 0; padding: 8px 10px;
-    background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; overflow-x: auto; }
-  .p-card-front pre code, .p-card-back pre code { background: none; padding: 0; }
-  .p-card-front blockquote, .p-card-back blockquote { margin: 0.5em 0;
-    padding-left: 10px; border-left: 2px solid #cbd5e1; color: #4b5563; }
-  .p-card-front hr, .p-card-back hr { margin: 0.6em 0; border: none;
-    border-top: 1px solid #e5e7eb; }
-  .p-card-front table, .p-card-back table { width: 100%; margin: 0.5em 0;
-    border-collapse: collapse; font-size: 12px; }
-  .p-card-front th, .p-card-front td,
-  .p-card-back th, .p-card-back td { border: 1px solid #e5e7eb; padding: 4px 6px; text-align: left; }
-  .p-card-front th, .p-card-back th { background: #f8fafc; font-weight: 600; }
-
-  /* 公式失败时的降级块（renderRich 里那条 catch 分支）——
-     它是浅色文字配深底，在白纸上几乎看不见，这里改成深色。 */
-  .p-card-front code.katex-fallback, .p-card-back code.katex-fallback {
-    background: #fffbeb; color: #92400e; }
-
-  .katex { font-size: 1em; }
-  .katex-display { margin: 0.6em 0; }
-
-  @media print {
-    .p-root { max-width: none; padding: 0; }
-    .p-card { break-inside: avoid; page-break-inside: avoid; }
-    .p-group { break-inside: auto; }
-    @page { margin: 14mm 12mm; }
-  }
-`;
+/** 页面/导出共用的版式。字体族和配色是给**白纸**定的，跟应用主题无关。
+ *
+ *  样式本身在 deckExport.css —— 原先是这里的模板字符串，而模板字符串
+ *  的注释里不能出现反引号（一出现就把字符串截断），踩了三次才决定搬走。
+ *  用 ?inline 读成字符串，和 KaTeX 的 CSS 一个路子。 */
+const BASE_CSS = String(baseCssRaw);
 
 /** 文档级 CSS：版式 + KaTeX。两条路径共用，避免「打印对、导出错」这种漂移。 */
 export const DOC_CSS = `${katexInlineCss}\n${BASE_CSS}`;

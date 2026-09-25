@@ -1027,6 +1027,16 @@ input:-webkit-autofill:focus {
   body::before, body::after { display: none !important; }
   /* 底色挂在 html 上（见上面），打印时两处都要翻白，否则纸张边角会漏出深色 */
   html, body { background: #fff !important; color: #111 !important; }
+  /* ★ 光翻 background 不够 —— 还要翻 color-scheme。
+   *
+   * html 上有 color-scheme: dark（见上面的 html 规则）。Chrome 生成 PDF 时
+   * 用 color-scheme 决定**纸张本身**的底色，于是每一页的页边距被涂成 #121212
+   * （Chrome 深色模式的默认画布色）：一张白纸套着黑框。
+   *
+   * 这一条很难靠「读样式」发现 —— 打印媒体下量 background 是
+   * rgb(255,255,255)，一切正常，只有把 PDF 转成图采样页边才看得见。
+   * 实测漏了它的时候页边像素是 (18,18,18)。 */
+  html { color-scheme: light !important; }
   body > *:not(#print-portal) { display: none !important; }
   #print-portal { display: block !important; }
 
