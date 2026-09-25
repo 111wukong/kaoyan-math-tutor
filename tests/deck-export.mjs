@@ -389,10 +389,41 @@ try {
     ok('导出文件内联了 KaTeX CSS', /\.katex\b/.test(styleOnly) && /katex-display|\.katex\s*\{/.test(styleOnly));
     /* 字体路径必须绝对化。内联的 CSS 里若还是 url(fonts/…)，导出文件旁边
      * 根本没有 fonts 目录 —— 字体静默 404，公式变成系统字体的凑合版。 */
-    ok('内联 CSS 里的字体路径是绝对地址', !/url\(fonts\//.test(styleOnly),
-      (styleOnly.match(/url\(fonts\/[^)]*\)/g) || []).slice(0, 2).join(' '));
-    ok('导出文件是自包含的（没有依赖 KaTeX 的 CDN 脚本）',
-      !/cdn\.jsdelivr\.net\/npm\/katex/.test(exported));
+    /* ★ 判据是「每一个 url() 都指向 CDN」+「数量不为 0」，而**不是**
+     *   「没有出现 url(fonts/…)」。
+     *
+     * 后者是假绿，而且真的假绿过一次：Vite 在构建时就把 url(fonts/…)
+     * 重写成了 url(/assets/KaTeX_AMS-Regular-BQhdFMY1.woff2) —— 一个
+     * **根相对路径**，在导出的单文件里等于 file:///assets/… → 404。
+     * 旧断言查的是一个根本不存在的形态，于是「字体全坏」照样全绿。
+     *
+     * 「数量不为 0」也是必需的：内联的 CSS 里要是压根没有 @font-face，
+     * 或者替换正则改坏了把所有 url() 都吃掉，光判「没有相对路径」会空跑通过。 */
+    const urls = [...styleOnly.matchAll(/url\(\s*(['"]?)([^)'"]*)\1\s*\)/g)].map((m) => m[2]);
+    ok('内联 CSS 里确实有字体引用（不是空跑）', urls.length > 0, `${urls.length} 条 url()`);
+    /* ★ 每个 url() 必须是**自包含**的两种形态之一：
+     *   · `data:font/…` —— Vite 把小于 4KB 的字体直接内联成了 base64（最理想）
+     *   · CDN 绝对地址 —— 大字体走这里（取舍见 deckExport.ts 的注释）
+     *
+     * 要明确排除的是**根相对路径**：Vite 会把大字体重写成
+     * `/assets/KaTeX_AMS-Regular-<hash>.woff2`，那在导出的单文件里等于
+     * `file:///assets/…` → 404。
+     *
+     * 旧断言只查「有没有出现 url(fonts/…)」—— 而那个形态在构建产物里
+     * 根本不存在（早被 Vite 改写掉了），于是「字体全坏」也照样全绿。
+     * 那次假绿的代价是：导出文件在离线时字体静默 404，我直到手搓了一份
+     * 样例文件去数 url() 才发现。 */
+    const badUrls = urls.filter((u) =>
+      !/^data:font\//.test(u)
+      && !/^https:\/\/cdn\.jsdelivr\.net\/npm\/katex@[\d.]+\/dist\/fonts\//.test(u));
+    ok('内联 CSS 里每个 url() 都自包含（data URI 或 CDN 绝对地址）',
+      badUrls.length === 0, badUrls.slice(0, 3).map((u) => u.slice(0, 60)).join(' | '));
+    /* 公式在生成时就渲染成了静态 HTML，所以导出文件**不该有任何脚本**。
+     * 以前这里写的是「不含 cdn.jsdelivr.net/npm/katex」—— 本意是找那段
+     * 从没被调用的 katex.min.js，但内联 CSS 里的**字体地址**同样长这样，
+     * 于是正常的导出文件被误判成「依赖 CDN 脚本」。
+     * 直接断言「没有 <script>」更准，也更严。 */
+    ok('导出文件完全不需要 JS（没有任何 <script>）', !/<script/i.test(exported));
 
     /* ---- 3b. 真·独立打开：file:// 无服务、无应用 ---- */
     /* 这一条才是「发给别人能看」的证明。前面几条只验了字符串，
@@ -416,11 +447,26 @@ try {
         katex: els.length,
         left: left,
         font: ff,
+        /* @font-face 规则真的被浏览器解析了吗。
+         * 内联的 CSS 是**字符串**，字符串里写着 @font-face 不等于它生效 ——
+         * 语法坏了、或者被前面的规则吃掉，都会静默失效。document.fonts
+         * 里出现 KaTeX 家族才说明这层真的立起来了（不依赖网络）。 */
+        fontFaces: (function(){
+          try {
+            /* ★ 必须用 Array.from —— FontFaceSet 是 Set-like，**没有 length**，
+             *   而 Array.prototype.slice.call 对 Set-like 会静默返回空数组，
+             *   于是「0 条」看起来像产品问题，其实是探针写错了。 */
+            return Array.from(document.fonts || [])
+              .filter(function(f){ return /KaTeX/i.test(f.family); }).length;
+          } catch (e) { return -1; }
+        })(),
       });`));
     ok('file:// 独立打开：卡片全部渲染', d.cards >= CARDS.length, `${d.cards} 张`);
     ok('file:// 独立打开：公式仍是渲染态', d.katex >= CARDS.length, `${d.katex} 个`);
     ok('file:// 独立打开：没有残留 LaTeX 源码', d.left.length === 0, d.left.join(' '));
     ok('file:// 独立打开：KaTeX 字体已应用', /KaTeX/i.test(d.font), `font-family="${d.font}"`);
+    ok('file:// 独立打开：@font-face 规则真的立起来了',
+      d.fontFaces > 0, `document.fonts 里 ${d.fontFaces} 条 KaTeX 家族`);
   }
 
   /* ---------- 4. 自检：检测器真的会报警吗 ---------- */

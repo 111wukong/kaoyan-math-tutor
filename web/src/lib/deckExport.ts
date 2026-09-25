@@ -78,10 +78,35 @@ const esc = (s: string) =>
 export const KATEX_VERSION = '0.18.7';
 const KATEX_FONT_BASE = `https://cdn.jsdelivr.net/npm/katex@${KATEX_VERSION}/dist/fonts/`;
 
-/** 内联的 KaTeX CSS，字体路径已绝对化 */
+/* ★ 字体引用要统一改写成 CDN 绝对地址 —— 而且**不能只盯 `fonts/`**。
+ *
+ * 这份 CSS 是构建产物，Vite 早就动过手了，实测下来是**两种形态混着**：
+ *
+ *   · 大于 4KB 的字体 → url(/assets/KaTeX_AMS-Regular-BQhdFMY1.woff2)
+ *     —— 根相对路径，在导出的单文件里等于 file:///assets/… → 404，
+ *        有网也救不回来（文件名还带内容 hash，CDN 上没有这一份）
+ *   · 小于 4KB 的字体 → url(data:font/woff2;base64,…)
+ *     —— 已经是最理想的自包含形态，**不要动它**
+ *
+ * 所以只替换 `fonts/` 等于什么都没做（实测就是这么漏过去的：断言写的是
+ * 「没有出现 url(fonts/…)」，而那个形态在构建产物里根本不存在）。
+ *
+ * 这里做两件事：认出 /assets/ 形态，并把 hash 后缀剥掉 —— CDN 上只有
+ * `KaTeX_AMS-Regular.woff2`，没有带 hash 的那一份。
+ *
+ * hash 段按 `[A-Za-z0-9_]{8}` 匹配，**不含短横线**。用 `[\w-]{8}` 会把
+ * `KaTeX_Size1-Regular` 里的 `-Regular` 当成 hash 剥掉，产出
+ * `KaTeX_Size1.woff2`（CDN 上不存在）。
+ *
+ * 正则不可能穷举所有形态，所以 tests/deck-export.mjs 里有兜底断言：
+ * 内联 CSS 里**每一个** url() 都必须是 data URI 或 CDN 绝对地址，且数量
+ * 不能为 0。漏网的会被当场抓住 —— 这正是上次那条假绿换来的。 */
+const KATEX_FONT_RE =
+  /url\(\s*(['"]?)[^)'"]*?(KaTeX_[A-Za-z0-9_-]+?)(?:-[A-Za-z0-9_]{8})?\.(woff2|woff|ttf)\1\s*\)/g;
+
 export const katexInlineCss = String(katexCssRaw).replace(
-  /url\(\s*(['"]?)fonts\//g,
-  (_m, q) => `url(${q}${KATEX_FONT_BASE}`,
+  KATEX_FONT_RE,
+  (_m, q, name, ext) => `url(${q}${KATEX_FONT_BASE}${name}.${ext}${q})`,
 );
 
 /** 页面/导出共用的版式。字体族和配色是给**白纸**定的，跟应用主题无关。 */
