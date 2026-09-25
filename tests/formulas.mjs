@@ -139,12 +139,18 @@ if (!core || typeof core.renderTex !== 'function') {
 }
 const { renderTex, renderRich } = core;
 
-/** 渲染成功 = 输出里出现了 katex 子树。
- *  失败时 renderTex 走的是 <code> 降级路径（把源码当纯文本显示），
- *  所以「没有 katex 子树」就是失败 —— 判据和产品行为完全一致。 */
+/* ★ 判据必须是「真的产出了 KaTeX 结构」，不能只搜 `includes('katex')`。
+ *
+ * 踩过：降级分支输出的是 <code class="katex-fallback …">，里面**含 katex 子串**，
+ * 于是「公式写坏了」也会被判成渲染成功 —— 下面那两条自检当场假绿。
+ * 而自检存在的全部意义就是抓写坏的公式，判据一松它就成了摆设。
+ *
+ * KaTeX 渲染成功一定产出 <span class="katex">；降级时那个类名后面紧跟
+ * `-fallback`，所以精确匹配 class="katex" 能把两者分开。
+ * （判据和产品行为仍然一致：失败走 <code> 降级路径，成功走 katex 子树。） */
 function rendersOk(tex) {
   const html = String(renderTex(tex, true) || '');
-  return html.includes('katex');
+  return html.includes('class="katex"');
 }
 
 {
@@ -168,7 +174,7 @@ function rendersOk(tex) {
   const pipelineBad = [];
   for (const f of formulas) {
     const html = String(renderRich(`$$${f.tex}$$`) || '');
-    if (!html.includes('katex')) pipelineBad.push(f.id);
+    if (!html.includes('class="katex"')) pipelineBad.push(f.id);
   }
   ok('★ 走完整 renderRich 也都能渲染', pipelineBad.length === 0,
     pipelineBad.slice(0, 5).join(' '));

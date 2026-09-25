@@ -127,7 +127,13 @@ function renderTex(tex: string, display: boolean): string {
     if (import.meta.env?.DEV) {
       console.warn('[Math] KaTeX 解析失败，已降级为纯文本：', trimmed, (e as Error)?.message);
     }
-    html = `<code class="rounded bg-veil/8 px-1 py-0.5 font-mono text-[0.85em] text-amber-300/95">${escapeHtml(trimmed)}</code>`;
+    /* ★ 那个 katex-fallback 类名是给**导出端**认的，别删。
+     *
+     * 这里的配色是给深色主题定的（浅字配深底）。卡片库导出走的是白纸，
+     * 浅色文字在白底上等于消失 —— 导出端的样式表按 .katex-fallback
+     * 把它翻成深字浅底。用语义类而不是 tailwind 类来标记，
+     * 是因为 tailwind 类名会随配色调整而变，语义类不会。 */
+    html = `<code class="katex-fallback rounded bg-veil/8 px-1 py-0.5 font-mono text-[0.85em] text-amber-300/95">${escapeHtml(trimmed)}</code>`;
   }
 
   if (FORMULA_CACHE.size >= FORMULA_CACHE_MAX) FORMULA_CACHE.clear();

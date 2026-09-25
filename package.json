@@ -21,6 +21,7 @@
     "test:api": "node server/scripts/smoke.mjs",
     "test:hardening": "node server/scripts/hardening.mjs",
     "test:browser": "node tests/browser-smoke.mjs",
+    "test:deck": "node tests/deck-export.mjs",
     "test:day": "node tests/day-boundary.mjs",
     "banding": "node tests/banding.mjs",
     "shots": "node tests/screenshot.mjs",

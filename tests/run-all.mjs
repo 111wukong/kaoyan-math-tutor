@@ -79,6 +79,12 @@ const SUITES = [
    * 也因为它不碰共享服务，放在这里不会影响后面的套件。 */
   { name: '加固回归', file: 'server/scripts/hardening.mjs' },
   { name: '浏览器冒烟', file: 'tests/browser-smoke.mjs' },
+  /* 卡片库导出是**第二条渲染管线**（web/src/lib/deckExport.ts），
+   * 和页面上的 RichText 不是同一份代码 —— 页面公式好好的、导出满屏
+   * \frac 源码，就是从这里漏出去的（而且一条断言都没有）。
+   * 它要真浏览器：导出走的是 DOM + Blob + window.print。
+   * 静态部分（版本一致性、不许回到 window.katex）在没浏览器时也会跑。 */
+  { name: '卡片库导出', file: 'tests/deck-export.mjs' },
   { name: '近黑渐变色带检测', file: 'tests/banding.mjs' },
 ];
 
