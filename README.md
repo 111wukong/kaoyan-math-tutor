@@ -1,5 +1,21 @@
 # 研数 · 考研数学 AI 自学系统
 
+<p>
+  <img src="https://img.shields.io/github/actions/workflow/status/111wukong/kaoyan-math-tutor/ci.yml?branch=master&label=CI&style=flat-square" alt="CI" />
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/node-%E2%89%A5%2022-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node" />
+</p>
+
+<p>
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Fastify-5-000000?style=flat-square&logo=fastify&logoColor=white" alt="Fastify" />
+  <img src="https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite" />
+  <img src="https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite" />
+  <img src="https://img.shields.io/badge/Tailwind-4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind" />
+  <img src="https://img.shields.io/badge/KaTeX-329B7A?style=flat-square&logo=katex&logoColor=white" alt="KaTeX" />
+</p>
+
 从零依赖纯前端（localStorage）重构成的前后端分离全栈版本。原来的 13 个页面、68 个知识点、204 道题**一个都没丢**，算法层（XP、掌握度、成就）原样移植，UI 层用 React 重写，数据从浏览器搬进了 SQLite，并补上了账号体系。间隔重复从 SM-2 换成了 **FSRS-6**。
 
 题库补到了 **291 道**，题型从 2 种扩到 **6 种**（单选 / 多选 / 填空 / 判断 / 解答 / 证明）—— 补齐了考研卷面上占 70 分的解答题与证明题，见[六种题型](#六种题型解答题为什么不能自动判分)。
@@ -592,6 +608,13 @@ AI 批改也没法指出「卡在哪一步」）。
 
 返回值要按「**部分成功**」处理 —— `ok` 为 true 只代表至少出了一道题，
 `failed` 里才是没跑成的考点。前端把 `failed` 列出来，用户可以只勾这几个再跑一次。
+
+<figure>
+  <picture>
+    <img src="docs/screenshots/14-batch-generate.jpg" alt="AI 批量补题面板" width="100%">
+  </picture>
+  <figcaption>按缺题数升序排列，缺得最狠的考点排在最前并默认勾上</figcaption>
+</figure>
 
 ---
 
@@ -1688,4 +1711,6 @@ ALLOW_PRIVATE_LLM_HOST=1
 
 ## 许可
 
-沿用原项目的 LICENSE。
+本项目基于 **[MIT License](LICENSE)** 开源 —— 可自由使用、修改、分发，仅需保留版权声明。
+
+仓库根目录的 [`LICENSE`](LICENSE) 是完整协议文本。
