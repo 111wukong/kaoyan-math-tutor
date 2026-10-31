@@ -78,6 +78,11 @@ const ADD_COLUMNS = {
    * schema.sql 里那条 CREATE TABLE IF NOT EXISTS 会被整个跳过。 */
   attempts: {
     error_type: "TEXT NOT NULL DEFAULT ''",
+    /* seconds —— 单题用时。新库由 schema.sql 建好；老库必须在这里补，
+     * 因为 attempts 表早已存在，那条 CREATE TABLE IF NOT EXISTS 会被跳过。
+     * 默认 0 而不是 NULL：读的地方就能少一层判空，
+     * 「0 = 没报用时」这个约定写在 schema.sql 的注释里。 */
+    seconds: 'INTEGER NOT NULL DEFAULT 0',
   },
   /* cards 的 FSRS 状态（见 lib/fsrs.js）。
    * 老库的卡是 SM-2 调度的，只有 interval/reps/ef —— 补上这三列之后

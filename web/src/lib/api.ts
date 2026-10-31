@@ -109,7 +109,12 @@ export interface AppConfig {
   features: Record<string, boolean>;
   bank: { version: number; baseUrl: string; renderedAt: string };
   ai: { mode: 'server' | 'byok'; base: string; model: string; dailyCalls: number };
-  push: { on: boolean; templateId: string; hour: number; page: string };
+  push: {
+    on: boolean; templateId: string; hour: number; page: string;
+    /** 模板字段映射：键是微信模板里的字段名（thing1 / time2…），
+     *  值是内容，支持 {due} {streak} {date} {time} {name} 占位符。 */
+    payload: Record<string, string>;
+  };
   study: { dailyNew: number; reviewCap: number };
 }
 
@@ -737,6 +742,11 @@ export const api = {
           `/api/admin/app/users/${id}/quota`, { method: 'PATCH', body: JSON.stringify({ limit }) },
         ),
       push: () => get<AppPushInfo>('/api/admin/app/push'),
+      /** dryRun=true 只算人数不发 —— 字段名填错时先看这个再真发 */
+      runPush: (dryRun = false) =>
+        post<{ ok: boolean; sent?: number; failed?: number; candidates?: number; skipped?: boolean; reason?: string; error?: string }>(
+          '/api/admin/app/push/run', { dryRun },
+        ),
       render: () => get<AppRenderStats>('/api/admin/app/render'),
       clearRender: () => post<{ ok: boolean; removed: number }>('/api/admin/app/render/clear'),
       warmRender: () => post<{ ok: boolean; files: number; mb: number }>('/api/admin/app/render/warm'),

@@ -77,6 +77,12 @@
           <view class="ans-label">答案与解析</view>
           <math-text segments="{{item.ansSegs}}" />
         </view>
+
+        <!-- 看完解析想真做一遍 → 进答题页。
+             展开是「读」，答题是「练」，两件事分开。 -->
+        <button class="btn btn-sm go-answer" data-qid="{{item.id}}" bindtap="onOpenAnswer">
+          去做这道题
+        </button>
       </view>
     </view>
 

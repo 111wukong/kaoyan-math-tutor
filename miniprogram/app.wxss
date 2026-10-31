@@ -371,6 +371,108 @@ page {
 }
 
 /* ============================================================
+   选项（题库 / 答题页共用）
+   ============================================================ */
+
+.opts {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+/* 选项：左侧一个字母块，右侧内容。
+   字母块固定宽度，四个选项的左边缘才会对齐 —— 不对齐看起来会很乱。 */
+.opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  padding: 22rpx 22rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1rpx solid var(--hairline);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.opt-key {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(94, 234, 212, 0.12);
+  flex-shrink: 0;
+}
+
+.opt-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 选中态：整块亮起来，字母块反色。
+   只改边框不改底色的话，深色底上很难一眼看出选没选。 */
+.opt-on {
+  background: rgba(94, 234, 212, 0.10);
+  border-color: rgba(94, 234, 212, 0.42);
+}
+
+.opt-on .opt-key {
+  color: #04211d;
+  background: linear-gradient(135deg, #5eead4, #2dd4bf);
+}
+
+.hint {
+  margin-top: 4rpx;
+  font-size: 23rpx;
+  color: var(--fg-mute);
+  text-align: center;
+}
+
+/* ============================================================
+   底部固定操作条（复习 / 答题共用）
+   ============================================================ */
+
+/* ★ 固定在屏幕底部，不跟着内容流走。
+ *   靠 `margin-top: auto` 把操作区推到容器底部是桌面思路：内容一长
+ *   （解答题的解析可以很长），按钮就被顶到屏幕外，用户得先滚到底
+ *   才找得到 —— 而「评分 / 提交」是这些页面最高频的动作。
+ *
+ * ★ bottom: 0 不会压住 tabBar：小程序里 tabBar 是原生的，
+ *   webview 的可视区本来就止于 tabBar 上沿。
+ *
+ * ★ 上沿加渐变遮罩，让下面的内容淡出，而不是被硬切一刀。 */
+.actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  padding: 24rpx 32rpx 26rpx;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 9, 15, 0) 0%,
+    rgba(8, 9, 15, 0.82) 26%,
+    rgba(8, 9, 15, 0.97) 55%,
+    #08090f 100%
+  );
+}
+
+/* ============================================================
+   区块小标题
+   ============================================================ */
+
+.block-label {
+  font-size: 22rpx;
+  letter-spacing: 3rpx;
+  color: var(--accent);
+  opacity: 0.9;
+  margin-bottom: 16rpx;
+}
+
+/* ============================================================
    横幅
    ============================================================ */
 

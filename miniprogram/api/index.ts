@@ -112,14 +112,57 @@ export const fetchQuestions = (params: Record<string, string | number> = {}) => 
   return get<{ questions: any[]; total: number }>(`/api/catalog/questions?${qs}`);
 };
 
-/** 提交一次作答。这是唯一记账的入口 —— XP、掌握度、错题本都走它。 */
+/** 提交一次作答。这是唯一记账的入口 —— XP、掌握度、错题本都走它。
+ *
+ * ★ seconds 用来区分「记住了」和「现场推出来的」。同样答对，
+ *   20 秒和 3 分钟说明的掌握程度完全不同。服务端会截断到 0~3600。 */
 export const submitAnswer = (body: {
   qid: string;
   answer: string;
   /** 解答 / 证明题没有自动判分，由用户自评 */
   selfCorrect?: boolean;
   seconds?: number;
-}) => post<any>('/api/study/answer', body);
+  context?: string;
+}) => post<AnswerResult>('/api/study/answer', body);
+
+export interface AnswerResult {
+  /** 解答/证明题在「亮答案」那一步是 null —— 那是「还没判」，不是「答错了」 */
+  correct: boolean | null;
+  /** true = 这一次只是把参考答案亮出来，没有记任何账 */
+  selfGrade: boolean;
+  myAnswer: string;
+  answer: string;
+  analysis: string;
+  steps: { t: string; pts: number }[] | null;
+  options: { k: string; t: string }[] | null;
+  stem: string;
+  kid: string;
+  xp: number | null;
+  xpNote: string;
+  combo: { combo: number; best_combo: number };
+  mastery: { level: string; label: string; accuracy: number; attempts: number };
+  achievements: { id: string; title: string; desc?: string }[];
+}
+
+export interface QuestionDetail {
+  id: string;
+  kid: string;
+  type: string;
+  typeLabel: string;
+  selfGraded: boolean;
+  difficulty: number;
+  stem: string;
+  options: { k: string; t: string }[] | null;
+  answer?: string;
+  analysis?: string;
+  steps?: { t: string; pts: number }[] | null;
+  source?: string;
+}
+
+export const fetchQuestion = (id: string) =>
+  get<{ question: QuestionDetail; stat: { n: number; c: number; ok: number } }>(
+    `/api/catalog/questions/${encodeURIComponent(id)}`,
+  );
 
 /** 复习卡片的四档评分（FSRS） */
 export const gradeCard = (cardId: string | number, rating: 1 | 2 | 3 | 4) =>

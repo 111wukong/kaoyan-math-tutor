@@ -1,8 +1,75 @@
 <view class="page">
-  <view class="card">
-    <view class="card-title">AI 讲解</view>
-    <view class="card-desc">
-      待接：POST /api/ai/explain，返回的文本里带 LaTeX，用 math-text 渲染。
+
+  <!-- ===== 加载 ===== -->
+  <block wx:if="{{loading}}">
+    <view class="ai-head">
+      <view class="ai-avatar">
+        <view class="ai-pulse"></view>
+      </view>
+      <view class="ai-head-text">
+        <view class="ai-title">AI 正在讲这道题</view>
+        <view class="ai-sub">它会结合你最近一次的作答来讲，不会直接给答案</view>
+      </view>
     </view>
-  </view>
+
+    <view class="card card-lit">
+      <view class="skeleton" style="height: 28rpx; width: 92%"></view>
+      <view class="skeleton" style="height: 28rpx; width: 84%; margin-top: 18rpx"></view>
+      <view class="skeleton" style="height: 28rpx; width: 66%; margin-top: 18rpx"></view>
+    </view>
+  </block>
+
+  <!-- ===== 配额用尽 ===== -->
+  <block wx:elif="{{errKind === 'quota'}}">
+    <view class="card card-lit state">
+      <view class="state-mark">·</view>
+      <view class="state-title">今天的 AI 次数用完了</view>
+      <view class="state-desc">
+        {{quota ? '已用 ' + quota.used + ' / ' + quota.limit + ' 次。' : ''}}
+        明天 0 点自动重置。错题解析本身是免费的，可以先去题库看解析。
+      </view>
+      <button class="btn btn-ghost" style="margin-top: 32rpx" bindtap="onBack">返回</button>
+    </view>
+  </block>
+
+  <!-- ===== 模型没配 ===== -->
+  <block wx:elif="{{errKind === 'nollm'}}">
+    <view class="card card-lit state">
+      <view class="state-mark">·</view>
+      <view class="state-title">AI 讲解暂时不可用</view>
+      <view class="state-desc">{{error}}这是服务端的配置问题，不是你操作错了。</view>
+      <button class="btn btn-ghost" style="margin-top: 32rpx" bindtap="onBack">返回</button>
+    </view>
+  </block>
+
+  <!-- ===== 其他错误 ===== -->
+  <block wx:elif="{{errKind === 'other'}}">
+    <view class="card card-lit state">
+      <view class="state-mark">·</view>
+      <view class="state-title">没讲成</view>
+      <view class="state-desc">{{error}}</view>
+      <button class="btn" style="margin-top: 32rpx" bindtap="onRetry">再试一次</button>
+    </view>
+  </block>
+
+  <!-- ===== 讲解内容 ===== -->
+  <block wx:else>
+    <view class="ai-head rise">
+      <view class="ai-avatar">
+        <view class="ai-glyph">AI</view>
+      </view>
+      <view class="ai-head-text">
+        <view class="ai-title">讲解</view>
+        <view class="ai-sub">针对你这一步，不是泛泛而谈</view>
+      </view>
+    </view>
+
+    <view class="card card-lit rise-1 rise">
+      <math-text segments="{{segs}}" />
+    </view>
+
+    <view class="actions">
+      <button class="btn btn-ghost" bindtap="onBack">看完了</button>
+    </view>
+  </block>
 </view>

@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "答题",
+  "usingComponents": {
+    "math-text": "/components/math-text/index"
+  }
+}

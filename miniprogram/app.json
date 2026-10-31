@@ -4,6 +4,7 @@
     "pages/review/index",
     "pages/quiz/index",
     "pages/mine/index",
+    "pages/answer/index",
     "pages/login/index",
     "pages/explain/index"
   ],

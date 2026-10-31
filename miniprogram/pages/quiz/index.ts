@@ -174,6 +174,15 @@ Page({
     }
   },
 
+  /** 进答题页。
+   *  bindtap 挂在 button 上，而展开/收起的 onToggle 挂在卡片头部的
+   *  .q-head 上 —— 两者不是父子关系，所以点按钮不会连带把卡片收起。 */
+  onOpenAnswer(e: any) {
+    const qid = e.currentTarget.dataset.qid;
+    if (!qid) return;
+    wx.navigateTo({ url: `/pages/answer/index?qid=${encodeURIComponent(qid)}` });
+  },
+
   goLogin() {
     wx.reLaunch({ url: '/pages/login/index' });
   },

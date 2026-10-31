@@ -104,34 +104,6 @@
   opacity: 0.85;
 }
 
-/* ---------- 操作区 ----------
- *
- * ★ 固定在屏幕底部，不跟着内容流走。
- *   一开始用的是 `margin-top: auto` 把操作区推到容器底部 —— 那是
- *   桌面思路：卡片一长（解答题的解析可以很长），四档评分就被顶到
- *   屏幕外面，用户得先滚到底才能评分。而「评分」是这一屏最高频的
- *   动作，它不该需要滚动才能找到。
- *
- * ★ bottom: 0 不会压住 tabBar：小程序里 tabBar 是原生的，
- *   webview 的可视区本来就止于 tabBar 上沿。
- *
- * ★ 上沿加一段渐变遮罩，让下面的内容「淡出」而不是被硬切一刀。
- */
-.actions {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 10;
-  padding: 24rpx 32rpx 26rpx;
-  background: linear-gradient(
-    180deg,
-    rgba(8, 9, 15, 0) 0%,
-    rgba(8, 9, 15, 0.82) 26%,
-    rgba(8, 9, 15, 0.97) 55%,
-    #08090f 100%
-  );
-}
 
 .rate-hint {
   text-align: center;

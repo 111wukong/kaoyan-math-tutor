@@ -32,6 +32,7 @@ import appRoutes from './routes/app.js';
 import adminAppRoutes from './routes/adminApp.js';
 import { ensureAppConfig } from './lib/appConfig.js';
 import { warm as warmMath } from './lib/renderMath.js';
+import { startPushScheduler } from './lib/push.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -395,6 +396,11 @@ try {
       ? `公式渲染已预热（${Date.now() - t0}ms）`
       : '公式渲染预热失败 —— 首个公式请求会慢一些，且 PNG 可能不可用');
   });
+
+  /* ---------- 订阅消息定时任务 ----------
+   * 每 10 分钟看一次「现在是不是该推的小时」，是就推一轮。
+   * 轮询而不是精确定时：进程中途重启时精确定时器会丢，轮询不会。 */
+  startPushScheduler(app.log);
 
   /* ---------- 上线前的两条提醒 ----------
    *

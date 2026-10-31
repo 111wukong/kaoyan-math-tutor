@@ -546,6 +546,63 @@ function PushTab({
   patch: <K extends keyof AppConfig>(k: K, v: Partial<AppConfig[K]>) => void;
   push?: { stats: { total: number; ok: number; failed: number }; subscribers: number; withQuota: number; subs: { email: string; quota_left: number; granted: number }[]; logs: { id: number; email: string | null; ok: number; errcode: number | null; errmsg: string | null; at: string }[] } | null;
 }) {
+  /* payload 用 JSON 文本框编辑。
+   *
+   * 为什么不做成「字段名 + 内容」两个输入框的列表：模板字段数量不定
+   * （有的模板 2 个、有的 5 个），做固定数量的输入框就得猜。JSON 虽然
+   * 对非技术用户不友好，但它是唯一能表达任意字段集合的形式，
+   * 而且填错时能立刻报「第几个字符解析失败」。 */
+  const [payloadText, setPayloadText] = useState(() => JSON.stringify(draft.push.payload || {}, null, 2));
+  const [payloadErr, setPayloadErr] = useState('');
+  const [running, setRunning] = useState<'' | 'dry' | 'real'>('');
+  const [runResult, setRunResult] = useState<string>('');
+
+  /* 外部配置被重置（比如点了「刷新」）时同步回来。
+   * 用 draft 里那份的序列化结果做依赖，而不是对象本身 ——
+   * 对象每次渲染都是新引用，会无限同步。 */
+  const serialized = JSON.stringify(draft.push.payload || {});
+  useEffect(() => {
+    setPayloadText(JSON.stringify(draft.push.payload || {}, null, 2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serialized]);
+
+  const onPayloadChange = (v: string) => {
+    setPayloadText(v);
+    try {
+      const parsed = JSON.parse(v);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        setPayloadErr('必须是一个对象，形如 {"thing1": "今天有 {due} 张卡片到期"}');
+        return;
+      }
+      for (const [k, val] of Object.entries(parsed)) {
+        if (typeof val !== 'string') {
+          setPayloadErr(`字段 ${k} 的值必须是字符串`);
+          return;
+        }
+      }
+      setPayloadErr('');
+      patch('push', { payload: parsed as Record<string, string> });
+    } catch (e: any) {
+      setPayloadErr('JSON 解析失败：' + (e?.message || ''));
+    }
+  };
+
+  const run = async (dryRun: boolean) => {
+    setRunning(dryRun ? 'dry' : 'real');
+    setRunResult('');
+    try {
+      const r = await api.admin.app.runPush(dryRun);
+      if (r.error) setRunResult('失败：' + r.error);
+      else if (r.skipped) setRunResult('跳过：' + (r.reason || ''));
+      else if (dryRun) setRunResult(`试跑：会推给 ${r.candidates ?? 0} 个人（没有真的发）`);
+      else setRunResult(`已推送：成功 ${r.sent ?? 0} · 失败 ${r.failed ?? 0}`);
+    } catch (e: any) {
+      setRunResult('请求失败：' + (e?.message || ''));
+    } finally {
+      setRunning('');
+    }
+  };
+
   return (
     <div className="space-y-5">
       <Panel className="p-5">
@@ -588,6 +645,53 @@ function PushTab({
             placeholder="pages/review/index"
             hint="必须是小程序里真实存在的页面路径，否则点击会白屏。"
           />
+
+          {/* 模板字段映射 */}
+          <div className="sm:col-span-2">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[12.5px] font-medium text-fg-soft">模板字段映射</span>
+              <span className="text-[11px] text-fg-mute">
+                占位符：{'{due}'} {'{streak}'} {'{date}'} {'{time}'} {'{name}'}
+              </span>
+            </div>
+            <textarea
+              value={payloadText}
+              onChange={(e) => onPayloadChange(e.target.value)}
+              rows={5}
+              spellCheck={false}
+              className={cn(
+                'w-full resize-y rounded-xl border bg-veil/4 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-fg outline-none',
+                payloadErr ? 'border-rose-400/50' : 'border-hairline focus:border-cyan-400/40',
+              )}
+            />
+            {payloadErr ? (
+              <p className="mt-1.5 text-[11.5px] text-rose-300">{payloadErr}</p>
+            ) : (
+              <p className="mt-1.5 text-[11.5px] leading-relaxed text-fg-mute">
+                键是你在公众平台选的模板里的字段名（thing1 / time2…），值是内容。
+                填错的话微信会返回 47003「参数不匹配」，那句话看不出是字段名的问题 —— 所以先试跑。
+              </p>
+            )}
+          </div>
+
+          {/* 手动触发 */}
+          <div className="sm:col-span-2 flex flex-wrap items-center gap-2 border-t border-hairline pt-4">
+            <Button variant="outline" size="sm" onClick={() => run(true)} disabled={running !== ''} loading={running === 'dry'}>
+              试跑（不发）
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => run(false)} disabled={running !== ''} loading={running === 'real'}>
+              立即推送一次
+            </Button>
+            <span className="text-[11.5px] text-fg-mute">
+              定时任务每天 {String(draft.push.hour).padStart(2, '0')}:00 自动跑
+            </span>
+          </div>
+
+          {runResult && (
+            <div className="sm:col-span-2 rounded-xl border border-cyan-400/20 bg-cyan-400/8 px-3 py-2 text-[12px] text-cyan-100/90">
+              {runResult}
+            </div>
+          )}
         </div>
       </Panel>
 

@@ -55,11 +55,17 @@ export default async function studyRoutes(fastify) {
           context: { type: 'string' },
           /* 用户自评的结果。只有解答/证明题会读它。 */
           selfCorrect: { type: 'boolean' },
+          /* 单题用时（秒）。客户端计时后上报，用来区分
+           * 「记住了」和「现场推出来的」—— 同样答对，含义完全不同。 */
+          seconds: { type: 'integer', minimum: 0, maximum: 36000 },
         },
       },
     },
   }, async (req, reply) => {
-    const { qid, answer, context = 'quiz', selfCorrect } = req.body;
+    const { qid, answer, context = 'quiz', selfCorrect, seconds } = req.body;
+    /* 用时做上限截断：客户端可能因为切后台/断点续答报一个离谱的数，
+     * 那种值进了统计会把「平均用时」彻底带偏。一小时以上按一小时算。 */
+    const spent = Math.max(0, Math.min(3600, Number(seconds) || 0));
     const q = db.prepare('SELECT * FROM questions WHERE id = ?').get(qid);
     if (!q) return reply.code(404).send({ error: '题目不存在' });
 
@@ -97,9 +103,9 @@ export default async function studyRoutes(fastify) {
       const xpInfo = answerXp(req.userId, qid, q.kid, { todayStr: today });
 
       const attemptId = 'a_' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e9).toString(36);
-      db.prepare(`INSERT INTO attempts (id,user_id,qid,kid,answer,correct,context,date,ts)
-        VALUES (?,?,?,?,?,?,?,?,?)`)
-        .run(attemptId, req.userId, qid, q.kid, String(answer ?? ''), correct ? 1 : 0, context, today, Date.now());
+      db.prepare(`INSERT INTO attempts (id,user_id,qid,kid,answer,correct,context,date,ts,seconds)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`)
+        .run(attemptId, req.userId, qid, q.kid, String(answer ?? ''), correct ? 1 : 0, context, today, Date.now(), spent);
 
       // 聚合：node
       db.prepare(`INSERT INTO stats_node (user_id,kid,n,c,ts) VALUES (?,?,1,?,?)

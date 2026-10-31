@@ -1,0 +1,154 @@
+<view class="page answer">
+
+  <!-- ===== 顶栏：题型 + 计时 ===== -->
+  <view class="top">
+    <view class="pill pill-violet">{{typeLabel || '题目'}}</view>
+    <view class="timer">
+      <view class="timer-dot"></view>
+      <text class="timer-text">{{timerText}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card card-lit">
+    <view class="skeleton" style="height: 30rpx; width: 92%"></view>
+    <view class="skeleton" style="height: 30rpx; width: 74%; margin-top: 16rpx"></view>
+  </view>
+
+  <view wx:elif="{{error}}" class="card card-lit">
+    <view class="card-title">加载失败</view>
+    <view class="card-desc">{{error}}</view>
+  </view>
+
+  <block wx:else>
+    <!-- ===== 题干 ===== -->
+    <view class="card card-hero card-lit rise">
+      <math-text segments="{{stemSegs}}" />
+    </view>
+
+    <!-- ===== 作答区 ===== -->
+    <block wx:if="{{phase === 'answer'}}">
+
+      <!-- 单选 / 多选 -->
+      <view wx:if="{{type === 'choice' || type === 'multi'}}" class="opts">
+        <view
+          wx:for="{{opts}}"
+          wx:key="k"
+          class="opt {{item.on ? 'opt-on' : ''}}"
+          data-k="{{item.k}}"
+          bindtap="onPickOption"
+        >
+          <view class="opt-key">{{item.k}}</view>
+          <view class="opt-body"><math-text segments="{{item.seg}}" /></view>
+        </view>
+        <view wx:if="{{type === 'multi'}}" class="hint">多选题：选完点下面的按钮提交</view>
+      </view>
+
+      <!-- 判断 -->
+      <view wx:elif="{{type === 'judge'}}" class="judge">
+        <view
+          wx:for="{{judgeOptions}}"
+          wx:key="key"
+          class="judge-btn {{picked[0] === item.key ? 'judge-on' : ''}}"
+          data-k="{{item.key}}"
+          bindtap="onJudge"
+        >{{item.label}}</view>
+      </view>
+
+      <!-- 填空 -->
+      <view wx:elif="{{type === 'blank'}}" class="card">
+        <view class="card-title">你的答案</view>
+        <input
+          class="input"
+          value="{{text}}"
+          placeholder="填答案，分数写 1/3，根号写 sqrt(2)"
+          bindinput="onInput"
+          confirm-type="done"
+        />
+      </view>
+
+      <!-- 解答 / 证明 -->
+      <view wx:else class="card">
+        <view class="card-title">写下你的过程</view>
+        <view class="card-desc">写多少算多少。提交后对照评分点自己判 —— 解答题没有自动判分。</view>
+        <textarea
+          class="textarea"
+          value="{{text}}"
+          placeholder="关键步骤写出来就行，不用抄题"
+          maxlength="-1"
+          bindinput="onInput"
+        />
+      </view>
+    </block>
+
+    <!-- ===== 亮答案 / 结果 ===== -->
+    <block wx:if="{{phase !== 'answer'}}">
+
+      <!-- 判定条 -->
+      <view wx:if="{{phase === 'done'}}" class="verdict {{result.correct ? 'v-ok' : 'v-bad'}} rise">
+        <view class="verdict-mark">{{result.correct ? '✓' : '✕'}}</view>
+        <view class="verdict-body">
+          <view class="verdict-title">{{result.correct ? '答对了' : '答错了'}}</view>
+          <view class="verdict-sub">
+            <text>{{result.xp ? '+' + result.xp + ' XP' : '这次没有 XP'}}</text>
+            <text wx:if="{{result.xpNote}}"> · {{result.xpNote}}</text>
+            <text wx:if="{{result.combo.combo > 1}}"> · 连击 {{result.combo.combo}}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 解答题自评提示 -->
+      <view wx:if="{{phase === 'reveal'}}" class="self-hint rise">
+        对照下面的参考答案和评分点，你觉得自己做对了吗？
+      </view>
+
+      <!-- 答案 + 评分点 -->
+      <view class="card rise">
+        <view class="block-label">参考答案</view>
+        <math-text segments="{{answerSegs}}" />
+
+        <block wx:if="{{stepSegs.length}}">
+          <view class="block-label" style="margin-top: 28rpx">评分点</view>
+          <view wx:for="{{stepSegs}}" wx:key="index" class="step">
+            <view class="step-pts">{{stepPts[index]}} 分</view>
+            <view class="step-body"><math-text segments="{{item}}" /></view>
+          </view>
+        </block>
+      </view>
+
+      <!-- 解析 -->
+      <view wx:if="{{analysisSegs.length}}" class="card rise">
+        <view class="block-label">解析</view>
+        <math-text segments="{{analysisSegs}}" />
+      </view>
+
+      <!-- 我的作答 -->
+      <view wx:if="{{result.myAnswer}}" class="card rise">
+        <view class="block-label">你的作答</view>
+        <view class="my-answer">{{result.myAnswer}}</view>
+      </view>
+    </block>
+  </block>
+
+  <!-- ===== 底部操作 ===== -->
+  <view wx:if="{{!loading && !error && q}}" class="actions">
+    <block wx:if="{{phase === 'answer'}}">
+      <button class="btn" bindtap="onSubmit" loading="{{submitting}}" disabled="{{submitting}}">
+        {{selfGraded ? '写完了，看答案' : '提交答案'}}
+      </button>
+    </block>
+
+    <block wx:elif="{{phase === 'reveal'}}">
+      <view class="self-row">
+        <view class="self-btn self-bad" data-ok="0" bindtap="onSelf">做错了</view>
+        <view class="self-btn self-ok" data-ok="1" bindtap="onSelf">做对了</view>
+      </view>
+    </block>
+
+    <block wx:else>
+      <view class="self-row">
+        <button class="btn btn-ghost" data-qid="{{q.id}}" bindtap="onExplain">AI 讲解</button>
+        <button class="btn btn-ghost" bindtap="onBack">返回题库</button>
+      </view>
+    </block>
+  </view>
+</view>

@@ -1,0 +1,105 @@
+/* AI 讲解
+ *
+ * 头部做一点「有东西在思考」的感觉：一个会呼吸的光圈。
+ * 不用打字机效果 —— 讲解要一次渲完（公式得先切段），
+ * 逐字吐反而会让公式图一块块跳出来。
+ */
+
+.ai-head {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 8rpx 4rpx 28rpx;
+}
+
+.ai-avatar {
+  position: relative;
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(94, 234, 212, 0.26) 0%, rgba(139, 127, 240, 0.30) 100%);
+  border: 1rpx solid rgba(255, 255, 255, 0.16);
+  flex-shrink: 0;
+}
+
+.ai-glyph {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #eafffb;
+  letter-spacing: 1rpx;
+}
+
+/* 加载时在头像外圈画一个扩散的光环 */
+.ai-pulse {
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: aipulse 1.5s ease-in-out infinite;
+}
+
+@keyframes aipulse {
+  0%, 100% { opacity: 1; transform: scale(0.72); }
+  50% { opacity: 0.4; transform: scale(1.06); }
+}
+
+.ai-head-text {
+  min-width: 0;
+}
+
+.ai-title {
+  font-size: 32rpx;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.ai-sub {
+  margin-top: 6rpx;
+  font-size: 23rpx;
+  color: var(--fg-mute);
+  line-height: 1.6;
+}
+
+/* ---------- 状态卡 ---------- */
+.state {
+  text-align: center;
+  padding: 60rpx 40rpx;
+}
+
+/* 状态标记：一个淡色圆点，替代图标。
+   用 ✓ / ✕ 会带「成功/失败」的暗示，而这里多半不是失败。 */
+.state-mark {
+  width: 56rpx;
+  height: 56rpx;
+  margin: 0 auto 26rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+  border: 2rpx solid rgba(255, 255, 255, 0.14);
+  color: var(--fg-mute);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30rpx;
+  line-height: 1;
+}
+
+.state-title {
+  font-size: 34rpx;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.state-desc {
+  margin-top: 14rpx;
+  font-size: 25rpx;
+  line-height: 1.75;
+  color: var(--fg-mute);
+}
+
+/* 底部按钮让位（讲解页只有一颗按钮，用 .actions 的固定条） */
+.page {
+  padding-bottom: 200rpx;
+}

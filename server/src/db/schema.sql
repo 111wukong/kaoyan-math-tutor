@@ -208,7 +208,11 @@ CREATE TABLE IF NOT EXISTS attempts (
   /* 错因归类。空串 = 没判过（答对、或还没跑 AI 判定）。
    * 为什么值得单开一列：答错和答错不是一回事 —— 「概念混淆」要回去补前置，
    * 「计算失误」只需要练熟练度。两者策略相反，混在一个 correct=0 里就分不出来。 */
-  error_type TEXT NOT NULL DEFAULT ''
+  error_type TEXT NOT NULL DEFAULT '',
+  /* 这道题花了多少秒。0 = 客户端没报（老客户端 / 直接调接口）。
+   * 为什么值得记：同样是答对，20 秒和 3 分钟说明的掌握程度完全不同 ——
+   * 前者是记住了，后者是现场推出来的。没有这一列，「熟练度」只能靠猜。 */
+  seconds INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_user_ts ON attempts(user_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_attempts_user_kid ON attempts(user_id, kid);

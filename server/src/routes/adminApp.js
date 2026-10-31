@@ -27,6 +27,7 @@ import { db } from '../db/index.js';
 import { getConfig, saveConfig, previewConfig, DEFAULTS } from '../lib/appConfig.js';
 import { usageOverview, dailyLimitFor } from '../lib/llm.js';
 import { cacheStats, clearCache, pngAvailable, warm } from '../lib/renderMath.js';
+import { runPush } from '../lib/push.js';
 
 function audit(req, action, { target = null, detail = {} } = {}) {
   try {
@@ -96,6 +97,25 @@ function validateConfig(next) {
      * 那种配置下每次推送都会失败，而且错误码很难懂。 */
     if (next.push.on && !String(next.push.templateId || '').trim()) {
       errs.push('开启推送时必须填写订阅消息模板 ID');
+    }
+    /* 模板字段映射：必须是「字段名 → 字符串」的对象。
+     * 校验得严一点，因为这里填错的报错（errcode 47003）在微信那边
+     * 完全看不出是字段名的问题，只能靠这里挡住。 */
+    if (next.push.payload !== undefined) {
+      const p = next.push.payload;
+      if (!p || typeof p !== 'object' || Array.isArray(p)) {
+        errs.push('push.payload 必须是「字段名 → 内容」的对象');
+      } else {
+        for (const [k, v] of Object.entries(p)) {
+          if (!k || typeof v !== 'string') {
+            errs.push(`push.payload.${k || '(空字段名)'} 的值必须是字符串`);
+            break;
+          }
+        }
+        if (next.push.on && !Object.keys(p).length) {
+          errs.push('开启推送时至少要配一个模板字段');
+        }
+      }
     }
   }
 
@@ -326,6 +346,26 @@ export default async function adminAppRoutes(fastify) {
       subs,
       logs,
     };
+  });
+
+  /* ============ 手动跑一轮推送 ============
+   *
+   * 定时任务在 lib/push.js 里，每天 push.hour 点跑一次。这个接口是
+   * 给「配好了想立刻验证」用的。
+   *
+   * ★ dryRun 很重要：模板字段名填错时，微信返回 47003「参数不匹配」，
+   *   那句话完全看不出是字段名的问题。先 dryRun 确认「有几个人会被推」，
+   *   再真发 —— 比一次发给 20 个人然后全是失败要好。 */
+  fastify.post('/api/admin/app/push/run', {
+    preHandler: fastify.requireAdmin,
+    schema: {
+      body: { type: 'object', properties: { dryRun: { type: 'boolean' } } },
+    },
+  }, async (req) => {
+    const dryRun = Boolean(req.body && req.body.dryRun);
+    const r = await runPush({ force: true, dryRun });
+    if (!dryRun) audit(req, 'app_push_run', { detail: r });
+    return r;
   });
 
   /* ============ 渲染缓存 ============ */
