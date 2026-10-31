@@ -1,6 +1,6 @@
 {
   "description": "研数 · 考研数学（微信小程序）",
-  "appid": "touristappid",
+  "appid": "wxc6cc3b18c184e99d",
   "compileType": "miniprogram",
   "libVersion": "3.5.5",
   "projectname": "yanshu-miniprogram",
@@ -11,8 +11,33 @@
     "enhance": true,
     "postcss": true,
     "minified": true,
-    "useCompilerPlugins": ["typescript"],
-    "ignoreDevUnusedFiles": false
+    "useCompilerPlugins": [
+      "typescript"
+    ],
+    "ignoreDevUnusedFiles": false,
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "condition": false,
+    "swc": false,
+    "disableSWC": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
   },
-  "condition": {}
+  "condition": {},
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "editorSetting": {}
 }

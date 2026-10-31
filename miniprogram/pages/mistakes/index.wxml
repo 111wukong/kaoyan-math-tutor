@@ -1,0 +1,134 @@
+<view class="page">
+
+  <!-- ===== 头部 ===== -->
+  <view class="page-head rise">
+    <view class="head-row">
+      <view>
+        <view class="page-title">错题本</view>
+        <view class="page-sub">{{total ? total + ' 道题错过，按考点归堆' : '做错的题会进这里'}}</view>
+      </view>
+      <view wx:if="{{total}}" class="count-badge">
+        <text class="count-num">{{total}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ===== 未登录 ===== -->
+  <view wx:if="{{needLogin}}" class="card card-lit">
+    <view class="card-title">还没登录</view>
+    <view class="card-desc">登录后才会看到你的错题记录。</view>
+    <button class="btn" style="margin-top: 32rpx" bindtap="goLogin">微信一键登录</button>
+  </view>
+
+  <!-- ===== 加载 ===== -->
+  <block wx:elif="{{loading}}">
+    <view wx:for="{{[1,2,3]}}" wx:key="*this" class="card">
+      <view class="skeleton" style="height: 26rpx; width: 30%"></view>
+      <view class="skeleton" style="height: 30rpx; width: 88%; margin-top: 22rpx"></view>
+      <view class="skeleton" style="height: 30rpx; width: 60%; margin-top: 14rpx"></view>
+    </view>
+  </block>
+
+  <!-- ===== 出错 ===== -->
+  <view wx:elif="{{error}}" class="card card-lit">
+    <view class="card-title">加载失败</view>
+    <view class="card-desc">{{error}}</view>
+    <button class="btn btn-ghost" style="margin-top: 28rpx" bindtap="onPullDownRefresh">重试</button>
+  </view>
+
+  <!-- ===== 空态 ===== -->
+  <view wx:elif="{{!rows.length && filter === 'all'}}" class="card card-lit empty-card rise">
+    <view class="empty-mark"></view>
+    <view class="empty-title">还没有错题</view>
+    <view class="empty-desc">
+      这不是坏事。去题库做几道，做错的会自动进这里 ——
+      比做对更值得回头看。
+    </view>
+    <button class="btn btn-ghost" style="margin-top: 34rpx" bindtap="goQuiz">去题库</button>
+  </view>
+
+  <!-- ===== 列表 ===== -->
+  <block wx:else>
+    <!-- 考点筛选 -->
+    <scroll-view wx:if="{{chips.length > 1}}" class="chips" scroll-x="{{true}}" show-scrollbar="{{false}}">
+      <view class="chip {{filter === 'all' ? 'chip-on' : ''}}" data-kid="all" bindtap="onFilter">
+        全部 <text class="chip-n">{{total}}</text>
+      </view>
+      <view
+        wx:for="{{chips}}"
+        wx:key="kid"
+        class="chip {{filter === item.kid ? 'chip-on' : ''}}"
+        data-kid="{{item.kid}}"
+        bindtap="onFilter"
+      >
+        {{item.title}} <text class="chip-n">{{item.n}}</text>
+      </view>
+    </scroll-view>
+
+    <view
+      wx:for="{{rows}}"
+      wx:key="qid"
+      class="card m-card {{item.open ? 'm-open' : ''}}"
+    >
+      <!-- 卡头：题型 + 错次数 + 展开箭头 -->
+      <view class="m-head" data-idx="{{index}}" bindtap="onToggle">
+        <view class="pill pill-violet">{{item.typeLabel}}</view>
+        <view class="wrong-badge">错 {{item.wrongCount}} 次</view>
+        <view class="m-kid">{{item.kidTitle || ''}}</view>
+        <view class="m-toggle {{item.open ? 'm-toggle-up' : ''}}"></view>
+      </view>
+
+      <!-- 题干 -->
+      <view class="m-stem">
+        <math-text wx:if="{{!item.rendering}}" segments="{{item.segs}}" />
+        <view wx:else>
+          <view class="skeleton" style="height: 30rpx; width: 90%"></view>
+          <view class="skeleton" style="height: 30rpx; width: 56%; margin-top: 14rpx"></view>
+        </view>
+      </view>
+
+      <!-- 展开：我的答案 vs 正确答案 -->
+      <view wx:if="{{item.open}}" class="m-more">
+        <view wx:if="{{item.options}}" class="opts">
+          <view wx:for="{{item.options}}" wx:for-item="o" wx:for-index="oi" wx:key="k" class="opt">
+            <view class="opt-key">{{o.k}}</view>
+            <view class="opt-body"><math-text segments="{{item.optSegs[oi]}}" /></view>
+          </view>
+        </view>
+
+        <!-- 对照：错在哪 -->
+        <view class="compare">
+          <view class="cmp-row cmp-bad">
+            <view class="cmp-label">你答的</view>
+            <view class="cmp-body">{{item.myAnswer || '（空）'}}</view>
+          </view>
+          <view class="cmp-row cmp-ok">
+            <view class="cmp-label">正确</view>
+            <view class="cmp-body"><math-text segments="{{item.ansSegs}}" /></view>
+          </view>
+        </view>
+
+        <block wx:if="{{item.stepSegs.length}}">
+          <view class="block-label" style="margin-top: 26rpx">评分点</view>
+          <!-- 内层循环必须用 wx:for-item 改名，否则 item 被遮蔽，
+               外面那张卡的 item.stepPts 就取不到了。 -->
+          <view wx:for="{{item.stepSegs}}" wx:for-item="stepSeg" wx:for-index="si" wx:key="si" class="step">
+            <view class="step-pts">{{item.stepPts[si]}} 分</view>
+            <view class="step-body"><math-text segments="{{stepSeg}}" /></view>
+          </view>
+        </block>
+
+        <block wx:if="{{item.anaSegs.length}}">
+          <view class="block-label" style="margin-top: 26rpx">解析</view>
+          <math-text segments="{{item.anaSegs}}" />
+        </block>
+
+        <button class="btn btn-sm redo" data-idx="{{index}}" catchtap="onRedo">重做这道</button>
+      </view>
+    </view>
+
+    <view wx:if="{{!rows.length}}" class="empty">
+      这个考点下没有错题了
+    </view>
+  </block>
+</view>

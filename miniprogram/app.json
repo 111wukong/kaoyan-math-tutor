@@ -4,6 +4,7 @@
     "pages/review/index",
     "pages/quiz/index",
     "pages/mine/index",
+    "pages/mistakes/index",
     "pages/answer/index",
     "pages/login/index",
     "pages/explain/index"
@@ -41,6 +42,12 @@
         "text": "题库",
         "iconPath": "assets/tabbar/bank.png",
         "selectedIconPath": "assets/tabbar/bank-on.png"
+      },
+      {
+        "pagePath": "pages/mistakes/index",
+        "text": "错题",
+        "iconPath": "assets/tabbar/mistakes.png",
+        "selectedIconPath": "assets/tabbar/mistakes-on.png"
       },
       {
         "pagePath": "pages/mine/index",

@@ -102,7 +102,50 @@ export async function renderText(text: string, color = INK): Promise<Segment[]> 
 export const fetchDue = () => get<{ cards: any[]; total: number }>('/api/cards/due');
 export const fetchDaily = () => get<any>('/api/study/daily');
 export const fetchStats = () => get<any>('/api/study/stats');
-export const fetchMistakes = (limit = 20) => get<any>(`/api/study/mistakes?limit=${limit}`);
+/** 错题本。返回的题带着答案、解析、评分点和「上次答的是什么」——
+ *  所以这一页能就地展开讲清楚，不用再点进答题页。 */
+export interface Mistake {
+  qid: string;
+  kid: string;
+  kidTitle: string | null;
+  chapterId: string | null;
+  stem: string;
+  type: string;
+  typeLabel: string;
+  selfGraded: boolean;
+  options: { k: string; t: string }[] | null;
+  answer: string;
+  analysis: string;
+  myAnswer: string | null;
+  steps: { t: string; pts: number }[] | null;
+  difficulty: number;
+  sourceType: string;
+  sourceYear: number | null;
+  /** 这道题一共错了几次 / 一共做过几次 */
+  wrongCount: number;
+  attempts: number;
+  lastAt: number;
+}
+
+export const fetchMistakes = (params: { kid?: string; limit?: number } = {}) => {
+  const qs = Object.keys(params)
+    .filter((k) => (params as any)[k] !== undefined && (params as any)[k] !== '')
+    .map((k) => `${k}=${encodeURIComponent(String((params as any)[k]))}`)
+    .join('&');
+  return get<{ mistakes: Mistake[]; total: number; byKid: Record<string, number> }>(
+    `/api/study/mistakes?${qs}`,
+  );
+};
+
+/** 卡片队列概况。upcoming 是「未来每天有多少张到期」，用来画 7 天预测。 */
+export const fetchCardSummary = () => get<{
+  due: number;
+  total: number;
+  upcoming: { due: string; n: number }[];
+  byType: { type: string; n: number }[];
+  leeches: number;
+  today: string;
+}>('/api/cards/summary');
 export const fetchTree = () => get<any>('/api/catalog/tree');
 export const fetchQuestions = (params: Record<string, string | number> = {}) => {
   const qs = Object.keys(params)

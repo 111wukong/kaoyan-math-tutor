@@ -79,6 +79,15 @@ Page({
 
     seconds: 0,
     timerText: '0 秒',
+
+    /* 连续练习：从题库/错题本进来时带一串剩余题目 id。
+     * 用 URL 传而不是存全局变量 —— 退出再进来还能续上，
+     * 也不用担心页面栈里的旧状态没清干净。 */
+    pos: 0,
+    total: 0,
+    rest: [] as string[],
+    /** 进度百分比，喂给顶部细进度条 */
+    pct: 0,
   },
 
   onLoad(query: any) {
@@ -87,6 +96,18 @@ Page({
       this.setData({ loading: false, error: '没有指定题目' });
       return;
     }
+
+    const pos = Number(query.pos) || 0;
+    const total = Number(query.total) || 0;
+    const rest = query.rest ? String(query.rest).split(',').filter(Boolean) : [];
+
+    this.setData({
+      pos,
+      total,
+      rest,
+      pct: pos && total ? Math.round(((pos - 1) / total) * 100) : 0,
+    });
+
     this.load(qid);
     this.startTimer();
   },
@@ -292,6 +313,23 @@ Page({
         stepPts: steps.map((s) => s.pts),
       });
     }
+  },
+
+  /** 下一题。用 redirectTo 而不是 navigateTo —— 连做二十道题时
+   *  navigateTo 会把二十个页面压在栈里，返回键要按二十次。 */
+  onNext() {
+    const rest = this.data.rest.slice();
+    const next = rest.shift();
+    if (!next) return;
+
+    const q = [
+      `qid=${encodeURIComponent(next)}`,
+      `pos=${this.data.pos + 1}`,
+      `total=${this.data.total}`,
+      rest.length ? `rest=${encodeURIComponent(rest.join(','))}` : '',
+    ].filter(Boolean).join('&');
+
+    wx.redirectTo({ url: `/pages/answer/index?${q}` });
   },
 
   onBack() {

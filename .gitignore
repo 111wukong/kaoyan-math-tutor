@@ -22,6 +22,9 @@ server/data/
 .env.*
 !.env.example
 
+# 微信小程序开发者工具私有配置
+miniprogram/project.private.config.json
+
 # 系统垃圾
 .DS_Store
 Thumbs.db

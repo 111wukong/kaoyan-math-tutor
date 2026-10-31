@@ -9,8 +9,13 @@
     </view>
   </view>
 
+  <!-- ===== 进度条（连续练习时显示）===== -->
+  <view wx:if="{{total > 0}}" class="prog-line">
+    <view class="prog-fill" style="width: {{pct}}%"></view>
+    <text class="prog-text">{{pos}} / {{total}}</text>
+  </view>
+
   <view wx:if="{{loading}}" class="card card-lit">
-    <view class="skeleton" style="height: 30rpx; width: 92%"></view>
     <view class="skeleton" style="height: 30rpx; width: 74%; margin-top: 16rpx"></view>
   </view>
 
@@ -147,7 +152,8 @@
     <block wx:else>
       <view class="self-row">
         <button class="btn btn-ghost" data-qid="{{q.id}}" bindtap="onExplain">AI 讲解</button>
-        <button class="btn btn-ghost" bindtap="onBack">返回题库</button>
+        <button wx:if="{{rest.length}}" class="btn" bindtap="onNext">下一题</button>
+        <button wx:else class="btn btn-ghost" bindtap="onBack">返回</button>
       </view>
     </block>
   </view>

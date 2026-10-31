@@ -9,6 +9,31 @@
   padding-bottom: 300rpx;
 }
 
+/* ---------- 连续练习进度条 ---------- */
+.prog-line {
+  position: relative;
+  height: 6rpx;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 3rpx;
+  margin-bottom: 18rpx;
+  overflow: hidden;
+}
+
+.prog-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-light));
+  border-radius: 3rpx;
+  transition: width 0.35s ease;
+}
+
+.prog-text {
+  position: absolute;
+  right: 0;
+  top: -28rpx;
+  font-size: 20rpx;
+  color: var(--fg-mute);
+}
+
 /* ---------- 顶栏 ---------- */
 .top {
   display: flex;
@@ -178,28 +203,6 @@
   color: #fde68a;
   background: rgba(251, 191, 36, 0.09);
   border: 1rpx solid rgba(251, 191, 36, 0.24);
-}
-
-/* ---------- 评分点 ---------- */
-.step {
-  display: flex;
-  gap: 16rpx;
-  padding: 18rpx 0;
-  border-top: 1rpx solid var(--hairline);
-}
-
-.step-pts {
-  flex-shrink: 0;
-  min-width: 76rpx;
-  font-size: 22rpx;
-  color: var(--accent);
-  opacity: 0.85;
-  padding-top: 4rpx;
-}
-
-.step-body {
-  flex: 1;
-  min-width: 0;
 }
 
 /* ---------- 我的作答 ---------- */

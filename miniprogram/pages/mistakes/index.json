@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "错题本",
+  "enablePullDownRefresh": true,
+  "usingComponents": {
+    "math-text": "/components/math-text/index"
+  }
+}

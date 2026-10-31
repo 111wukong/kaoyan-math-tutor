@@ -178,9 +178,19 @@ Page({
    *  bindtap 挂在 button 上，而展开/收起的 onToggle 挂在卡片头部的
    *  .q-head 上 —— 两者不是父子关系，所以点按钮不会连带把卡片收起。 */
   onOpenAnswer(e: any) {
-    const qid = e.currentTarget.dataset.qid;
-    if (!qid) return;
-    wx.navigateTo({ url: `/pages/answer/index?qid=${encodeURIComponent(qid)}` });
+    const idx = Number(e.currentTarget.dataset.idx);
+    const row = this.data.rows[idx];
+    if (!row) return;
+
+    /* 把后面几道题一起带过去，答完可以一路「下一题」。 */
+    const rest = this.data.rows.slice(idx + 1).map((r) => r.id);
+    const q = [
+      `qid=${encodeURIComponent(row.id)}`,
+      `pos=${idx + 1}`,
+      `total=${this.data.rows.length}`,
+      rest.length ? `rest=${encodeURIComponent(rest.join(','))}` : '',
+    ].filter(Boolean).join('&');
+    wx.navigateTo({ url: `/pages/answer/index?${q}` });
   },
 
   goLogin() {

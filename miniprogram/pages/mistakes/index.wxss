@@ -1,0 +1,222 @@
+/* 错题本
+ *
+ * 这一页的信息密度比题库更高：用户是来「快速扫自己错在哪」的，
+ * 所以卡头一行塞了题型、错次数、考点三样，题干只留一行半的呼吸。
+ */
+
+/* ---------- 头部计数 ---------- */
+.head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.count-badge {
+  flex-shrink: 0;
+  min-width: 92rpx;
+  height: 72rpx;
+  padding: 0 22rpx;
+  border-radius: 22rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(248, 113, 113, 0.10);
+  border: 1rpx solid rgba(248, 113, 113, 0.26);
+}
+
+.count-num {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #fca5a5;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 考点筛选 ---------- */
+.chips {
+  display: flex;
+  white-space: nowrap;
+  margin: 0 -32rpx 24rpx;
+  padding: 0 32rpx;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  height: 64rpx;
+  padding: 0 26rpx;
+  margin-right: 14rpx;
+  border-radius: 32rpx;
+  font-size: 25rpx;
+  color: var(--fg-mute);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid var(--hairline);
+  flex-shrink: 0;
+  transition: all 0.18s ease;
+}
+
+.chip-on {
+  color: #04211d;
+  font-weight: 500;
+  background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
+  border-color: transparent;
+}
+
+/* 计数小字。选中态下要跟着变成深色，否则白底白字看不见。 */
+.chip-n {
+  font-size: 21rpx;
+  opacity: 0.72;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 错题卡 ---------- */
+.m-card {
+  padding: 26rpx 28rpx 28rpx;
+}
+
+.m-open {
+  border-color: rgba(248, 113, 113, 0.22);
+}
+
+.m-head {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+/* 错次数：红色小徽标。比「错 3 次」纯文字更抓眼 ——
+ * 这个数字正是用户点开这道题的理由。 */
+.wrong-badge {
+  flex-shrink: 0;
+  height: 40rpx;
+  padding: 0 14rpx;
+  border-radius: 12rpx;
+  display: flex;
+  align-items: center;
+  font-size: 21rpx;
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.10);
+  border: 1rpx solid rgba(248, 113, 113, 0.22);
+  font-variant-numeric: tabular-nums;
+}
+
+.m-kid {
+  flex: 1;
+  min-width: 0;
+  font-size: 22rpx;
+  color: var(--fg-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-toggle {
+  width: 14rpx;
+  height: 14rpx;
+  border-right: 3rpx solid var(--fg-mute);
+  border-bottom: 3rpx solid var(--fg-mute);
+  transform: rotate(45deg) translate(-3rpx, -3rpx);
+  transition: transform 0.22s ease;
+  flex-shrink: 0;
+}
+
+.m-toggle-up {
+  transform: rotate(-135deg) translate(-3rpx, -3rpx);
+}
+
+.m-stem {
+  margin-top: 18rpx;
+}
+
+.m-more {
+  margin-top: 26rpx;
+  padding-top: 26rpx;
+  border-top: 1rpx solid var(--hairline);
+  animation: fadeIn 0.24s ease both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- 对照区 ---------- */
+/* 左右两栏「你答的 / 正确」并排 —— 错题的价值就在于这个对照，
+ * 分开两段看会失去「差在哪」的冲击力。 */
+.compare {
+  margin-top: 24rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.cmp-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 16rpx;
+}
+
+.cmp-bad {
+  background: rgba(248, 113, 113, 0.075);
+  border: 1rpx solid rgba(248, 113, 113, 0.20);
+}
+
+.cmp-ok {
+  background: rgba(52, 211, 153, 0.075);
+  border: 1rpx solid rgba(52, 211, 153, 0.20);
+}
+
+.cmp-label {
+  flex-shrink: 0;
+  min-width: 76rpx;
+  font-size: 21rpx;
+  padding-top: 2rpx;
+}
+
+.cmp-bad .cmp-label { color: #fca5a5; }
+.cmp-ok .cmp-label { color: #6ee7b7; }
+
+.cmp-body {
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
+  color: var(--fg);
+  word-break: break-word;
+}
+
+/* ---------- 重做按钮 ---------- */
+.redo {
+  margin-top: 28rpx;
+  margin-left: auto;
+}
+
+/* ---------- 空态 ---------- */
+.empty-card {
+  text-align: center;
+  padding: 64rpx 40rpx;
+}
+
+/* 空标记：一个空心圆。和复习页的空态保持同一套视觉语言 */
+.empty-mark {
+  width: 64rpx;
+  height: 64rpx;
+  margin: 0 auto 28rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(255, 255, 255, 0.14);
+}
+
+.empty-title {
+  font-size: 36rpx;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.empty-desc {
+  margin-top: 12rpx;
+  font-size: 25rpx;
+  color: var(--fg-mute);
+  line-height: 1.75;
+}
