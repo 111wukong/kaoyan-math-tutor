@@ -130,9 +130,24 @@ miniprogram/
     ├── answer/                    ✅ 答题：计时、六题型、判分、XP、解答题两步自评
     ├── explain/                   ✅ AI 讲解（配额/配置/网络三类失败分开处理）
     ├── mistakes/                  ✅ 错题本：按知识点分组、就地展开、重做
+    ├── camera/                    ✅ 拍照识别：录题 + 整理笔记
     ├── mine/                      ✅ 个人状态、AI 用量、订阅授权、退出
     └── login/                     ✅ 微信一键登录（注册也是它）
 ```
+
+### 拍照识别
+
+两个入口都在「我的」页：
+
+- **拍照录题**：拍纸质题 → AI 识别题干/选项/答案/解析 → 一键生成复习卡片
+- **拍照整理笔记**：拍手写笔记 → AI 整理成结构化知识点 → 复制或生成卡片
+
+为什么用 `uploadFile` 而不是 base64 POST：手机拍照 1~3MB，base64 后 1.3~4MB，
+JSON body 太大容易超时。uploadFile 走 multipart，更稳定。
+
+服务端用 `@fastify/multipart` 接收图片，转 base64 后发给多模态模型
+（deepseek-chat、gpt-4o、claude-3 等）。控制台可以单独配 `visionModel`，
+和文本模型用同一个 base/key，只覆盖 model 名。
 
 ### 连续练习
 

@@ -59,6 +59,25 @@ export function resolveLlmFor(userId) {
 }
 
 /**
+ * 解析 vision（图片识别）用的模型配置。
+ *
+ * 逻辑：先走 resolveLlmFor 拿 base/key，再用 visionModel 覆盖 model。
+ * 为什么 model 可以单独覆盖：很多 vision 模型（gpt-4o、claude-3、
+ * deepseek-chat）和文本模型共用同一套 base/key，只是 model 名不同。
+ * 如果 visionModel 没配（空字符串），就复用文本模型的 model ——
+ * 假设它也支持 vision（deepseek-chat / gpt-4o 都支持）。
+ */
+export function resolveVisionLlm(userId) {
+  const cfg = resolveLlmFor(userId);
+  if (!cfg) return null;
+  const c = getConfig();
+  if (c.ai.visionModel && String(c.ai.visionModel).trim()) {
+    cfg.model = String(c.ai.visionModel).trim();
+  }
+  return cfg;
+}
+
+/**
  * 该用户当前生效的每日上限。
  *
  * 优先级：个人覆盖（users.ai_daily_limit，NULL 表示没设）> 全局默认。

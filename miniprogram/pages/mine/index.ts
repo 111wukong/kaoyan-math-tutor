@@ -105,4 +105,10 @@ Page({
       },
     });
   },
+
+  /** 进拍照识别页。 */
+  onCamera(e: any) {
+    const mode = e.currentTarget.dataset.mode;
+    wx.navigateTo({ url: `/pages/camera/index?mode=${mode}` });
+  },
 });

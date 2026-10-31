@@ -1,0 +1,140 @@
+/* 拍照识别页 */
+
+.camera {
+  padding-bottom: 180rpx;
+}
+
+/* ---------- 头部 ---------- */
+.cam-head {
+  padding: 8rpx 4rpx 28rpx;
+}
+
+.cam-title {
+  font-size: 36rpx;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.cam-sub {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: var(--fg-mute);
+  line-height: 1.6;
+}
+
+/* ---------- 预览区 ---------- */
+.preview-wrap {
+  position: relative;
+  width: 100%;
+  height: 480rpx;
+  border-radius: 20rpx;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1rpx solid var(--hairline);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-img {
+  width: 100%;
+  height: 100%;
+}
+
+/* 占位 */
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20rpx;
+  width: 100%;
+  height: 100%;
+}
+
+.ph-icon {
+  position: relative;
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 24rpx;
+  background: rgba(94, 234, 212, 0.10);
+  border: 2rpx solid rgba(94, 234, 212, 0.30);
+}
+
+.ph-cross-h {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 32rpx;
+  height: 4rpx;
+  background: var(--accent);
+  border-radius: 2rpx;
+}
+
+.ph-cross-v {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4rpx;
+  height: 32rpx;
+  background: var(--accent);
+  border-radius: 2rpx;
+}
+
+.ph-text {
+  font-size: 26rpx;
+  color: var(--fg-mute);
+}
+
+/* 加载蒙层 */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20rpx;
+  background: rgba(8, 9, 15, 0.72);
+  backdrop-filter: blur(4rpx);
+}
+
+.spinner {
+  width: 48rpx;
+  height: 48rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(94, 234, 212, 0.15);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.overlay-text {
+  font-size: 26rpx;
+  color: var(--fg-soft);
+}
+
+/* ---------- 结果文字 ---------- */
+.result-text {
+  margin-top: 16rpx;
+  font-size: 28rpx;
+  line-height: 1.85;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- 底部按钮 ---------- */
+.btn-row {
+  display: flex;
+  gap: 20rpx;
+}
+
+.btn-row .btn {
+  flex: 1;
+}

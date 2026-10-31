@@ -224,6 +224,13 @@ export const aiExplain = (qid: string) => post<{ ok: boolean; text: string; mode
  */
 export const aiGrade = (qid: string, answer: string) => post<any>('/api/ai/grade', { qid, answer });
 
+/** 从文本中提取复习卡片。拍照识别后调用，把识别结果转成结构化卡片。 */
+export const extractCards = (text: string, kid?: string) =>
+  post<{ cards: { id: string; title: string; front: string; back: string; type: string }[]; raw?: string }>(
+    '/api/ai/extract',
+    { text, kid },
+  );
+
 /* ---------- 订阅消息 ---------- */
 
 /** 调起订阅授权，然后把结果回报给服务端记额度。 */

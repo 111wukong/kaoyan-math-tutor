@@ -66,6 +66,30 @@
     </button>
   </view>
 
+  <!-- ===== 拍照工具 ===== -->
+  <view class="card rise-2 rise">
+    <view class="card-title">拍照工具</view>
+    <view class="card-desc">遇到纸质题或手写笔记，拍下来让 AI 帮你整理。</view>
+
+    <view class="tool-row" style="margin-top: 22rpx">
+      <view class="tool-item" bindtap="onCamera" data-mode="question">
+        <view class="tool-icon">
+          <view class="tool-cross-h"></view>
+          <view class="tool-cross-v"></view>
+        </view>
+        <view class="tool-label">拍照录题</view>
+      </view>
+      <view class="tool-item" bindtap="onCamera" data-mode="note">
+        <view class="tool-icon" style="background:rgba(139,127,240,0.10);border-color:rgba(139,127,240,0.30)">
+          <view class="tool-note-line"></view>
+          <view class="tool-note-line" style="width:18rpx"></view>
+          <view class="tool-note-line" style="width:28rpx"></view>
+        </view>
+        <view class="tool-label">整理笔记</view>
+      </view>
+    </view>
+  </view>
+
   <!-- ===== 账号 ===== -->
   <view class="card rise-3 rise">
     <view class="card-title">账号</view>

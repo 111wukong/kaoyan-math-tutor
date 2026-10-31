@@ -470,6 +470,13 @@ function AiTab({
             placeholder="deepseek-chat"
           />
           <Input
+            label="Vision 模型名（可选）"
+            value={draft.ai.visionModel}
+            onChange={(e) => patch('ai', { visionModel: e.target.value })}
+            placeholder="留空则复用上面的模型名"
+            hint="多模态图片识别专用。deepseek-chat、gpt-4o、claude-3 都支持 vision。"
+          />
+          <Input
             label="每用户每日调用上限"
             type="number"
             min={0}

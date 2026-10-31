@@ -108,7 +108,7 @@ export interface AppConfig {
   /** 功能开关。键名对应小程序里的入口，值只控制「显不显示」。 */
   features: Record<string, boolean>;
   bank: { version: number; baseUrl: string; renderedAt: string };
-  ai: { mode: 'server' | 'byok'; base: string; model: string; dailyCalls: number };
+  ai: { mode: 'server' | 'byok'; base: string; model: string; dailyCalls: number; visionModel: string };
   push: {
     on: boolean; templateId: string; hour: number; page: string;
     /** 模板字段映射：键是微信模板里的字段名（thing1 / time2…），

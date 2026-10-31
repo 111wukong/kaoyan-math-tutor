@@ -11,7 +11,7 @@
 import { db } from '../db/index.js';
 import { checkLlmBase, llmFetch } from '../lib/llmUrl.js';
 import { getConfig } from '../lib/appConfig.js';
-import { resolveLlmFor, consumeQuota, refundQuota } from '../lib/llm.js';
+import { resolveLlmFor, resolveVisionLlm, consumeQuota, refundQuota } from '../lib/llm.js';
 import { buildSnapshot, nodeMastery, getTree } from '../lib/game.js';
 import { ancestors } from '../lib/graph.js';
 import { answerIssue, normalizeAnswer, parseSteps, SELF_GRADED_TYPES, QUESTION_TYPES, TYPE_LABEL } from '../lib/judge.js';
@@ -236,6 +236,49 @@ async function llmOrError(req) {
   return { cfg, quota };
 }
 
+/** vision 专用的配置检查。和 llmOrError 一样，但用 resolveVisionLlm。 */
+async function visionLlmOrError(req) {
+  const cfg = resolveVisionLlm(req.userId);
+  const mode = getConfig().ai.mode;
+  const isCloud = mode === 'server' || cfg?.source === 'byok-cloud';
+
+  if (!cfg || !cfg.base || !cfg.model) {
+    return {
+      error: {
+        error: mode === 'server'
+          ? '服务端的模型配置不完整（管理员在「小程序控制台 → AI」里检查 Base、模型名和 Vision 模型名）。'
+          : '还没配置模型。去「设置 → 模型接入」填 Base URL 和模型名。',
+        code: 'NO_LLM',
+      },
+    };
+  }
+  if (isCloud && !cfg.key) {
+    return {
+      error: {
+        error: mode === 'server'
+          ? '服务端没有配置 SERVER_LLM_KEY，AI 功能暂时不可用。'
+          : '云端模型还没填 API Key。',
+        code: 'NO_LLM',
+      },
+    };
+  }
+  const baseErr = await checkLlmBase(cfg.base, { forCloud: isCloud });
+  if (baseErr) return { error: { error: baseErr, code: 'BAD_LLM_BASE' } };
+
+  const quota = consumeQuota(req.userId);
+  if (!quota.ok) {
+    return {
+      error: {
+        error: quota.error,
+        code: quota.code,
+        quota: { used: quota.used, limit: quota.limit, remaining: quota.remaining },
+      },
+    };
+  }
+  req.quotaConsumed = true;
+  return { cfg, quota };
+}
+
 export default async function aiRoutes(fastify) {
   /* ---------- 配额退还 ----------
    *
@@ -422,6 +465,92 @@ export default async function aiRoutes(fastify) {
         });
       }
       return { cards: saved, raw: saved.length ? undefined : content.slice(0, 500) };
+    } catch (e) {
+      return reply.code(502).send({ error: e.message });
+    }
+  });
+
+  /* ---------- 拍照识别（vision） ----------
+   *
+   * 小程序拍照/选图 → uploadFile 上传到这里 → 服务端把图片发给
+   * 多模态模型 → 返回识别的文本。
+   *
+   * 为什么不用 base64 直接 POST：手机拍照 1~3MB，base64 后 1.3~4MB，
+   * JSON body 太大容易超时。uploadFile 走 multipart，更稳定。
+   *
+   * ★ 模型必须支持 vision（deepseek-chat、gpt-4o、claude-3 等）。
+   *   如果配置的 model 不支持，控制台可以单独配 visionModel。
+   *   服务端只会尝试调用，不会事先校验「这个模型支不支持 vision」——
+   *   校验列表会过期，而且第三方兼容接口可能用的自定义模型名。 */
+  fastify.post('/api/ai/vision', {
+    config: { rateLimit: AI_LIMIT },
+  }, async (req, reply) => {
+    /* 1. 读文件 */
+    let data;
+    try {
+      data = await req.file();
+    } catch (e) {
+      return reply.code(400).send({ error: '没有收到图片文件，或文件超过 5MB。' });
+    }
+    if (!data) {
+      return reply.code(400).send({ error: '请上传一张图片。' });
+    }
+
+    /* 把 stream 读进 buffer */
+    const chunks = [];
+    for await (const chunk of data.file) {
+      chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
+    if (!buffer.length) {
+      return reply.code(400).send({ error: '图片文件为空。' });
+    }
+
+    /* 2. 配置与配额 */
+    const { cfg, error } = await visionLlmOrError(req);
+    if (error) return reply.code(400).send(error);
+
+    /* 3. 构造 prompt（从 multipart 的表单字段里取） */
+    const prompt = (data.fields?.prompt?.value || '').trim()
+      || '识别这张图片中的内容。如果是数学题，提取题干、选项（如果有）、答案和解析；如果是笔记，整理成结构化的知识点。用中文回答。';
+
+    /* 4. 调用 vision 模型（OpenAI-compatible 多模态格式） */
+    const mime = data.mimetype || 'image/jpeg';
+    const base64 = buffer.toString('base64');
+    try {
+      const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}),
+        },
+        body: JSON.stringify({
+          model: cfg.model,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: prompt },
+                { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } },
+              ],
+            },
+          ],
+          temperature: 0.2,
+          max_tokens: 2048,
+          stream: false,
+        }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        return reply.code(res.status).send({
+          error: `模型返回 ${res.status}${txt ? '：' + txt.slice(0, 200) : ''}`,
+        });
+      }
+
+      const j = await res.json();
+      const text = j.choices?.[0]?.message?.content || '';
+      return { text: text.trim() };
     } catch (e) {
       return reply.code(502).send({ error: e.message });
     }

@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 
 import { initSchema, health, DB_PATH, db } from './db/index.js';
@@ -205,6 +206,12 @@ await app.register(rateLimit, {
   global: true,
   max: RATE_LIMIT_MAX,
   timeWindow: '1 minute',
+});
+
+/* 文件上传：拍照录题 / 拍照整理笔记。
+ * 限制 5MB、单文件 —— 手机拍照压缩后一般在 200KB~1MB，足够。 */
+await app.register(multipart, {
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
 });
 
 /* ---------- 从请求里取会话令牌 ----------

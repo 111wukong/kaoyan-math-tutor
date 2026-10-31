@@ -6,6 +6,7 @@
     "pages/mine/index",
     "pages/mistakes/index",
     "pages/answer/index",
+    "pages/camera/index",
     "pages/login/index",
     "pages/explain/index"
   ],
