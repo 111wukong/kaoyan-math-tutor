@@ -1,0 +1,99 @@
+/* 我的页
+ *
+ * 顶部是一张「个人状态卡」：头像 + 名字 + 等级 + 三个数字。
+ * 下面按「用量 / 提醒 / 账号」分组，每组一张卡 —— 分组的边界
+ * 比一条分割线清楚，用户不用读文字就知道哪几项是一类的。
+ */
+
+/* ---------- 个人卡 ---------- */
+.profile {
+  padding: 34rpx 32rpx 30rpx;
+}
+
+.profile-row {
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+}
+
+/* 头像：渐变底 + 内圈描边。
+   不做成圆形照片，因为小程序拿不到微信头像（需要用户主动授权），
+   用首字 + 渐变反而更稳定、更统一。 */
+.avatar {
+  width: 104rpx;
+  height: 104rpx;
+  border-radius: 30rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(94, 234, 212, 0.28) 0%, rgba(139, 127, 240, 0.30) 100%);
+  border: 1rpx solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 24rpx rgba(94, 234, 212, 0.16);
+  flex-shrink: 0;
+}
+
+.avatar-initial {
+  font-size: 46rpx;
+  font-weight: 600;
+  color: #eafffb;
+}
+
+.who {
+  flex: 1;
+  min-width: 0;
+}
+
+.who-name {
+  font-size: 36rpx;
+  font-weight: 500;
+  color: var(--fg);
+  line-height: 1.3;
+}
+
+.who-mail {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: var(--fg-mute);
+  word-break: break-all;
+}
+
+.lv {
+  flex-shrink: 0;
+  padding: 8rpx 18rpx;
+  border-radius: 20rpx;
+  background: rgba(139, 127, 240, 0.14);
+  border: 1rpx solid rgba(139, 127, 240, 0.28);
+}
+
+.lv-num {
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #cfc9ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-title {
+  margin-top: 22rpx;
+  font-size: 25rpx;
+  color: var(--fg-soft);
+}
+
+/* 三格统计。用 app.wxss 的 .stats / .stat，只覆盖上间距 */
+.profile .stats {
+  margin-top: 28rpx;
+}
+
+/* ---------- 进度条过热 ---------- */
+.bar-fill-hot {
+  background: linear-gradient(90deg, #f87171, #fca5a5);
+}
+
+/* ---------- 页脚 ---------- */
+.foot {
+  margin-top: 40rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: var(--fg-mute);
+  opacity: 0.6;
+  letter-spacing: 1rpx;
+}

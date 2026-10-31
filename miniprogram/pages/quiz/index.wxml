@@ -1,0 +1,88 @@
+<view class="page">
+
+  <view class="page-head rise">
+    <view class="page-title">题库</view>
+    <view class="page-sub">{{total ? total + ' 道题，按题型筛' : '从考点里挑题做'}}</view>
+  </view>
+
+  <!-- ===== 筛选 ===== -->
+  <scroll-view class="filter" scroll-x="{{true}}" show-scrollbar="{{false}}">
+    <view
+      wx:for="{{filters}}"
+      wx:key="key"
+      class="filter-item {{filter === item.key ? 'filter-on' : ''}}"
+      data-key="{{item.key}}"
+      bindtap="onFilter"
+    >{{item.label}}</view>
+  </scroll-view>
+
+  <!-- ===== 未登录 ===== -->
+  <view wx:if="{{needLogin}}" class="card card-lit">
+    <view class="card-title">还没登录</view>
+    <view class="card-desc">登录后才能看到题库和你的错题。</view>
+    <button class="btn" style="margin-top: 32rpx" bindtap="goLogin">微信一键登录</button>
+  </view>
+
+  <!-- ===== 骨架 ===== -->
+  <block wx:elif="{{loading}}">
+    <view wx:for="{{[1,2,3]}}" wx:key="*this" class="card">
+      <view class="skeleton" style="height: 26rpx; width: 26%"></view>
+      <view class="skeleton" style="height: 30rpx; width: 90%; margin-top: 24rpx"></view>
+      <view class="skeleton" style="height: 30rpx; width: 64%; margin-top: 14rpx"></view>
+    </view>
+  </block>
+
+  <!-- ===== 出错 ===== -->
+  <view wx:elif="{{error}}" class="card card-lit">
+    <view class="card-title">加载失败</view>
+    <view class="card-desc">{{error}}</view>
+  </view>
+
+  <!-- ===== 列表 ===== -->
+  <block wx:else>
+    <view
+      wx:for="{{rows}}"
+      wx:key="id"
+      class="card q-card {{item.open ? 'q-open' : ''}}"
+    >
+      <view class="q-head" data-idx="{{index}}" bindtap="onToggle">
+        <view class="q-idx">{{index + 1}}</view>
+        <view class="pill pill-violet q-type">{{item.typeLabel}}</view>
+        <view class="dots">
+          <view wx:for="{{item.dots}}" wx:for-item="d" wx:key="i" class="dot {{d.on ? 'dot-on' : ''}}"></view>
+        </view>
+        <view class="q-toggle {{item.open ? 'q-toggle-up' : ''}}"></view>
+      </view>
+
+      <view class="q-stem">
+        <math-text wx:if="{{!item.rendering}}" segments="{{item.segs}}" />
+        <view wx:else>
+          <view class="skeleton" style="height: 30rpx; width: 88%"></view>
+          <view class="skeleton" style="height: 30rpx; width: 58%; margin-top: 14rpx"></view>
+        </view>
+      </view>
+
+      <!-- 展开：选项 + 答案 + 解析 -->
+      <view wx:if="{{item.open}}" class="q-more">
+        <view wx:if="{{item.options}}" class="opts">
+          <view wx:for="{{item.options}}" wx:for-item="o" wx:for-index="oi" wx:key="k" class="opt">
+            <view class="opt-key">{{o.k}}</view>
+            <view class="opt-body">
+              <math-text segments="{{item.optSegs[oi]}}" />
+            </view>
+          </view>
+        </view>
+
+        <view class="ans">
+          <view class="ans-label">答案与解析</view>
+          <math-text segments="{{item.ansSegs}}" />
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{!rows.length}}" class="empty">
+      这个题型下暂时没有题
+      <view class="empty-sub">换一个筛选看看</view>
+    </view>
+  </block>
+</view>

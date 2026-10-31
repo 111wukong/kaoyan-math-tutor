@@ -1,0 +1,58 @@
+{
+  "pages": [
+    "pages/today/index",
+    "pages/review/index",
+    "pages/quiz/index",
+    "pages/mine/index",
+    "pages/login/index",
+    "pages/explain/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "研数",
+    "navigationBarBackgroundColor": "#08090f",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#08090f",
+    "backgroundColorTop": "#08090f",
+    "backgroundColorBottom": "#08090f",
+    "backgroundTextStyle": "dark",
+    "enablePullDownRefresh": false
+  },
+  "tabBar": {
+    "color": "#6d7688",
+    "selectedColor": "#5eead4",
+    "backgroundColor": "#0b0d15",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/today/index",
+        "text": "今日",
+        "iconPath": "assets/tabbar/today.png",
+        "selectedIconPath": "assets/tabbar/today-on.png"
+      },
+      {
+        "pagePath": "pages/review/index",
+        "text": "复习",
+        "iconPath": "assets/tabbar/review.png",
+        "selectedIconPath": "assets/tabbar/review-on.png"
+      },
+      {
+        "pagePath": "pages/quiz/index",
+        "text": "题库",
+        "iconPath": "assets/tabbar/bank.png",
+        "selectedIconPath": "assets/tabbar/bank-on.png"
+      },
+      {
+        "pagePath": "pages/mine/index",
+        "text": "我的",
+        "iconPath": "assets/tabbar/mine.png",
+        "selectedIconPath": "assets/tabbar/mine-on.png"
+      }
+    ]
+  },
+  "networkTimeout": {
+    "request": 20000
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

@@ -1,0 +1,107 @@
+<view class="page">
+
+  <!-- ===== 顶部：招呼 + 日期 ===== -->
+  <view class="page-head rise">
+    <view class="head-row">
+      <view>
+        <view class="page-title">{{greeting}}</view>
+        <view class="page-sub">{{dateText}}</view>
+      </view>
+      <view wx:if="{{streak > 0}}" class="streak">
+        <view class="streak-flame"></view>
+        <text class="streak-num">{{streak}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ===== 维护 / 公告 ===== -->
+  <view wx:if="{{maintenance}}" class="banner banner-warn rise">
+    <text>{{maintenance.message}}</text>
+  </view>
+
+  <view wx:if="{{notice}}" class="banner {{notice.level === 'warn' ? 'banner-warn' : 'banner-info'}} rise">
+    <view class="notice-dot"></view>
+    <view class="notice-body">
+      <text class="notice-title">{{notice.title}}</text>
+      <text wx:if="{{notice.body}}" class="notice-text">{{notice.body}}</text>
+    </view>
+  </view>
+
+  <!-- ===== 未登录 ===== -->
+  <view wx:if="{{needLogin}}" class="card card-lit rise-1 rise">
+    <view class="card-title">还没登录</view>
+    <view class="card-desc">登录后才会看到你的复习队列和今日一练。</view>
+    <button class="btn" style="margin-top: 32rpx" bindtap="goLogin">微信一键登录</button>
+  </view>
+
+  <block wx:else>
+
+    <!-- ===== 主卡：待复习 ===== -->
+    <view class="card card-hero card-lit rise-1 rise">
+      <view class="card-row hero-top">
+        <view class="hero-label">
+          <text class="t-label">待复习</text>
+          <text class="t-label hero-sep">·</text>
+          <text class="t-label">{{levelTitle || '开始今天'}}</text>
+        </view>
+        <view class="pill pill-accent">{{xp}} XP</view>
+      </view>
+
+      <view class="hero-num-row">
+        <text class="t-display hero-num">{{due}}</text>
+        <text class="hero-unit">张卡片到期</text>
+      </view>
+
+      <!-- 等级进度：到下一级还差多少 -->
+      <view class="hero-progress">
+        <view class="bar">
+          <view class="bar-fill" style="width: {{levelPct}}%"></view>
+        </view>
+        <view class="progress-meta">
+          <text class="t-label">{{levelInto}} / {{levelNeed}}</text>
+          <text class="t-label">{{levelPct}}%</text>
+        </view>
+      </view>
+
+      <button class="btn hero-btn" bindtap="goReview" disabled="{{due === 0}}">
+        {{due > 0 ? '开始复习' : '今天没有到期的卡片'}}
+      </button>
+    </view>
+
+    <!-- ===== 今日一练 ===== -->
+    <view wx:if="{{quiz}}" class="card rise-2 rise">
+      <view class="card-row">
+        <view class="card-title">今日一练</view>
+        <view class="pill pill-violet">{{quiz.typeLabel}}</view>
+      </view>
+
+      <view class="quiz-stem">
+        <math-text wx:if="{{!loading}}" segments="{{quizSegs}}" />
+        <view wx:else class="quiz-sk">
+          <view class="skeleton" style="height: 30rpx; width: 88%"></view>
+          <view class="skeleton" style="height: 30rpx; width: 62%; margin-top: 16rpx"></view>
+        </view>
+      </view>
+
+      <view class="quiz-foot">
+        <view class="dots">
+          <view wx:for="{{quizDots}}" wx:key="i" class="dot {{item.on ? 'dot-on' : ''}}"></view>
+          <text class="t-label dots-label">难度</text>
+        </view>
+        <button class="btn btn-ghost btn-sm" bindtap="startQuiz">去做题</button>
+      </view>
+    </view>
+
+    <!-- ===== 加载骨架 ===== -->
+    <view wx:if="{{loading}}" class="card rise-2 rise">
+      <view class="skeleton" style="height: 30rpx; width: 34%"></view>
+      <view class="skeleton" style="height: 30rpx; width: 78%; margin-top: 24rpx"></view>
+    </view>
+
+    <view wx:if="{{!loading && !quiz}}" class="empty rise-2 rise">
+      今天没有安排新的练习
+      <view class="empty-sub">去「题库」按考点挑一道也行</view>
+    </view>
+
+  </block>
+</view>

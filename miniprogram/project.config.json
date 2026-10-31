@@ -1,0 +1,18 @@
+{
+  "description": "研数 · 考研数学（微信小程序）",
+  "appid": "touristappid",
+  "compileType": "miniprogram",
+  "libVersion": "3.5.5",
+  "projectname": "yanshu-miniprogram",
+  "miniprogramRoot": "./",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "useCompilerPlugins": ["typescript"],
+    "ignoreDevUnusedFiles": false
+  },
+  "condition": {}
+}

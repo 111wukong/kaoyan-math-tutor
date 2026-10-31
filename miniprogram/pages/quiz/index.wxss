@@ -1,0 +1,183 @@
+/* 题库页
+ *
+ * 就地展开的列表。折叠态只显示「序号 + 题型 + 难度 + 题干」，
+ * 展开才出选项和解析 —— 折叠态的信息密度决定了能不能一眼扫过去。
+ */
+
+/* ---------- 筛选 ---------- */
+/* 横向滚动而不是换行：筛选是次要操作，换行会占掉两行高度，
+ * 而手机首屏的每一行都很贵。 */
+.filter {
+  display: flex;
+  white-space: nowrap;
+  margin: 0 -32rpx 24rpx;
+  padding: 0 32rpx;
+}
+
+.filter-item {
+  display: inline-flex;
+  align-items: center;
+  height: 64rpx;
+  padding: 0 30rpx;
+  margin-right: 14rpx;
+  border-radius: 32rpx;
+  font-size: 26rpx;
+  color: var(--fg-mute);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid var(--hairline);
+  transition: all 0.18s ease;
+  /* scroll-view 里的子项必须禁止收缩，否则 flex 会把它们压成等宽 */
+  flex-shrink: 0;
+}
+
+.filter-on {
+  color: #04211d;
+  font-weight: 500;
+  background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
+  border-color: transparent;
+}
+
+/* ---------- 题目卡 ---------- */
+.q-card {
+  padding: 28rpx 28rpx 30rpx;
+  transition: border-color 0.2s ease;
+}
+
+.q-open {
+  border-color: rgba(94, 234, 212, 0.22);
+}
+
+.q-head {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+/* 序号：圆形小徽标。比「1.」更有秩序感，也方便扫读定位 */
+.q-idx {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22rpx;
+  font-weight: 600;
+  color: var(--fg-mute);
+  background: rgba(255, 255, 255, 0.06);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.q-type {
+  flex-shrink: 0;
+}
+
+.dots {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  flex: 1;
+}
+
+.dot {
+  width: 8rpx;
+  height: 8rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.dot-on {
+  background: linear-gradient(180deg, #5eead4, #2dd4bf);
+}
+
+/* 展开箭头：两条边框旋转 45 度。不用图标文件 */
+.q-toggle {
+  width: 14rpx;
+  height: 14rpx;
+  border-right: 3rpx solid var(--fg-mute);
+  border-bottom: 3rpx solid var(--fg-mute);
+  transform: rotate(45deg) translate(-3rpx, -3rpx);
+  transition: transform 0.22s ease;
+  flex-shrink: 0;
+}
+
+.q-toggle-up {
+  transform: rotate(-135deg) translate(-3rpx, -3rpx);
+}
+
+.q-stem {
+  margin-top: 20rpx;
+}
+
+/* ---------- 展开区 ---------- */
+.q-more {
+  margin-top: 26rpx;
+  padding-top: 26rpx;
+  border-top: 1rpx solid var(--hairline);
+  animation: fadeIn 0.24s ease both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.opts {
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+/* 选项：左侧一个字母块，右侧公式。字母块固定宽度，
+   四个选项的左边缘才会对齐 —— 不对齐看起来会很乱。 */
+.opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 16rpx;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1rpx solid var(--hairline);
+}
+
+.opt-key {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 10rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22rpx;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(94, 234, 212, 0.12);
+  flex-shrink: 0;
+}
+
+.opt-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ans {
+  margin-top: 26rpx;
+  padding: 24rpx;
+  border-radius: 18rpx;
+  background: rgba(94, 234, 212, 0.055);
+  border: 1rpx solid rgba(94, 234, 212, 0.16);
+}
+
+.ans-label {
+  font-size: 22rpx;
+  letter-spacing: 2rpx;
+  color: var(--accent);
+  opacity: 0.9;
+  margin-bottom: 14rpx;
+}
+
+.empty-sub {
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  opacity: 0.7;
+}

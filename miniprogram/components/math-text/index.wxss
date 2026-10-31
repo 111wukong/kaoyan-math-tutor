@@ -1,0 +1,61 @@
+/* ★ font-size 必须和服务端 renderMath.js 里的 FONT_PX 一致（17px）。
+ *   服务端按 17px 算出每张公式图的 px 宽高，这里用不同字号的话，
+ *   公式会比周围文字明显偏大或偏小 —— 而且因为它是一张图，
+ *   没法用 CSS 微调，只能改字号重渲。
+ *
+ *   改字号要同时改两处：
+ *     server/src/lib/renderMath.js  → FONT_PX
+ *     miniprogram/components/math-text/index.wxss → .mt
+ *   并且清一次服务端 .cache/math（缓存键里没有字号）。 */
+.mt {
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--fg);
+  word-break: break-word;
+}
+
+.mt-text {
+  display: inline;
+  white-space: pre-wrap;
+  font-size: 17px;
+  line-height: 1.75;
+}
+
+/* 行内公式图。
+ *
+ * vertical-align: middle 而不是 baseline —— 图片没有基线信息，
+ * baseline 对齐会让它整体下沉半个图高，看起来像「公式掉到下一行」。
+ * 配合 line-height 1.75，视觉上基本和文字居中对齐。 */
+.mt-img {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+
+/* 行间公式：独占一行 */
+.mt-block {
+  display: block;
+  margin: 14rpx 0;
+  text-align: center;
+}
+
+/* 渲染失败时的 LaTeX 源码。用等宽字体 + 淡一点的色，
+ * 让用户一眼看出「这是公式没渲染出来」而不是正文。 */
+.mt-raw {
+  display: inline;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 14px;
+  color: var(--fg-soft);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6rpx;
+  padding: 0 4rpx;
+  word-break: break-all;
+}
+
+/* 骨架 */
+.mt-sk {
+  height: 34rpx;
+  margin: 8rpx 0;
+  border-radius: 8rpx;
+  background: rgba(255, 255, 255, 0.07);
+}

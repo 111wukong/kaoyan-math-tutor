@@ -1,0 +1,234 @@
+/* 复习页
+ *
+ * 这一屏的结构是「上方进度 + 中间卡片 + 下方操作」三段式。
+ * 操作区固定在视觉底部（不是 position:fixed，因为卡片高度会变，
+ * fixed 会和内容重叠）—— 用 flex 让卡片区自己撑开，操作区自然落底。
+ */
+
+.review {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  box-sizing: border-box;
+  /* 给底部固定的操作区让位。不留这段，最后一张卡的解析会被
+   * 评分条盖住 —— 而那时候用户正需要看解析。 */
+  padding-bottom: 300rpx;
+}
+
+/* ---------- 进度 ---------- */
+.prog {
+  padding: 4rpx 4rpx 24rpx;
+}
+
+.prog-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14rpx;
+}
+
+.prog-count {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.prog-of {
+  font-size: 26rpx;
+  font-weight: 400;
+  color: var(--fg-mute);
+}
+
+/* ---------- 卡片 ----------
+ *
+ * ★ 卡片撑满剩余高度（flex: 1）。
+ *   一开始卡片高度跟着内容走 —— 短卡片下面会空出一大块，
+ *   看起来像「页面没加载完」。撑满之后它就是一张真正的复习卡：
+ *   内容在顶部，留白在卡内，视觉上是一个整体。
+ *
+ *   注意：这是 .review 的直接子元素才能用 flex:1，
+ *   所以选择器写成 .review > .card 而不是 .card。 */
+.review > .card {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* 卡片区撑满剩余高度，让操作区落到底部。
+   内容超过一屏时它自己滚动，操作区仍在下面 —— 不会挡住答案。 */
+.face {
+  margin-top: 28rpx;
+  min-height: 120rpx;
+}
+
+.face-sk {
+  display: flex;
+  flex-direction: column;
+}
+
+.recall {
+  color: #cfc9ff;
+  background: rgba(139, 127, 240, 0.12);
+  border-color: rgba(139, 127, 240, 0.26);
+}
+
+/* ---------- 背面 ---------- */
+.back {
+  margin-top: 34rpx;
+  animation: fadeIn 0.26s ease both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 分割线带文字：比一条纯线更能说明「下面是答案」 */
+.back-divider {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 26rpx;
+}
+
+.back-divider-line {
+  flex: 1;
+  height: 1rpx;
+  background: linear-gradient(90deg, rgba(94, 234, 212, 0), rgba(94, 234, 212, 0.45), rgba(94, 234, 212, 0));
+}
+
+.back-divider-text {
+  font-size: 22rpx;
+  letter-spacing: 3rpx;
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+/* ---------- 操作区 ----------
+ *
+ * ★ 固定在屏幕底部，不跟着内容流走。
+ *   一开始用的是 `margin-top: auto` 把操作区推到容器底部 —— 那是
+ *   桌面思路：卡片一长（解答题的解析可以很长），四档评分就被顶到
+ *   屏幕外面，用户得先滚到底才能评分。而「评分」是这一屏最高频的
+ *   动作，它不该需要滚动才能找到。
+ *
+ * ★ bottom: 0 不会压住 tabBar：小程序里 tabBar 是原生的，
+ *   webview 的可视区本来就止于 tabBar 上沿。
+ *
+ * ★ 上沿加一段渐变遮罩，让下面的内容「淡出」而不是被硬切一刀。
+ */
+.actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  padding: 24rpx 32rpx 26rpx;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 9, 15, 0) 0%,
+    rgba(8, 9, 15, 0.82) 26%,
+    rgba(8, 9, 15, 0.97) 55%,
+    #08090f 100%
+  );
+}
+
+.rate-hint {
+  text-align: center;
+  font-size: 24rpx;
+  color: var(--fg-mute);
+  margin-bottom: 18rpx;
+}
+
+.rate {
+  display: flex;
+  gap: 14rpx;
+}
+
+/* 四档评分。每一档一个颜色，从「危险」到「轻松」渐变过去 ——
+   颜色本身就是语义，用户扫一眼就知道哪个是「我忘了」。 */
+.rate-btn {
+  flex: 1;
+  min-width: 0;
+  height: 128rpx;
+  border-radius: 22rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1rpx solid var(--hairline);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.rate-btn:active {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.rate-label {
+  font-size: 28rpx;
+  font-weight: 500;
+  /* 显式给 line-height。page 上的 1.65 会让「28rpx 的字」占 46rpx 高，
+   * 两行叠起来超过按钮高度，文字就会被挤出边框 —— 看起来像重叠。 */
+  line-height: 1.2;
+}
+
+.rate-sub {
+  font-size: 22rpx;
+  line-height: 1.2;
+  opacity: 0.62;
+}
+
+.r1 { border-color: rgba(248, 113, 113, 0.30); }
+.r1 .rate-label { color: #fca5a5; }
+
+.r2 { border-color: rgba(251, 191, 36, 0.30); }
+.r2 .rate-label { color: #fcd34d; }
+
+.r3 { border-color: rgba(94, 234, 212, 0.32); }
+.r3 .rate-label { color: #7ff0dd; }
+
+.r4 { border-color: rgba(167, 139, 250, 0.32); }
+.r4 .rate-label { color: #c4b5fd; }
+
+/* ---------- 完成 / 空态 ---------- */
+.done,
+.empty-card {
+  text-align: center;
+  padding: 64rpx 40rpx;
+}
+
+/* 完成标记：一个对勾形状，用两条边框拼 —— 不用图标文件 */
+.done-mark {
+  width: 56rpx;
+  height: 30rpx;
+  margin: 0 auto 28rpx;
+  border-left: 6rpx solid var(--accent);
+  border-bottom: 6rpx solid var(--accent);
+  transform: rotate(-45deg) translateY(-6rpx);
+  border-radius: 2rpx;
+}
+
+/* 空队列标记：一个空心圆 */
+.empty-mark {
+  width: 64rpx;
+  height: 64rpx;
+  margin: 0 auto 28rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(255, 255, 255, 0.14);
+}
+
+.done-title {
+  font-size: 36rpx;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.done-desc {
+  margin-top: 12rpx;
+  font-size: 25rpx;
+  color: var(--fg-mute);
+  line-height: 1.7;
+}

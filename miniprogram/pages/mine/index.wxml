@@ -1,0 +1,83 @@
+<view class="page">
+
+  <!-- ===== 用户卡 ===== -->
+  <view wx:if="{{user}}" class="card card-hero card-lit profile rise">
+    <view class="profile-row">
+      <view class="avatar">
+        <text class="avatar-initial">{{initial}}</text>
+      </view>
+      <view class="who">
+        <view class="who-name">{{user.username}}</view>
+        <view class="who-mail">{{user.email}}</view>
+      </view>
+      <view class="lv">
+        <text class="lv-num">Lv.{{level}}</text>
+      </view>
+    </view>
+
+    <view class="lv-title">{{levelTitle || '刚开始'}}</view>
+
+    <view class="stats">
+      <view class="stat">
+        <view class="stat-value">{{streak}}</view>
+        <view class="stat-label">连续天数</view>
+      </view>
+      <view class="stat">
+        <view class="stat-value">{{xp}}</view>
+        <view class="stat-label">总 XP</view>
+      </view>
+      <view class="stat">
+        <view class="stat-value">{{quota.used}}</view>
+        <view class="stat-label">今日 AI</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- ===== AI 用量 ===== -->
+  <view class="card rise-1 rise">
+    <view class="card-row">
+      <view class="card-title">AI 用量</view>
+      <view class="t-label">{{quotaText}}</view>
+    </view>
+
+    <view wx:if="{{!unlimited}}" class="bar" style="margin-top: 22rpx">
+      <view class="bar-fill {{quotaPct >= 90 ? 'bar-fill-hot' : ''}}" style="width: {{quotaPct}}%"></view>
+    </view>
+
+    <view class="card-desc">
+      {{unlimited ? '你的账号没有每日上限（用的是自己的模型 Key）。' : '每天 0 点重置。管理员可以在后台单独调整你的额度。'}}
+    </view>
+  </view>
+
+  <!-- ===== 订阅消息 ===== -->
+  <view class="card rise-2 rise">
+    <view class="card-row">
+      <view class="card-title">每日复习提醒</view>
+      <view class="pill {{pushOn ? 'pill-accent' : ''}}">{{pushOn ? '已开启' : '未开启'}}</view>
+    </view>
+
+    <view class="card-desc">
+      到期卡片会在晚上提醒你。微信的订阅消息是**一次性**的 ——
+      点一次允许只能收一条，所以隔几天需要再点一次。
+    </view>
+
+    <button class="btn btn-ghost" style="margin-top: 26rpx" bindtap="onSubscribe" disabled="{{!pushOn}}">
+      {{pushOn ? '开启一次提醒' : '管理员未开启推送'}}
+    </button>
+  </view>
+
+  <!-- ===== 账号 ===== -->
+  <view class="card rise-3 rise">
+    <view class="card-title">账号</view>
+    <view class="card-desc">
+      如果你在网页端用邮箱注册过，两个账号目前是分开的 —— 绑定功能还没做。
+    </view>
+
+    <view class="list-item" style="margin-top: 8rpx">
+      <view class="soft">退出登录</view>
+      <view class="chevron" bindtap="onLogout"></view>
+    </view>
+  </view>
+
+  <view class="foot">研数 · 考研数学间隔重复系统</view>
+</view>

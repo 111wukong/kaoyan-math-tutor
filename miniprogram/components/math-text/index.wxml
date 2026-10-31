@@ -1,0 +1,44 @@
+<!-- 公式混排
+     结构刻意扁平：一个容器，里面按顺序排 inline 的文字和图片。
+     不用 flex —— 原因见 index.ts 开头「为什么用 inline 流」。 -->
+<view class="mt">
+  <block wx:if="{{loading}}">
+    <view class="mt-sk" style="width: 70%"></view>
+    <view class="mt-sk" style="width: 40%"></view>
+  </block>
+
+  <block wx:else>
+    <block wx:for="{{flow}}" wx:key="index">
+      <!-- 行间公式：独占一行、居中 -->
+      <view wx:if="{{item.kind === 'block'}}" class="mt-block">
+        <image
+          wx:if="{{item.url}}"
+          class="mt-img"
+          src="{{item.url}}"
+          style="width: {{item.w}}px; height: {{item.h}}px;"
+          mode="aspectFit"
+          data-idx="{{index}}"
+          binderror="onImgError"
+        />
+        <text wx:else class="mt-raw">{{item.fallback || item.tex}}</text>
+      </view>
+
+      <!-- 行内公式 -->
+      <image
+        wx:elif="{{item.type === 'math' && item.url}}"
+        class="mt-img"
+        src="{{item.url}}"
+        style="width: {{item.w}}px; height: {{item.h}}px;"
+        mode="aspectFit"
+        data-idx="{{index}}"
+        binderror="onImgError"
+      />
+
+      <!-- 渲染失败的行内公式：显示源码 -->
+      <text wx:elif="{{item.type === 'math'}}" class="mt-raw">{{item.fallback || item.tex}}</text>
+
+      <!-- 普通文字 -->
+      <text wx:else class="mt-text" user-select="{{true}}">{{item.v}}</text>
+    </block>
+  </block>
+</view>

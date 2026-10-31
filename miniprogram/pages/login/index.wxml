@@ -1,0 +1,53 @@
+<view class="login">
+  <!-- 背景光晕：两个极淡的径向渐变。不用图片 ——
+       一张渐变图在 3x 屏上要几百 KB，而渐变是即时算的。 -->
+  <view class="glow glow-a"></view>
+  <view class="glow glow-b"></view>
+
+  <view class="content">
+    <!-- 品牌 -->
+    <view class="brand rise">
+      <view class="logo">
+        <text class="logo-text">研</text>
+        <view class="logo-ring"></view>
+      </view>
+      <view class="brand-name">研数</view>
+      <view class="brand-sub">考研数学 · 间隔重复 · 知识图谱</view>
+    </view>
+
+    <!-- 登录卡 -->
+    <view class="card card-lit login-card rise-1 rise">
+      <view class="card-title">用微信登录</view>
+      <view class="card-desc">
+        学习进度按微信账号保存，换手机也不会丢。
+      </view>
+
+      <view wx:if="{{error}}" class="banner banner-warn err">{{error}}</view>
+
+      <button class="btn login-btn" loading="{{busy}}" disabled="{{busy}}" bindtap="onLogin">
+        {{busy ? '登录中…' : '微信一键登录'}}
+      </button>
+    </view>
+
+    <!-- 三个卖点，给第一次进来的人一点信心 -->
+    <view class="points rise-2 rise">
+      <view class="point">
+        <view class="point-dot"></view>
+        <text>按遗忘曲线排复习</text>
+      </view>
+      <view class="point">
+        <view class="point-dot"></view>
+        <text>错题能回溯到根因考点</text>
+      </view>
+      <view class="point">
+        <view class="point-dot"></view>
+        <text>每天 10 分钟，手机上就能练</text>
+      </view>
+    </view>
+
+    <view class="tip rise-3 rise">
+      如果你之前在网页端用邮箱注册过，登录后可以在「我的」里把两个账号
+      关联起来。这一步还没做，所以现在会是一个新账号。
+    </view>
+  </view>
+</view>

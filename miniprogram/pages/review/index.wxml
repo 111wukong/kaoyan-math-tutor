@@ -1,0 +1,110 @@
+<view class="page review">
+
+  <!-- ===== 未登录 ===== -->
+  <view wx:if="{{needLogin}}" class="card card-lit">
+    <view class="card-title">还没登录</view>
+    <view class="card-desc">复习队列按账号保存，登录后才会同步。</view>
+    <button class="btn" style="margin-top: 32rpx" bindtap="goLogin">微信一键登录</button>
+  </view>
+
+  <block wx:else>
+
+    <!-- ===== 进度 ===== -->
+    <view wx:if="{{total > 0}}" class="prog">
+      <view class="prog-meta">
+        <text class="prog-count">{{idx}}<text class="prog-of"> / {{total}}</text></text>
+        <text class="t-label">本轮已完成 {{done}} 张</text>
+      </view>
+      <view class="bar">
+        <view class="bar-fill" style="width: {{pct}}%"></view>
+      </view>
+    </view>
+
+    <!-- ===== 加载 ===== -->
+    <view wx:if="{{loading}}" class="card card-lit">
+      <view class="skeleton" style="height: 26rpx; width: 30%"></view>
+      <view class="skeleton" style="height: 30rpx; width: 92%; margin-top: 28rpx"></view>
+      <view class="skeleton" style="height: 30rpx; width: 86%; margin-top: 16rpx"></view>
+      <view class="skeleton" style="height: 30rpx; width: 54%; margin-top: 16rpx"></view>
+    </view>
+
+    <!-- ===== 出错 ===== -->
+    <view wx:elif="{{error}}" class="card card-lit">
+      <view class="card-title">加载失败</view>
+      <view class="card-desc">{{error}}</view>
+      <button class="btn btn-ghost" style="margin-top: 28rpx" bindtap="onRestart">重试</button>
+    </view>
+
+    <!-- ===== 当前卡片 ===== -->
+    <block wx:elif="{{cards.length > 0 && idx < cards.length}}">
+      <view class="card card-hero card-lit rise">
+        <!-- 卡头：考点 + 回忆概率 -->
+        <view class="card-row">
+          <view class="pill pill-accent" wx:if="{{kidTitle}}">{{kidTitle}}</view>
+          <view wx:else class="pill">复习卡</view>
+          <view wx:if="{{hasRecall}}" class="pill recall">
+            印象 {{recallPct}}%
+          </view>
+        </view>
+
+        <!-- 正面 -->
+        <view class="face">
+          <math-text wx:if="{{!rendering}}" segments="{{frontSegs}}" />
+          <view wx:else class="face-sk">
+            <view class="skeleton" style="height: 30rpx; width: 90%"></view>
+            <view class="skeleton" style="height: 30rpx; width: 72%; margin-top: 16rpx"></view>
+          </view>
+        </view>
+
+        <!-- 背面（展开后） -->
+        <view wx:if="{{revealed}}" class="back">
+          <view class="back-divider">
+            <view class="back-divider-line"></view>
+            <text class="back-divider-text">答案</text>
+            <view class="back-divider-line"></view>
+          </view>
+          <math-text segments="{{backSegs}}" />
+        </view>
+      </view>
+
+      <!-- 底部操作区 -->
+      <view class="actions">
+        <button wx:if="{{!revealed}}" class="btn" bindtap="onReveal">显示答案</button>
+
+        <block wx:else>
+          <view class="rate-hint">刚才想起来多少？</view>
+          <view class="rate">
+            <view
+              wx:for="{{ratings}}"
+              wx:key="rating"
+              class="rate-btn {{item.cls}}"
+              data-rating="{{item.rating}}"
+              bindtap="onGrade"
+            >
+              <text class="rate-label">{{item.label}}</text>
+              <text class="rate-sub">{{item.hint}}</text>
+            </view>
+          </view>
+        </block>
+      </view>
+    </block>
+
+    <!-- ===== 全部完成 ===== -->
+    <view wx:elif="{{!loading && total > 0}}" class="card card-hero card-lit done rise">
+      <view class="done-mark"></view>
+      <view class="done-title">今天复习完了</view>
+      <view class="done-desc">本轮 {{done}} 张 · 下一批到期时会提醒你</view>
+      <button class="btn btn-ghost" style="margin-top: 36rpx" bindtap="onRestart">再看看有没有新的</button>
+    </view>
+
+    <!-- ===== 没有到期卡片 ===== -->
+    <view wx:elif="{{!loading}}" class="card card-lit empty-card rise">
+      <view class="empty-mark"></view>
+      <view class="done-title">队列是空的</view>
+      <view class="done-desc">
+        还没有到期的卡片。卡片来自你答错的题 —— 去题库做几道，明天就有了。
+      </view>
+    </view>
+
+  </block>
+</view>

@@ -1,0 +1,156 @@
+/* 登录页
+ *
+ * 全屏居中 + 两层径向光晕。
+ *
+ * ★ 光晕为什么用 view 而不是背景图：
+ *   一张 750×1624 的渐变 PNG 在 3x 屏上要 300KB+，而且换主题就得重出图。
+ *   CSS 径向渐变是零下载、即时计算的，颜色还能直接引用主题变量。
+ *
+ * ★ 为什么不用「全屏背景」而用两个定位的光斑：
+ *   全屏渐变会盖住内容层的对比度（深色渐变叠深色文字，越叠越糊）。
+ *   两个局部光斑只在边角加亮度，中间保持干净。
+ */
+
+.login {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60rpx 40rpx;
+  box-sizing: border-box;
+}
+
+/* ---------- 光晕 ---------- */
+.glow {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.glow-a {
+  width: 760rpx;
+  height: 760rpx;
+  top: -300rpx;
+  left: -240rpx;
+  background: radial-gradient(circle, rgba(94, 234, 212, 0.18) 0%, rgba(94, 234, 212, 0.05) 42%, rgba(94, 234, 212, 0) 70%);
+}
+
+.glow-b {
+  width: 820rpx;
+  height: 820rpx;
+  bottom: -360rpx;
+  right: -280rpx;
+  background: radial-gradient(circle, rgba(139, 127, 240, 0.20) 0%, rgba(139, 127, 240, 0.06) 42%, rgba(139, 127, 240, 0) 70%);
+}
+
+.content {
+  position: relative;
+  width: 100%;
+  max-width: 640rpx;
+  z-index: 1;
+}
+
+/* ---------- 品牌 ---------- */
+.brand {
+  text-align: center;
+  margin-bottom: 56rpx;
+}
+
+.logo {
+  position: relative;
+  width: 148rpx;
+  height: 148rpx;
+  margin: 0 auto 26rpx;
+  border-radius: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(140deg, rgba(94, 234, 212, 0.22) 0%, rgba(139, 127, 240, 0.26) 100%);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 20rpx 60rpx -20rpx rgba(94, 234, 212, 0.45),
+    inset 0 0 40rpx rgba(94, 234, 212, 0.14);
+}
+
+.logo-text {
+  font-size: 68rpx;
+  font-weight: 600;
+  color: #f0fffc;
+  letter-spacing: 2rpx;
+}
+
+/* 外圈一道极淡的环，让 logo 有「浮起来」的层次 */
+.logo-ring {
+  position: absolute;
+  left: -14rpx;
+  right: -14rpx;
+  top: -14rpx;
+  bottom: -14rpx;
+  border-radius: 52rpx;
+  border: 1rpx solid rgba(94, 234, 212, 0.16);
+}
+
+.brand-name {
+  font-size: 52rpx;
+  font-weight: 600;
+  letter-spacing: 8rpx;
+  color: var(--fg);
+}
+
+.brand-sub {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: var(--fg-mute);
+  letter-spacing: 2rpx;
+}
+
+/* ---------- 登录卡 ---------- */
+.login-card {
+  padding: 36rpx 32rpx 34rpx;
+}
+
+.login-btn {
+  margin-top: 34rpx;
+}
+
+.err {
+  margin-top: 24rpx;
+  margin-bottom: 0;
+}
+
+/* ---------- 卖点 ---------- */
+.points {
+  margin-top: 40rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  padding: 0 8rpx;
+}
+
+.point {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  font-size: 25rpx;
+  color: var(--fg-soft);
+}
+
+.point-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #5eead4, #2dd4bf);
+  flex-shrink: 0;
+}
+
+/* ---------- 脚注 ---------- */
+.tip {
+  margin-top: 44rpx;
+  font-size: 22rpx;
+  line-height: 1.75;
+  color: var(--fg-mute);
+  text-align: center;
+  opacity: 0.85;
+}

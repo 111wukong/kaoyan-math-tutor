@@ -1,0 +1,172 @@
+/* 今日页
+ *
+ * 样式全部用 app.wxss 里的 token，这里只写这一屏独有的排布。
+ * 唯一的原则：**一个视觉重点**。所以待复习数字是 76rpx，
+ * 其余一切（等级、XP、难度）都压在 22~26rpx。
+ */
+
+/* ---------- 顶部 ---------- */
+.head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+/* 连续打卡：一颗小小的火苗 + 数字。
+   火苗不用图标文件，用圆角块做一个水滴形 —— 少一次网络请求，
+   而且能跟着主题变色。 */
+.streak {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  height: 56rpx;
+  padding: 0 20rpx 0 14rpx;
+  border-radius: 28rpx;
+  background: rgba(251, 146, 60, 0.10);
+  border: 1rpx solid rgba(251, 146, 60, 0.26);
+  flex-shrink: 0;
+}
+
+.streak-flame {
+  width: 22rpx;
+  height: 26rpx;
+  border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+  background: linear-gradient(180deg, #fbbf24 0%, #f97316 100%);
+  transform: rotate(-4deg);
+}
+
+.streak-num {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #fdba74;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 公告 ---------- */
+.notice-dot {
+  width: 12rpx;
+  height: 12rpx;
+  margin-top: 12rpx;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  box-shadow: 0 0 0 6rpx rgba(94, 234, 212, 0.14);
+}
+
+.notice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  min-width: 0;
+}
+
+.notice-title {
+  font-weight: 500;
+  font-size: 26rpx;
+}
+
+.notice-text {
+  font-size: 24rpx;
+  opacity: 0.82;
+  line-height: 1.6;
+}
+
+/* ---------- 主卡 ---------- */
+.hero-top {
+  align-items: center;
+}
+
+.hero-label {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+.hero-sep {
+  opacity: 0.5;
+}
+
+.hero-num-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+  margin-top: 22rpx;
+}
+
+.hero-num {
+  color: var(--fg);
+  /* 数字本身带一点青光，像被主色照到 */
+  text-shadow: 0 0 40rpx rgba(94, 234, 212, 0.28);
+}
+
+.hero-unit {
+  font-size: 26rpx;
+  color: var(--fg-mute);
+}
+
+.hero-progress {
+  margin-top: 30rpx;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12rpx;
+}
+
+.hero-btn {
+  margin-top: 34rpx;
+}
+
+/* ---------- 今日一练 ---------- */
+/* 题干区上下留白要够：公式图是 inline-block，
+   贴太近会和文字挤在一起，看起来像排版坏了。 */
+.quiz-stem {
+  margin-top: 26rpx;
+  padding-top: 26rpx;
+  border-top: 1rpx solid var(--hairline);
+  min-height: 40rpx;
+}
+
+.quiz-sk {
+  display: flex;
+  flex-direction: column;
+}
+
+.quiz-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  margin-top: 30rpx;
+}
+
+.dots {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+
+.dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.dot-on {
+  background: linear-gradient(180deg, #5eead4, #2dd4bf);
+}
+
+.dots-label {
+  margin-left: 6rpx;
+}
+
+/* ---------- 空态补充 ---------- */
+.empty-sub {
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  opacity: 0.7;
+}

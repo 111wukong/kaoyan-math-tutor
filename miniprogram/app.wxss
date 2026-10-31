@@ -1,0 +1,437 @@
+/* 全局样式 · 深空主题
+ *
+ * ── 设计口径 ────────────────────────────────────────────────────
+ * 和 Web 端保持同一套视觉语言（暗色深空 + 玻璃拟态 + 青色强调），
+ * 但**砍掉了三样**，因为它们在小程序上只会变成负担：
+ *   · WebGL 赛博网格地平线 → 删。小程序 canvas 撑不住，还费电。
+ *   · Canvas 星尘 → 删。换成 CSS 的径向渐变光晕，零成本、零耗电。
+ *   · backdrop-filter 毛玻璃 → 不用。小程序对它的支持不稳，
+ *     换成「半透明底 + 1rpx 描边」，视觉上差一点点，但一定不糊。
+ *
+ * ── 为什么颜色写成十六进制而不是 var() 层层套 ──────────────────
+ * 小程序 wxss 支持 CSS 变量，但**不支持在 rpx 计算和渐变里做
+ * 复杂插值**。渐变必须写死色值，所以这里的做法是：
+ *   基础色用变量（便于整体换肤），渐变里写死对应的十六进制。
+ * 改配色时两处都要改，文件顶部集中放一份对照表，避免漏改。
+ *
+ * ── 尺寸 ────────────────────────────────────────────────────────
+ * 一律用 rpx（750 设计稿）。唯一例外是公式图，它必须是 px ——
+ * 因为服务端按 px 渲染，见 components/math-text/index.wxss。
+ */
+
+/* 色板对照（改配色时两处同步）
+   --accent   #5eead4  → 渐变用 #2dd4bf / #14b8a6
+   --accent-2 #8b7ff0  → 渐变用 #a78bfa / #7c3aed
+   --danger   #f87171
+   --warn     #fbbf24
+   --ok       #34d399
+*/
+
+page {
+  /* 背景：底色 + 顶部一层极淡的紫青光晕。
+     光晕用 radial-gradient 而不是图片 —— 一张渐变图在 3x 屏上
+     要几百 KB，而渐变是浏览器算的，零下载。 */
+  background:
+    radial-gradient(120% 60% at 50% -10%, rgba(139, 127, 240, 0.16) 0%, rgba(94, 234, 212, 0.05) 38%, rgba(8, 9, 15, 0) 70%),
+    #08090f;
+
+  --bg: #08090f;
+  --bg-soft: #101320;
+  --card: rgba(255, 255, 255, 0.042);
+  --card-strong: rgba(255, 255, 255, 0.07);
+  --hairline: rgba(255, 255, 255, 0.085);
+  --hairline-strong: rgba(255, 255, 255, 0.14);
+
+  --fg: #eef1f8;
+  --fg-soft: #a9b2c6;
+  --fg-mute: #6d7688;
+
+  --accent: #5eead4;
+  --accent-deep: #14b8a6;
+  --accent-2: #8b7ff0;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --danger: #f87171;
+
+  color: var(--fg);
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 30rpx;
+  line-height: 1.65;
+  /* 禁止横向滚动条：某个元素宽了 1px 就会出现整页可左右拖的观感 */
+  overflow-x: hidden;
+}
+
+/* ============================================================
+   布局
+   ============================================================ */
+
+.page {
+  min-height: 100vh;
+  padding: 24rpx 32rpx calc(48rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+/* 页面级顶部留白。给「大标题 + 副标题」用，
+   比直接顶到导航栏下面透气得多。 */
+.page-head {
+  padding: 8rpx 4rpx 28rpx;
+}
+
+.page-title {
+  font-size: 52rpx;
+  font-weight: 600;
+  letter-spacing: -1rpx;
+  line-height: 1.25;
+}
+
+.page-sub {
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  color: var(--fg-mute);
+}
+
+/* ============================================================
+   卡片
+   ============================================================ */
+
+.card {
+  position: relative;
+  background: var(--card);
+  border: 1rpx solid var(--hairline);
+  border-radius: 28rpx;
+  padding: 32rpx;
+  margin-bottom: 24rpx;
+  box-sizing: border-box;
+}
+
+/* 强调卡：顶部一道极细的渐变高光。
+   这是「玻璃拟态」在小程序上唯一可靠的替代 —— 不用模糊，
+   只在顶边画一条 1rpx 的亮线，就有「被光照到」的层次。 */
+.card-lit::before {
+  content: "";
+  position: absolute;
+  left: 24rpx;
+  right: 24rpx;
+  top: 0;
+  height: 1rpx;
+  background: linear-gradient(90deg, rgba(94, 234, 212, 0) 0%, rgba(94, 234, 212, 0.65) 45%, rgba(139, 127, 240, 0.5) 60%, rgba(139, 127, 240, 0) 100%);
+}
+
+/* 主卡：整块渐变底。用于「今日复习」这种一屏只有一个的重点。 */
+.card-hero {
+  background:
+    radial-gradient(120% 120% at 0% 0%, rgba(94, 234, 212, 0.14) 0%, rgba(94, 234, 212, 0) 55%),
+    radial-gradient(120% 120% at 100% 0%, rgba(139, 127, 240, 0.16) 0%, rgba(139, 127, 240, 0) 55%),
+    rgba(255, 255, 255, 0.05);
+  border-color: rgba(94, 234, 212, 0.16);
+}
+
+.card-title {
+  font-size: 32rpx;
+  font-weight: 500;
+  color: var(--fg);
+  line-height: 1.4;
+}
+
+.card-desc {
+  margin-top: 10rpx;
+  font-size: 25rpx;
+  color: var(--fg-mute);
+  line-height: 1.7;
+}
+
+.card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+/* 卡片行里的子元素必须允许收缩。
+ * flex 子项的默认 min-width 是 auto（等于内容宽度），
+ * 一旦左右两边都偏长，右边那个会被顶出卡片边界 ——
+ * 表现是「文字贴着卡片边缘被切掉」。 */
+.card-row > view,
+.card-row > text {
+  min-width: 0;
+}
+
+/* 小节标题：左侧一小段渐变色条，比纯文字有节奏感 */
+.section {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin: 8rpx 4rpx 20rpx;
+}
+
+.section-bar {
+  width: 6rpx;
+  height: 28rpx;
+  border-radius: 3rpx;
+  background: linear-gradient(180deg, #5eead4, #8b7ff0);
+}
+
+.section-title {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: var(--fg-soft);
+  letter-spacing: 1rpx;
+}
+
+/* ============================================================
+   文字
+   ============================================================ */
+
+.t-display {
+  font-size: 76rpx;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -2rpx;
+  /* 数字用等宽：否则「12」和「9」宽度不同，进度跳变时会抖 */
+  font-variant-numeric: tabular-nums;
+}
+
+.t-num {
+  font-size: 44rpx;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.t-label {
+  font-size: 23rpx;
+  color: var(--fg-mute);
+  letter-spacing: 1rpx;
+}
+
+.muted { color: var(--fg-mute); }
+.soft { color: var(--fg-soft); }
+.accent { color: var(--accent); }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+/* ============================================================
+   药丸 / 徽标
+   ============================================================ */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  height: 44rpx;
+  padding: 0 18rpx;
+  border-radius: 22rpx;
+  font-size: 22rpx;
+  line-height: 1;
+  color: var(--fg-soft);
+  background: rgba(255, 255, 255, 0.055);
+  border: 1rpx solid var(--hairline);
+}
+
+.pill-accent {
+  color: #a7f3e6;
+  background: rgba(94, 234, 212, 0.12);
+  border-color: rgba(94, 234, 212, 0.26);
+}
+
+.pill-violet {
+  color: #cfc9ff;
+  background: rgba(139, 127, 240, 0.14);
+  border-color: rgba(139, 127, 240, 0.28);
+}
+
+.pill-warn {
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.26);
+}
+
+/* ============================================================
+   按钮
+   ============================================================ */
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 92rpx;
+  border-radius: 24rpx;
+  font-size: 30rpx;
+  font-weight: 500;
+  letter-spacing: 1rpx;
+  /* 主按钮：实心渐变。小程序里 <button> 有默认样式，
+     必须显式 reset（见下面的 .btn::after）。 */
+  color: #04211d;
+  background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
+  box-shadow: 0 12rpx 32rpx -12rpx rgba(94, 234, 212, 0.55);
+  border: none;
+}
+
+.btn::after { border: none; }
+
+.btn-ghost {
+  color: var(--fg-soft);
+  background: rgba(255, 255, 255, 0.055);
+  border: 1rpx solid var(--hairline);
+  box-shadow: none;
+}
+
+.btn-ghost::after { border: none; }
+
+.btn-sm {
+  height: 68rpx;
+  border-radius: 20rpx;
+  font-size: 26rpx;
+  padding: 0 28rpx;
+  width: auto;
+}
+
+/* 禁用态。小程序 button 的 disabled 只加 opacity，
+   在深色底上会显得「灰但还亮」，这里统一压暗。 */
+.btn[disabled] {
+  opacity: 0.38;
+  box-shadow: none;
+}
+
+/* ============================================================
+   进度条
+   ============================================================ */
+
+.bar {
+  height: 12rpx;
+  border-radius: 6rpx;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 6rpx;
+  background: linear-gradient(90deg, #2dd4bf, #5eead4 55%, #a7f3e6);
+  transition: width 0.45s ease;
+}
+
+.bar-fill-violet {
+  background: linear-gradient(90deg, #7c3aed, #8b7ff0 55%, #cfc9ff);
+}
+
+/* ============================================================
+   统计格
+   ============================================================ */
+
+.stats {
+  display: flex;
+  gap: 16rpx;
+}
+
+.stat {
+  flex: 1;
+  min-width: 0;
+  padding: 24rpx 20rpx;
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1rpx solid var(--hairline);
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 40rpx;
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: var(--fg-mute);
+}
+
+/* ============================================================
+   列表项
+   ============================================================ */
+
+.list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 26rpx 0;
+  border-bottom: 1rpx solid var(--hairline);
+}
+
+.list-item:last-child { border-bottom: none; }
+
+.chevron {
+  width: 14rpx;
+  height: 14rpx;
+  border-right: 3rpx solid var(--fg-mute);
+  border-bottom: 3rpx solid var(--fg-mute);
+  transform: rotate(-45deg);
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   横幅
+   ============================================================ */
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14rpx;
+  padding: 24rpx 26rpx;
+  border-radius: 22rpx;
+  font-size: 25rpx;
+  line-height: 1.65;
+  margin-bottom: 24rpx;
+}
+
+.banner-info {
+  background: rgba(94, 234, 212, 0.08);
+  border: 1rpx solid rgba(94, 234, 212, 0.2);
+  color: #b7f2e8;
+}
+
+.banner-warn {
+  background: rgba(251, 191, 36, 0.09);
+  border: 1rpx solid rgba(251, 191, 36, 0.24);
+  color: #fde68a;
+}
+
+/* ============================================================
+   空态 / 骨架
+   ============================================================ */
+
+.empty {
+  padding: 90rpx 40rpx;
+  text-align: center;
+  color: var(--fg-mute);
+  font-size: 26rpx;
+  line-height: 1.7;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.05));
+  background-size: 220% 100%;
+  border-radius: 12rpx;
+  animation: sk 1.3s ease-in-out infinite;
+}
+
+@keyframes sk {
+  0% { background-position: 220% 0; }
+  100% { background-position: -220% 0; }
+}
+
+/* 入场动画：内容出现时轻微上浮。
+   只做 8rpx，多了会显得慢；小程序首屏本来就慢，动画不能加戏。 */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.rise {
+  animation: rise 0.28s ease both;
+}
+
+.rise-1 { animation-delay: 0.04s; }
+.rise-2 { animation-delay: 0.08s; }
+.rise-3 { animation-delay: 0.12s; }
