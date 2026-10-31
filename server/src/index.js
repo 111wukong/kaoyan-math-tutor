@@ -28,6 +28,10 @@ import gameRoutes from './routes/game.js';
 import graphRoutes from './routes/graph.js';
 import miscRoutes from './routes/misc.js';
 import aiRoutes from './routes/ai.js';
+import appRoutes from './routes/app.js';
+import adminAppRoutes from './routes/adminApp.js';
+import { ensureAppConfig } from './lib/appConfig.js';
+import { warm as warmMath } from './lib/renderMath.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -149,6 +153,11 @@ const migrated = migrate();
 if (migrated.length) app.log.info(`结构迁移：补了 ${migrated.join('、')}`);
 seed({ quiet: true });
 
+/* ---------- 配置中心 ----------
+ * 建好 app_config 的单行记录并灌默认值。幂等，每次启动都跑。
+ * 必须在任何 AI 调用之前 —— lib/llm.js 的 resolveLlmFor() 会读它。 */
+ensureAppConfig();
+
 /* ---------- 引导管理员 ---------- */
 const bootAdmin = await ensureAdmin();
 if (bootAdmin.action === 'created' || bootAdmin.action === 'promoted') {
@@ -197,9 +206,42 @@ await app.register(rateLimit, {
   timeWindow: '1 minute',
 });
 
+/* ---------- 从请求里取会话令牌 ----------
+ *
+ * 两条路都认：
+ *   · Cookie —— Web 端（httpOnly，JS 读不到，sameSite=Lax 挡 CSRF）
+ *   · Authorization: Bearer —— 小程序端
+ *
+ * ── 为什么小程序不能只用 cookie ──────────────────────────────────
+ * wx.request 确实有一个隐式的 cookie 容器，Set-Cookie 会被存下来
+ * 并在后续请求里带上。但它有三个致命问题：
+ *   1. 不可读 —— 代码里拿不到，也没法主动续期或清理；
+ *   2. 不可控 —— 清小程序缓存、切换网络环境都可能丢，而且没有事件；
+ *   3. 不可调试 —— 401 的时候你看不到请求到底带了什么。
+ * 所以小程序走显式的 Bearer，服务端两条路并存。
+ *
+ * ★ 安全性没有因此变弱：
+ *   · Bearer 令牌和 cookie 里的是同一种东西（同一个 sessions 表、
+ *     同样只存 sha256），泄露一条的后果和泄露另一条一样；
+ *   · 不存在「cookie 更容易被 CSRF」被绕过的问题 —— Bearer 反而是
+ *     免疫 CSRF 的（浏览器不会自动附带 Authorization 头）。
+ *   · 唯一的增量风险是「令牌存在小程序的 storage 里」，那是明文，
+ *     但小程序的 storage 本来就按 appid 隔离。
+ */
+function readToken(req) {
+  const fromCookie = req.cookies?.[COOKIE_NAME];
+  if (fromCookie) return fromCookie;
+
+  const auth = req.headers?.authorization;
+  if (typeof auth === 'string' && auth.length > 7 && auth.slice(0, 7).toLowerCase() === 'bearer ') {
+    return auth.slice(7).trim();
+  }
+  return undefined;
+}
+
 /* ---------- 认证装饰器 ---------- */
 app.decorate('requireAuth', async (req, reply) => {
-  const token = req.cookies?.[COOKIE_NAME];
+  const token = readToken(req);
   const s = readSession(token);
   if (!s) return reply.code(401).send({ error: '未登录' });
   req.userId = s.user_id;
@@ -213,7 +255,7 @@ app.decorate('requireAuth', async (req, reply) => {
  * 代价是一次主键查询，可以忽略。
  */
 app.decorate('requireAdmin', async (req, reply) => {
-  const token = req.cookies?.[COOKIE_NAME];
+  const token = readToken(req);
   const s = readSession(token);
   if (!s) return reply.code(401).send({ error: '未登录' });
   req.userId = s.user_id;
@@ -230,13 +272,13 @@ app.decorate('requireAdmin', async (req, reply) => {
  * 白名单之外的所有 /api/* 都必须带有效会话。
  * 放在 onRequest 而不是每个路由里挂 preHandler —— 少写一处就是少一个漏网的口子。
  */
-const PUBLIC_PREFIXES = ['/api/health', '/api/auth/'];
+const PUBLIC_PREFIXES = ['/api/health', '/api/auth/', '/api/app/config', '/api/app/wx-login'];
 app.addHook('onRequest', async (req, reply) => {
   const url = req.raw.url || '';
   if (!url.startsWith('/api/')) return;
   if (PUBLIC_PREFIXES.some((p) => url.startsWith(p))) return;
 
-  const token = req.cookies?.[COOKIE_NAME];
+  const token = readToken(req);
   const s = readSession(token);
   if (!s) return reply.code(401).send({ error: '未登录', code: 'UNAUTHENTICATED' });
   req.userId = s.user_id;
@@ -281,6 +323,11 @@ await app.register(gameRoutes);
 await app.register(graphRoutes);
 await app.register(miscRoutes);
 await app.register(aiRoutes);
+/* 小程序接入层（配置下发 / 微信登录 / 公式渲染）与控制台。
+ * ★ appRoutes 里有 GET /math/:file，它不在 /api 下 —— 那是故意的，
+ *   见 routes/app.js 里那个路由的注释。 */
+await app.register(appRoutes);
+await app.register(adminAppRoutes);
 
 /* ---------- 静态资源（生产）----------
  * 缓存策略分两类：
@@ -332,6 +379,22 @@ try {
   await app.listen({ port: PORT, host: HOST });
   app.log.info(`研数服务已启动  http://${HOST}:${PORT}`);
   app.log.info(`数据库: ${DB_PATH}`);
+
+  /* ---------- 公式渲染预热 ----------
+   *
+   * 放在 listen 之后、用 setImmediate 推到下一个事件循环 tick ——
+   * 这样它不会拖慢启动，又能在「第一个人打开小程序」之前完成。
+   *
+   * 为什么要预热：MathJax 首次构造 + 字体表构建实测要 2 秒左右，
+   * 那 2 秒会落在当天第一个用户身上，表现是打开题目页白屏两秒。
+   * 启动时付掉这笔钱，用户永远感知不到。 */
+  setImmediate(() => {
+    const t0 = Date.now();
+    const ok = warmMath();
+    app.log.info(ok
+      ? `公式渲染已预热（${Date.now() - t0}ms）`
+      : '公式渲染预热失败 —— 首个公式请求会慢一些，且 PNG 可能不可用');
+  });
 
   /* ---------- 上线前的两条提醒 ----------
    *

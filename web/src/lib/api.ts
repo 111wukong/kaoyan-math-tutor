@@ -96,8 +96,57 @@ export interface AdminLogEntry {
   action: string; detail: Record<string, unknown>; ip: string; at: string;
 }
 
-export interface AdminUserDetail {
-  user: AdminUser;
+/* ---- 小程序控制台 ----
+ *
+ * 这些配置不在前端写死，而是服务端 app_config 那张单行表的镜像。
+ * 小程序冷启动拉一份，Web 控制台改一份 —— 两边看到的是同一份。
+ */
+export interface AppConfig {
+  version: { latest: string; min: string; note: string };
+  notice: { on: boolean; title: string; body: string; level: 'info' | 'warn' };
+  maintenance: { on: boolean; message: string };
+  /** 功能开关。键名对应小程序里的入口，值只控制「显不显示」。 */
+  features: Record<string, boolean>;
+  bank: { version: number; baseUrl: string; renderedAt: string };
+  ai: { mode: 'server' | 'byok'; base: string; model: string; dailyCalls: number };
+  push: { on: boolean; templateId: string; hour: number; page: string };
+  study: { dailyNew: number; reviewCap: number };
+}
+
+/** 服务端环境探测结果。配置填得再漂亮，Key 没配也是全挂。 */
+export interface AppEnv {
+  serverLlmKey: boolean; wxAppId: boolean; wxSecret: boolean;
+  wxDevLogin: boolean; pngAvailable: boolean; nodeEnv: string;
+}
+
+export interface AppCheck { level: 'error' | 'warn'; key: string; message: string }
+
+export interface AppUsageUser {
+  id: number; email: string; username: string; calls: number;
+  /** 个人覆盖值。null = 跟随全局默认（前端不能直接显示它） */
+  override: number | null;
+  limit: number;
+  /** null = 不限 */
+  remaining: number | null;
+}
+
+export interface AppUsage {
+  day: string; total: number; globalLimit: number; mode: string;
+  trend: { day: string; calls: number; users: number }[];
+  users: AppUsageUser[];
+}
+
+export interface AppPushInfo {
+  config: AppConfig['push'];
+  stats: { total: number; ok: number; failed: number };
+  subscribers: number; withQuota: number;
+  subs: { user_id: number; email: string; username: string; granted: number; quota_left: number; updated_at: string }[];
+  logs: { id: number; email: string | null; ok: number; errcode: number | null; errmsg: string | null; page: string; at: string }[];
+}
+
+export interface AppRenderStats { files: number; bytes: number; mb: number; pngAvailable: boolean }
+
+export interface AdminUserDetail {  user: AdminUser;
   recentAttempts: { qid: string; kid: string; correct: number; date: string; ts: number; stem: string | null }[];
   sessions: { created_at: string; last_seen_at: string; expires_at: string; user_agent: string | null; ip: string | null }[];
   settings: { examTrack: string; dailyNew: number; examDate: string; persona: string; sfx: boolean; theme: string } | null;
@@ -671,6 +720,27 @@ export const api = {
     forceLogout: (id: number) => post<{ ok: boolean; sessionsKilled: number }>(`/api/admin/users/${id}/logout`),
     remove: (id: number) => del<{ ok: boolean; wiped: Record<string, number> }>(`/api/admin/users/${id}`),
     logs: (limit = 60) => get<{ logs: AdminLogEntry[] }>(`/api/admin/logs?limit=${limit}`),
+
+    /* ---- 小程序控制台 ----
+     * 与上面的「用户管理」分开命名，因为它们的职责不同：
+     * 上面管人，这里管产品。混在一个命名空间里，调用处会看不出
+     * 「我在改一个人」还是「我在改所有人」。 */
+    app: {
+      config: () => get<{ config: AppConfig; defaults: AppConfig; env: AppEnv }>('/api/admin/app/config'),
+      saveConfig: (patch: Record<string, unknown>) =>
+        put<{ ok: boolean; config: AppConfig; changed: string[] }>('/api/admin/app/config', patch),
+      env: () => get<{ checks: AppCheck[]; ok: boolean; config: Record<string, unknown> }>('/api/admin/app/env'),
+      usage: (days = 14) => get<AppUsage>(`/api/admin/app/usage?days=${days}`),
+      /** limit: null = 清掉个人覆盖（回到全局默认）；0 = 不限 */
+      setQuota: (id: number, limit: number | null) =>
+        request<{ ok: boolean; id: number; limit: number | null; effective: number }>(
+          `/api/admin/app/users/${id}/quota`, { method: 'PATCH', body: JSON.stringify({ limit }) },
+        ),
+      push: () => get<AppPushInfo>('/api/admin/app/push'),
+      render: () => get<AppRenderStats>('/api/admin/app/render'),
+      clearRender: () => post<{ ok: boolean; removed: number }>('/api/admin/app/render/clear'),
+      warmRender: () => post<{ ok: boolean; files: number; mb: number }>('/api/admin/app/render/warm'),
+    },
   },
 };
 

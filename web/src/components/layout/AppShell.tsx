@@ -5,6 +5,7 @@ import {
   LayoutDashboard, Network, PenLine, RotateCcw, CircleAlert, FlaskConical,
   Zap, Layers, MessagesSquare, Users, ChartNoAxesColumn, Trophy, Settings,
   Menu, X, Volume2, VolumeX, Flame, ChevronsUpDown, LogOut, ShieldCheck, SquarePen,
+  Smartphone,
   ChevronRight,
 } from 'lucide-react';
 import { CyberGrid } from '@/components/fx/CyberGrid';
@@ -72,7 +73,13 @@ function navGroups(isAdmin: boolean) {
   if (isAdmin) {
     groups.push({
       group: '管理',
-      items: [{ to: '/admin', icon: ShieldCheck, label: '用户管理' }],
+      items: [
+        { to: '/admin', icon: ShieldCheck, label: '用户管理' },
+        /* 小程序控制台。和「用户管理」分开两项，因为它们的职责不同：
+         * 一个管人，一个管产品（开关、配额、公告、推送）。
+         * 合成一页会变成两个完全不同节奏的表单挤在一屏。 */
+        { to: '/app', icon: Smartphone, label: '小程序控制台' },
+      ],
     });
   }
   return groups;

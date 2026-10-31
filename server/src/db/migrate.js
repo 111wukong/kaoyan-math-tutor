@@ -65,6 +65,13 @@ const ADD_COLUMNS = {
     role: "TEXT NOT NULL DEFAULT 'user'",
     status: "TEXT NOT NULL DEFAULT 'active'",
     note: "TEXT NOT NULL DEFAULT ''",
+    /* ai_daily_limit —— 该用户每日 AI 调用上限的**个人覆盖**。
+     * NULL = 用 app_config 里的全局默认值（这是绝大多数人的状态）。
+     * 0    = 不限。
+     * 单独给某个人放开或收紧配额时用，不必改全局。
+     * 故意不给 DEFAULT：NULL 和 0 的语义不同，给个默认值就把
+     * 「没设过」和「明确设成不限」混成一件事了。 */
+    ai_daily_limit: 'INTEGER',
   },
   /* attempts.error_type —— 错因归类。
    * 新库由 schema.sql 建好，老库必须在这里补：attempts 表早已存在，

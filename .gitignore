@@ -8,6 +8,9 @@ dist/
 # 测试的中间产物（tests/lib/extract-pipeline.mjs 把 Math.tsx 转译到这里）
 .tmp-pipeline/
 
+# 公式图渲染缓存（LaTeX 的 PNG/SVG 产物，可随时重建，不该入库）
+server/.cache/
+
 # 数据库（含所有人的账号与作答记录，绝不入库）
 server/data/
 *.db

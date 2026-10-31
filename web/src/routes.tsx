@@ -28,6 +28,7 @@ import Classroom from '@/pages/Classroom';
 import Achievements from '@/pages/Achievements';
 import Settings from '@/pages/Settings';
 import Admin from '@/pages/Admin';
+import AppConsole from '@/pages/AppConsole';
 
 export const APP_PAGES: PageDef[] = [
   { path: '/', node: <Dashboard /> },
@@ -49,4 +50,7 @@ export const APP_PAGES: PageDef[] = [
    * 真正的门在服务端：/api/admin/* 每条路由都挂 requireAdmin，
    * 非管理员即便把这一行删掉也拿不到数据。 */
   { path: '/admin', node: <Admin /> },
+  /* 小程序控制台。同样不做角色判断 —— 页面自己会检查并跳回首页，
+   * 服务端 /api/admin/app/* 每条都挂 requireAdmin。 */
+  { path: '/app', node: <AppConsole /> },
 ];

@@ -396,3 +396,93 @@ CREATE TABLE IF NOT EXISTS admin_log (
 );
 CREATE INDEX IF NOT EXISTS idx_adminlog_at ON admin_log(at DESC);
 CREATE INDEX IF NOT EXISTS idx_adminlog_target ON admin_log(target_id);
+
+-- ============ 小程序（第二客户端）============
+--
+-- Web 端同时是「小程序的控制台」：题库版本、功能开关、公告、AI 配额、
+-- 订阅消息模板、统一模型 Key，全在这几张表里，小程序启动时拉一次。
+--
+-- 为什么不做成「前端写死配置」：这些参数每一条都要能在不重新提审、
+-- 不重新发版的前提下改掉。小程序审核一次 1~7 天，配置写死等于
+-- 「关一个功能要等一周」。
+
+-- 全局客户端配置。单行表（id 恒为 1），整份 JSON 存在 json 列里。
+--
+-- 为什么用 JSON 而不是一列一个字段：
+--   配置项会持续增加（今天 8 项，明年可能 20 项）。SQLite 加列要 ALTER，
+--   而这张表只在启动时整份读一次、写的时候整份覆盖 —— 拆成列没有任何
+--   查询上的好处，只会让「加一个开关」变成一次迁移。
+--   代价是没法用 SQL 直接查某个字段，但配置本来就不该那样查。
+CREATE TABLE IF NOT EXISTS app_config (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  json       TEXT    NOT NULL DEFAULT '{}',
+  updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 微信账号绑定。
+--
+-- ★ 单独一张表，不往 users 上加列。理由：openid 只有小程序这一条链路
+--   用得到，塞进 users 会让「用户」这个核心表被一个可选渠道污染；
+--   而且以后接支付宝小程序、抖音小程序，各加一列就成了列爆炸。
+--
+-- ★ 纯微信登录的用户没有邮箱，而 users.email 是 NOT NULL UNIQUE。
+--   SQLite 改不了已有列的 NOT NULL（要整表重建），所以走合成邮箱：
+--   wx_<openid 的 sha256 前 16 位>@wx.local。这是个真实存在的邮箱格式，
+--   但 .local 不会被投递，也不会和任何真人邮箱撞车。
+--   为什么不改成「邮箱可空」：那要重建 users 表，而 users 被 12 张表
+--   外键引用，重建期间必须关 foreign_keys —— 风险远大于收益。
+CREATE TABLE IF NOT EXISTS wx_bind (
+  user_id  INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  openid   TEXT    NOT NULL UNIQUE,
+  unionid  TEXT    NOT NULL DEFAULT '',
+  nickname TEXT    NOT NULL DEFAULT '',
+  avatar   TEXT    NOT NULL DEFAULT '',
+  bound_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_wxbind_openid ON wx_bind(openid);
+
+-- AI 每日用量。按 (用户, 本地日期) 计。
+--
+-- 为什么按天建行而不是「一行 + 重置时间」：按天建行天然可查历史
+-- （「这个人这周用了几次」），而且跨天不需要定时任务去重置 ——
+-- 新的一天查不到行就是 0。代价是表会随天数增长，单人使用量级下
+-- 一年也就几千行，不值得为它加清理任务。
+--
+-- day 用**本地日期**（YYYY-MM-DD），不是 UTC —— 用户看到的「今天」
+-- 是本地今天。库里另有 lib/dates.js 统一这个口径。
+CREATE TABLE IF NOT EXISTS ai_usage (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day     TEXT    NOT NULL,
+  calls   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_aiusage_day ON ai_usage(day);
+
+-- 订阅消息授权。小程序侧调 wx.requestSubscribeMessage 之后回报给服务端。
+--
+-- granted 记的是**用户的授权状态**，不是「我们发没发」——
+-- 微信的订阅消息是一次性的：用户点一次「允许」，我们只能发一条。
+-- 所以这张表的价值是「知道谁现在有额度」，而不是「永久许可」。
+CREATE TABLE IF NOT EXISTS push_sub (
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  template_id TEXT    NOT NULL,
+  granted     INTEGER NOT NULL DEFAULT 1,
+  quota_left  INTEGER NOT NULL DEFAULT 1,
+  updated_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, template_id)
+);
+
+-- 推送投递记录。没有这张表，「昨天推了 12 个人，今天为什么没人回来」
+-- 这个问题完全无法回答 —— 是没发、发失败、还是发了没人点。
+CREATE TABLE IF NOT EXISTS push_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL,
+  template_id TEXT    NOT NULL,
+  page        TEXT    NOT NULL DEFAULT '',
+  ok          INTEGER NOT NULL DEFAULT 0,
+  errcode     INTEGER,
+  errmsg      TEXT,
+  at          TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_pushlog_at ON push_log(at DESC);
+CREATE INDEX IF NOT EXISTS idx_pushlog_user ON push_log(user_id, at DESC);

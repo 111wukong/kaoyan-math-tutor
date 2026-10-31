@@ -9,8 +9,9 @@
  * 所以系统提示词里写死了「不许直接给答案」。
  */
 import { db } from '../db/index.js';
-import { resolveLlm } from './misc.js';
 import { checkLlmBase, llmFetch } from '../lib/llmUrl.js';
+import { getConfig } from '../lib/appConfig.js';
+import { resolveLlmFor, consumeQuota, refundQuota } from '../lib/llm.js';
 import { buildSnapshot, nodeMastery, getTree } from '../lib/game.js';
 import { ancestors } from '../lib/graph.js';
 import { answerIssue, normalizeAnswer, parseSteps, SELF_GRADED_TYPES, QUESTION_TYPES, TYPE_LABEL } from '../lib/judge.js';
@@ -163,17 +164,35 @@ function buildSystemPrompt(userId, { kid, stage = 'explain', persona = 'strict' 
  * @returns {{cfg: object}|{error: object}} 有 error 就直接 reply.code(400).send(error)
  */
 async function llmOrError(req) {
-  const l = db.prepare('SELECT * FROM llm_settings WHERE user_id = ?').get(req.userId);
-  const cfg = l ? resolveLlm(l) : null;
-  /* 云端必须带密钥；本地（LM Studio / Ollama）不需要。 */
-  const missingKey = l?.kind === 'cloud' && !cfg?.key;
+  const cfg = resolveLlmFor(req.userId);
+  const mode = getConfig().ai.mode;
 
-  if (!cfg || !cfg.base || !cfg.model || missingKey) {
+  /* 是不是「云端」决定了要不要检查 Key 和做 SSRF 校验。
+   *
+   * ★ 注意 mode === 'server' 时 resolveLlmFor() **根本不读用户的
+   *   llm_settings** —— base/model/key 全部来自服务端配置和环境变量。
+   *   这不是省事，是安全前提：如果统一 Key 模式下还沿用用户填的
+   *   base，用户就能把自己的地址填进来，让服务端带着**你的 Key**
+   *   请求过去。lib/llm.js 开头有完整说明。 */
+  const isCloud = mode === 'server' || cfg?.source === 'byok-cloud';
+
+  if (!cfg || !cfg.base || !cfg.model) {
     return {
       error: {
-        error: missingKey
-          ? '云端模型还没填 API Key。去「设置 → 模型接入」补上，或者切到本地模型。'
+        error: mode === 'server'
+          ? '服务端的模型配置不完整（管理员在「小程序控制台 → AI」里检查 Base 和模型名）。'
           : '还没配置模型。去「设置 → 模型接入」填 Base URL 和模型名。',
+        code: 'NO_LLM',
+      },
+    };
+  }
+
+  if (isCloud && !cfg.key) {
+    return {
+      error: {
+        error: mode === 'server'
+          ? '服务端没有配置 SERVER_LLM_KEY，AI 功能暂时不可用。'
+          : '云端模型还没填 API Key。去「设置 → 模型接入」补上，或者切到本地模型。',
         code: 'NO_LLM',
       },
     };
@@ -183,18 +202,68 @@ async function llmOrError(req) {
    *
    * 写入口（PUT /api/settings/llm）已经拦过内网地址，但库里可能存着
    * **那次改动之前**就填好的地址 —— 只在写入口拦，存量数据照样能打出去。
-   * 这是六个 AI 接口共用的唯一闸门，所以拦在这里一处就够。
+   * 这是所有 AI 接口共用的唯一闸门，所以拦在这里一处就够。
    *
-   * 代价是每次 AI 调用多一次 DNS 查询（有系统缓存，量级是微秒）。 */
-  const baseErr = await checkLlmBase(cfg.base, { forCloud: l.kind === 'cloud' });
+   * server 模式下 base 是管理员配的，但同样校验 —— 一个填错的
+   * 地址（比如内网 IP）会让所有 AI 调用静默超时，那种故障很难查。 */
+  const baseErr = await checkLlmBase(cfg.base, { forCloud: isCloud });
   if (baseErr) {
     return { error: { error: baseErr, code: 'BAD_LLM_BASE' } };
   }
 
-  return { cfg };
+  /* ---------- 配额 ----------
+   *
+   * 在**调用上游之前**扣。理由见 lib/llm.js 里 consumeQuota 的注释：
+   * 先调后扣会让「上游超时 / 401」这类失败永远不被计数，而那恰恰是
+   * 最容易被拿来刷的路径。
+   *
+   * 失败时的退还在本文件底部的 onSend 钩子里统一处理 —— 不在 9 个
+   * 接口里各写一遍，那必然会漏一个。 */
+  const quota = consumeQuota(req.userId);
+  if (!quota.ok) {
+    return {
+      error: {
+        error: quota.error,
+        code: quota.code,
+        /* 把余量一起带回去，前端据此把 AI 入口置灰，而不是等用户
+         * 点一次、被拒一次。 */
+        quota: { used: quota.used, limit: quota.limit, remaining: quota.remaining },
+      },
+    };
+  }
+
+  req.quotaConsumed = true;
+  return { cfg, quota };
 }
 
 export default async function aiRoutes(fastify) {
+  /* ---------- 配额退还 ----------
+   *
+   * 配额在 llmOrError() 里「先扣后调」。扣了但请求根本没成功的那部分
+   * 要还回去，否则上游抖一次，用户就白掉一次额度。
+   *
+   * 为什么用 onSend 钩子而不是在每个接口的 catch 里各写一遍：
+   * 这里有 9 个 AI 接口，而它们的失败路径长得都不一样 —— 有的是
+   * `return reply.code(502)`，有的是上游 4xx 透传，有的在流式过程中
+   * 断掉。逐处写必然漏，而漏掉的表现是「用户说额度少了一次，但查不出
+   * 哪里扣的」。钩子只写一次，覆盖全部。
+   *
+   * ★ 只退 5xx（502 连不上、500 内部错误、504 超时）。
+   *   4xx 不退：那些请求**确实打到了上游**，也确实消耗了上游的时间和
+   *   配额，而且「用一个坏 Key 疯狂重试」正是最需要被计数挡住的行为。
+   *   如果 4xx 也退，配额就形同虚设。
+   *
+   * ★ 流式接口（/api/ai/chat）在写出响应头之后状态码就固定是 200，
+   *   中途断流不会再触发这个钩子。那种情况算「已经用掉了」——
+   *   上游确实生成了 token，账单已经产生。 */
+  fastify.addHook('onSend', async (req, reply, payload) => {
+    if (req.quotaConsumed && reply.statusCode >= 500) {
+      refundQuota(req.userId);
+      req.quotaConsumed = false;
+    }
+    return payload;
+  });
+
   /* ---------- 流式对话 ---------- */
   fastify.post('/api/ai/chat', {
     config: { rateLimit: AI_LIMIT },
