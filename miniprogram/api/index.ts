@@ -151,6 +151,20 @@ export const fetchCardSummary = () => get<{
   today: string;
 }>('/api/cards/summary');
 export const fetchTree = () => get<any>('/api/catalog/tree');
+/**
+ * 题库的构成：来源 / 年份 / 难度 / 题型的分布。
+ *
+ * ★ 这是**全库**统计，不受当前筛选影响 —— 所以它只能用来描述
+ *   「题库长什么样」，不能用来显示「筛完还剩多少道」。
+ */
+export const fetchFacets = () => get<{
+  sources: { v: string; n: number }[];
+  years: { v: number; n: number }[];
+  difficulties: { v: number; n: number }[];
+  types: { v: string; n: number }[];
+  total: number;
+}>('/api/catalog/facets');
+
 export const fetchQuestions = (params: Record<string, string | number> = {}) => {
   const qs = Object.keys(params)
     .filter((k) => params[k] !== '' && params[k] !== undefined)

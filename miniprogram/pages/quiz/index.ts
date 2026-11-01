@@ -14,7 +14,7 @@
  *   用户一次只看一道。
  */
 
-import { fetchQuestions, renderTexts, type Segment } from '../../api/index';
+import { fetchQuestions, fetchFacets, renderTexts, type Segment } from '../../api/index';
 
 interface Q {
   id: string;
@@ -27,6 +27,8 @@ interface Q {
   answer?: string;
   analysis?: string;
   selfGraded?: boolean;
+  /** 考点中文名，服务端 join 出来的 */
+  kidTitle?: string;
 }
 
 interface Row extends Q {
@@ -68,6 +70,9 @@ Page({
     error: '',
 
     filters: FILTERS,
+
+    /* 难度分布：五根小柱，按全库最大值归一 */
+    diff: [] as { v: number; h: number; n: number }[],
     filter: 'all',
     rows: [] as Row[],
     total: 0,
@@ -91,10 +96,25 @@ Page({
   async load() {
     this.setData({ loading: true, error: '' });
     try {
-      const r = await fetchQuestions({ limit: 60 });
+      /* facets 和题目列表并发：前者只用来画难度分布，
+       * 拿不到也不影响列表（catch 成 null）。 */
+      const [r, fac] = await Promise.all([
+        fetchQuestions({ limit: 60 }),
+        fetchFacets().catch(() => null),
+      ]);
       const list = ((r as any).questions || []) as Q[];
       this.all = list;
-      this.setData({ loading: false, total: list.length });
+
+      const ds = (fac && fac.difficulties) || [];
+      const dmax = Math.max(1, ...ds.map((d) => d.n));
+      const diff = ds.map((d) => ({
+        v: d.v,
+        n: d.n,
+        /* 最少 8%：数量为 0 的难度也留个底，否则整根消失 */
+        h: Math.max(8, Math.round((d.n / dmax) * 100)),
+      }));
+
+      this.setData({ loading: false, total: list.length, diff });
       await this.applyFilter('all');
     } catch (e: any) {
       this.setData({ loading: false, error: (e && e.message) || '加载失败' });

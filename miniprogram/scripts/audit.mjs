@@ -192,6 +192,16 @@ const QUIZ = frame(`
   <div class="filter-item">解答</div>
   <div class="filter-item">证明</div>
 </div>
+<div class="diff">
+  <span class="diff-label">难度</span>
+  <div class="diff-bars">
+    <div class="diff-col"><div class="diff-bar" style="height:45%"></div><span class="diff-v">1</span></div>
+    <div class="diff-col"><div class="diff-bar" style="height:100%"></div><span class="diff-v">2</span></div>
+    <div class="diff-col"><div class="diff-bar" style="height:80%"></div><span class="diff-v">3</span></div>
+    <div class="diff-col"><div class="diff-bar" style="height:38%"></div><span class="diff-v">4</span></div>
+    <div class="diff-col"><div class="diff-bar" style="height:12%"></div><span class="diff-v">5</span></div>
+  </div>
+</div>
 <div class="card q-card q-open">
   <div class="q-head">
     <div class="q-idx">1</div>
@@ -200,6 +210,7 @@ const QUIZ = frame(`
       <div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
     <div class="q-toggle q-toggle-up"></div>
   </div>
+  <div class="q-kid">重要极限</div>
   <div class="q-stem"><div class="mt"><span class="mt-text">求极限 lim(x→0) sin3x/x 的值</span></div></div>
   <div class="opts">
     <div class="opt"><div class="opt-key">A</div><div class="opt-body"><div class="mt"><span class="mt-text">1</span></div></div></div>

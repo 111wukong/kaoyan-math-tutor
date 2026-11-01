@@ -229,10 +229,14 @@ export default async function catalogRoutes(fastify) {
     /* 带上 mine —— 前端要靠它决定「能不能改 / 能不能删」。
      * 让前端去猜 id 前缀（u_ / g_ / q01）迟早会猜错，
      * 而且那是存储细节，不该泄漏到 UI 层。 */
+    /* 带上考点中文名。publicQuestion 是纯函数（不引 db / tree），
+     * 所以映射放在这里做 —— 前端拿到 kid 只是一串 id，没法显示。 */
+    const tree = getTree();
     return {
       questions: rows.map((q) => ({
         ...publicQuestion(q, { withAnswer: false }),
         mine: q.owner_id === req.userId,
+        kidTitle: tree.nodeById.get(q.kid)?.title || '',
       })),
       count: rows.length,
     };

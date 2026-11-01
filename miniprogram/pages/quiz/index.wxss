@@ -113,6 +113,15 @@
   margin-top: 20rpx;
 }
 
+/* 考点名：题干上方一行小字。
+ * 放在题干之前而不是之后 —— 先知道「考什么」再读题，
+ * 比读完题再回头对标签更顺。 */
+.q-kid {
+  margin-top: 14rpx;
+  font-size: 23rpx;
+  color: var(--accent);
+}
+
 /* ---------- 展开区 ---------- */
 .q-more {
   margin-top: 26rpx;
@@ -157,4 +166,60 @@
 .go-answer {
   margin-top: 26rpx;
   margin-left: auto;
+}
+
+/* ============================================================
+   难度分布
+   ============================================================ */
+
+/* 一行小柱，紧贴筛选条下面。
+ * 做得淡是故意的 —— 它是背景信息（题库长什么样），
+ * 不是要用户操作的东西。列表才是这一页的主角。 */
+.diff {
+  display: flex;
+  align-items: flex-end;
+  gap: 16rpx;
+  margin: -10rpx 0 22rpx;
+}
+
+.diff-label {
+  font-size: 23rpx;
+  line-height: 1;
+  color: var(--fg-mute);
+  flex-shrink: 0;
+  /* 和柱子下面那排数字对齐，不是和柱子底对齐 */
+  padding-bottom: 2rpx;
+}
+
+/* 柱子固定宽度而不是 flex: 1 —— 平分整行的话每根 40px，
+ * 看起来是五根横条，不像柱状图。 */
+.diff-bars {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 72rpx;
+}
+
+.diff-col {
+  width: 48rpx;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8rpx;
+}
+
+.diff-bar {
+  width: 100%;
+  border-radius: 4rpx 4rpx 2rpx 2rpx;
+  background: rgba(201, 151, 63, 0.55);
+}
+
+.diff-v {
+  font-size: 22rpx;
+  line-height: 1;
+  color: var(--fg-mute);
+  font-variant-numeric: tabular-nums;
 }

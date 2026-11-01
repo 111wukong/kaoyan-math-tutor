@@ -16,6 +16,20 @@
     >{{item.label}}</view>
   </scroll-view>
 
+  <!-- ===== 难度分布 =====
+       全库的难度构成，五根小柱。它回答的是「这个题库难不难」——
+       扫一眼就知道是不是全压在最难那档。数据来自 /api/catalog/facets，
+       是**全库**统计，不随下面的筛选变化。 -->
+  <view wx:if="{{diff.length}}" class="diff">
+    <text class="diff-label">难度</text>
+    <view class="diff-bars">
+      <view wx:for="{{diff}}" wx:key="v" class="diff-col">
+        <view class="diff-bar" style="height: {{item.h}}%"></view>
+        <text class="diff-v">{{item.v}}</text>
+      </view>
+    </view>
+  </view>
+
   <!-- ===== 未登录 ===== -->
   <view wx:if="{{needLogin}}" class="card card-lit">
     <view class="card-title">还没登录</view>
@@ -53,6 +67,9 @@
         </view>
         <view class="q-toggle {{item.open ? 'q-toggle-up' : ''}}"></view>
       </view>
+
+      <!-- 考点名：让用户知道这道题考什么，不用点开看解析 -->
+      <view wx:if="{{item.kidTitle}}" class="q-kid">{{item.kidTitle}}</view>
 
       <view class="q-stem">
         <math-text wx:if="{{!item.rendering}}" segments="{{item.segs}}" />
