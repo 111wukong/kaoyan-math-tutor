@@ -89,6 +89,16 @@ interface RequestOptions {
    *   服务端的更新接口一律用 PUT，所以这里也不需要 PATCH。 */
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   data?: any;
+  /**
+   * 超时毫秒。默认 20 秒。
+   *
+   * ★ AI 接口必须传更长的值。服务端调模型的超时是 60 秒
+   *   （见 routes/ai.js 的 LLM_TIMEOUT_MS），而客户端只有 20 秒 ——
+   *   于是「AI 讲解」在模型稍慢一点时会先被客户端掐断，报「网络连接失败」，
+   *   而服务端其实还在算、算完也没人要了。
+   *   用户看到的是「AI 坏了」，实际只是两边的等待时间没对齐。
+   */
+  timeout?: number;
   /** 内部用：已经重登过就不再重登，避免死循环 */
   _retried?: boolean;
 }
@@ -101,7 +111,7 @@ interface RequestOptions {
  * 两端的业务代码可以互相抄。
  */
 export function request<T = any>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', data, _retried } = opts;
+  const { method = 'GET', data, timeout = 20000, _retried } = opts;
   const token = getToken();
 
   return new Promise<T>((resolve, reject) => {
@@ -113,7 +123,7 @@ export function request<T = any>(path: string, opts: RequestOptions = {}): Promi
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      timeout: 20000,
+      timeout,
       success: async (res: any) => {
         const body = res.data;
 
@@ -151,5 +161,15 @@ export function request<T = any>(path: string, opts: RequestOptions = {}): Promi
 }
 
 export const get = <T = any>(path: string) => request<T>(path);
-export const post = <T = any>(path: string, data?: any) => request<T>(path, { method: 'POST', data });
+export const post = <T = any>(path: string, data?: any, timeout?: number) =>
+  request<T>(path, { method: 'POST', data, ...(timeout ? { timeout } : {}) });
 export const put = <T = any>(path: string, data?: any) => request<T>(path, { method: 'PUT', data });
+
+/**
+ * 调 AI 的请求超时。
+ *
+ * 必须和服务端的 LLM_TIMEOUT_MS（60 秒）对齐或更长 —— 短了的话，
+ * 模型还在算、客户端已经放弃，用户看到「网络连接失败」而服务端
+ * 那边其实会正常算完（额度也扣了）。
+ */
+export const AI_TIMEOUT = 70_000;

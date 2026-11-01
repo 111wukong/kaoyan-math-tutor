@@ -487,19 +487,7 @@ export default async function aiRoutes(fastify) {
     ].join('\n');
 
     try {
-      const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
-        body: JSON.stringify({
-          model: cfg.model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.2,
-          stream: false,
-        }),
-      });
-      if (!res.ok) return reply.code(res.status).send({ error: `模型返回 ${res.status}` });
-      const j = await res.json();
-      const content = j.choices?.[0]?.message?.content || '';
+      const content = await callModel(cfg, prompt, { temperature: 0.2 });
       const cards = parseJsonArray(content);
 
       const saved = [];
@@ -515,7 +503,10 @@ export default async function aiRoutes(fastify) {
       }
       return { cards: saved, raw: saved.length ? undefined : content.slice(0, 500) };
     } catch (e) {
-      return reply.code(502).send({ error: e.message });
+      /* 上游回了非 2xx 就把状态码透传出去（原来就是这样），
+       * 只有真正连不上才回 502 —— 两者对用户的含义完全不同：
+       * 401 是「Key 不对」，502 是「网络/服务挂了」。 */
+      return reply.code(e.upstreamStatus || 502).send({ error: e.message });
     }
   });
 
@@ -545,33 +536,16 @@ export default async function aiRoutes(fastify) {
       || '识别这张图片中的内容。如果是数学题，提取题干、选项（如果有）、答案和解析；如果是笔记，整理成结构化的知识点。用中文回答。';
 
     try {
-      const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}),
-        },
-        body: JSON.stringify({
-          model: cfg.model,
-          messages: [imageMessage(prompt, img.mime, img.buffer)],
-          temperature: 0.2,
-          max_tokens: 2048,
-          stream: false,
-        }),
+      const text = await callModel(cfg, [imageMessage(prompt, img.mime, img.buffer)], {
+        temperature: 0.2,
+        maxTokens: 2048,
       });
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        return reply.code(res.status).send({
-          error: `模型返回 ${res.status}${txt ? '：' + txt.slice(0, 200) : ''}`,
-        });
-      }
-
-      const j = await res.json();
-      const text = j.choices?.[0]?.message?.content || '';
       return { text: text.trim() };
     } catch (e) {
-      return reply.code(502).send({ error: e.message });
+      /* 上游回了非 2xx 就把状态码透传出去（原来就是这样），
+       * 只有真正连不上才回 502 —— 两者对用户的含义完全不同：
+       * 401 是「Key 不对」，502 是「网络/服务挂了」。 */
+      return reply.code(e.upstreamStatus || 502).send({ error: e.message });
     }
   });
 
@@ -598,38 +572,23 @@ export default async function aiRoutes(fastify) {
     if (error) return reply.code(400).send(error);
 
     try {
-      const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}),
-        },
-        body: JSON.stringify({
-          model: cfg.model,
-          messages: [imageMessage(buildSolvePrompt(), img.mime, img.buffer)],
-          /* 解题要稳，不要发挥。0.1 比识别用的 0.2 更低 ——
-           * 这里最怕的不是答案平淡，是它自己补一个题目条件。 */
-          temperature: 0.1,
-          max_tokens: 3000,
-          stream: false,
-        }),
+      /* 解题要稳，不要发挥。0.1 比识别用的 0.2 更低 ——
+       * 这里最怕的不是答案平淡，是它自己补一个题目条件。 */
+      const raw = await callModel(cfg, [imageMessage(buildSolvePrompt(), img.mime, img.buffer)], {
+        temperature: 0.1,
+        /* 6 步推导 + 考点很容易超 2048。截断的 JSON 解析不出来，
+         * 用户看到「识别失败」，而真实原因是预算不够。 */
+        maxTokens: 3000,
       });
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        return reply.code(res.status).send({
-          error: `模型返回 ${res.status}${txt ? '：' + txt.slice(0, 200) : ''}`,
-        });
-      }
-
-      const j = await res.json();
-      const raw = j.choices?.[0]?.message?.content || '';
       const solved = sanitizeSolve(raw);
       /* degraded 不是错误：JSON 没解析出来时，把原文塞进 question
        * 让用户至少能看到内容，前端标一句「格式异常」。 */
       return { ...solved, model: cfg.model };
     } catch (e) {
-      return reply.code(502).send({ error: e.message });
+      /* 上游回了非 2xx 就把状态码透传出去（原来就是这样），
+       * 只有真正连不上才回 502 —— 两者对用户的含义完全不同：
+       * 401 是「Key 不对」，502 是「网络/服务挂了」。 */
+      return reply.code(e.upstreamStatus || 502).send({ error: e.message });
     }
   });
 
@@ -694,30 +653,21 @@ export default async function aiRoutes(fastify) {
      * 以前这里和答疑接口不一致 —— 那边有「连不上模型服务：」前缀，这边没有，
      * 同一个故障用户看到两种说法。现在统一。
      * 也不能把整段 try 的 catch 都加上这个前缀：那会把「上游返回了坏 JSON」
-     * 这类错误也说成「连不上」，反而误导。 */
-    let res;
+     * 这类错误也说成「连不上」，反而误导。
+     *
+     * ★ 改成 callModel 之后靠 e.upstreamStatus 区分：有它 = 上游回了
+     *   非 2xx（带着状态码和响应体），没它 = 根本没连上。 */
+    let content;
     try {
-      res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
-        body: JSON.stringify({
-          model: cfg.model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.75,
-          stream: false,
-        }),
-      });
+      content = await callModel(cfg, prompt, { temperature: 0.75 });
     } catch (e) {
+      if (e.upstreamStatus) {
+        return reply.code(e.upstreamStatus).send({ error: e.message });
+      }
       return reply.code(502).send({ error: `连不上模型服务：${e.message}` });
     }
 
     try {
-      if (!res.ok) {
-        const t = await res.text().catch(() => '');
-        return reply.code(res.status).send({ error: `模型返回 ${res.status}：${t.slice(0, 200)}` });
-      }
-      const j = await res.json();
-      const content = j.choices?.[0]?.message?.content || '';
       const parsed = parseJsonObject(content);
 
       if (!parsed || !Array.isArray(parsed.turns)) {
@@ -761,7 +711,10 @@ export default async function aiRoutes(fastify) {
         silenced: guarded.silenced,
       };
     } catch (e) {
-      return reply.code(502).send({ error: e.message });
+      /* 上游回了非 2xx 就把状态码透传出去（原来就是这样），
+       * 只有真正连不上才回 502 —— 两者对用户的含义完全不同：
+       * 401 是「Key 不对」，502 是「网络/服务挂了」。 */
+      return reply.code(e.upstreamStatus || 502).send({ error: e.message });
     }
   });
 
@@ -1362,28 +1315,64 @@ export default async function aiRoutes(fastify) {
  * 单考点生成时超时只是「这次没出成题」，重试就行；但批量生成会**串行**跑
  * 十几个考点，一个考点卡死就整批卡死 —— 而 HTTP 客户端那边早就超时断开了，
  * 服务端还在傻等，白占一个连接。所以这个超时是批量接口的**前置条件**，
- * 不是锦上添花。 */
+ * 不是锦上添花。
+ *
+ * ★ 这个值必须和客户端的请求超时对得上（小程序端见 api/request.ts 的
+ *   AI_TIMEOUT = 70 秒，比这里长 10 秒 —— 让服务端先放弃并给出结构化
+ *   错误，比客户端先断线、用户只看到「网络失败」要好）。 */
 const LLM_TIMEOUT_MS = 60_000;
 
-/** 非流式调用一次模型，只取文本。三处（extract / 课堂 / 错因）共用。 */
-async function callLlm(cfg, prompt, { temperature = 0.2, timeoutMs = LLM_TIMEOUT_MS } = {}) {
+/**
+ * 非流式调用一次模型，返回文本。
+ *
+ * ── 为什么要统一到这里 ────────────────────────────────────────────
+ * 原来有 4 个接口（extract / vision / solve / classroom）各自手写
+ * llmFetch：拼 URL、拼 headers、拼 body、判断 res.ok、取 choices[0]。
+ * 五段代码几乎一样，但**只有 callLlm 那条路设了超时** —— 另外四处
+ * 一旦模型不响应，请求会一直挂着，直到 Node 的 socket 默认超时（几分钟），
+ * 期间白占一个连接，而客户端早就断了。
+ *
+ * 更麻烦的是「加一个参数要改五处」：比如给 solve 加 max_tokens 时，
+ * 只有那一处有；下次想给 vision 也加，很容易漏。
+ *
+ * ── 参数 ────────────────────────────────────────────────────────
+ * @param messages 字符串（自动包成单条 user 消息）或多模态消息数组
+ * @param maxTokens 不传则用上游默认值
+ */
+async function callModel(cfg, messages, {
+  temperature = 0.2, maxTokens, timeoutMs = LLM_TIMEOUT_MS,
+} = {}) {
+  const msgs = typeof messages === 'string' ? [{ role: 'user', content: messages }] : messages;
+
   const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}) },
     body: JSON.stringify({
       model: cfg.model,
-      messages: [{ role: 'user', content: prompt }],
+      messages: msgs,
       temperature,
+      ...(maxTokens ? { max_tokens: maxTokens } : {}),
       stream: false,
     }),
     signal: AbortSignal.timeout(timeoutMs),
   });
+
   if (!res.ok) {
     const t = await res.text().catch(() => '');
-    throw new Error(`模型返回 ${res.status}：${t.slice(0, 200)}`);
+    /* 把上游状态码挂到 error 上：调用方偶尔需要区分「模型拒了」
+     * 和「网络断了」，但绝大多数地方只是 catch 后回 502。 */
+    const e = new Error(`模型返回 ${res.status}${t ? '：' + t.slice(0, 200) : ''}`);
+    e.upstreamStatus = res.status;
+    throw e;
   }
+
   const j = await res.json();
   return j.choices?.[0]?.message?.content || '';
+}
+
+/** 纯文本的便捷版。绝大多数调用点用它。 */
+function callLlm(cfg, prompt, opts = {}) {
+  return callModel(cfg, prompt, opts);
 }
 
 function buildErrorPrompt(q, myAnswer) {

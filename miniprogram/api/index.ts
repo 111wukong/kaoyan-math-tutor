@@ -9,7 +9,7 @@
  */
 
 import { BASE_URL, INK } from '../config';
-import { get, post } from './request';
+import { get, post, AI_TIMEOUT } from './request';
 
 /* ---------- 启动配置 ---------- */
 
@@ -217,7 +217,11 @@ export const gradeCard = (cardId: string | number, rating: 1 | 2 | 3 | 4) =>
 
 /* ---------- AI ---------- */
 
-export const aiExplain = (qid: string) => post<{ ok: boolean; text: string; model: string }>('/api/ai/explain', { qid });
+/* AI 接口统一传 AI_TIMEOUT：服务端调模型最长 60 秒，
+ * 客户端用默认的 20 秒会先断 —— 用户看到「网络失败」，
+ * 而服务端其实还在算、算完也没人要了。 */
+export const aiExplain = (qid: string) =>
+  post<{ ok: boolean; text: string; model: string }>('/api/ai/explain', { qid }, AI_TIMEOUT);
 
 /**
  * AI 批改（解答 / 证明题）。
@@ -226,13 +230,15 @@ export const aiExplain = (qid: string) => post<{ ok: boolean; text: string; mode
  *   submitAnswer(..., selfCorrect) —— 用户可以不接受 AI 的判分。
  *   所以界面上必须有「接受 / 改判」两个按钮，不能自动提交。
  */
-export const aiGrade = (qid: string, answer: string) => post<any>('/api/ai/grade', { qid, answer });
+export const aiGrade = (qid: string, answer: string) =>
+  post<any>('/api/ai/grade', { qid, answer }, AI_TIMEOUT);
 
 /** 从文本中提取复习卡片。拍照识别后调用，把识别结果转成结构化卡片。 */
 export const extractCards = (text: string, kid?: string) =>
   post<{ cards: { id: string; title: string; front: string; back: string; type: string }[]; raw?: string }>(
     '/api/ai/extract',
     { text, kid },
+    AI_TIMEOUT,
   );
 
 /* ---------- 订阅消息 ---------- */
