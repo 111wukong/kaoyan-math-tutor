@@ -34,6 +34,68 @@ function dots(n: number): { i: number; on: boolean }[] {
   return [1, 2, 3, 4, 5].map((i) => ({ i, on: i <= d }));
 }
 
+/* ---------- 一周热力图 ----------
+ *
+ * ★ 为什么要自己补齐 7 天，而不是直接 slice(-7)：
+ *   stats.heatmap 是「有记录的那些天」，不是连续日期。一个人隔了三天没学，
+ *   那个数组里就没有那三天 —— 直接取末 7 条会把两周前的一天画进「本周」。
+ *   所以按日历生成 7 个格子，再从 map 里查当天有没有数据。
+ */
+interface HeatDay {
+  key: string;
+  label: string;
+  n: number;
+  /** 柱高百分比（0-100）。按本周最大值归一，最少 6% 保证空的那天也有个底 */
+  h: number;
+  today: boolean;
+}
+
+function last7Days(heatmap: { date: string; n: number }[]): HeatDay[] {
+  const map = new Map((heatmap || []).map((d) => [d.date, d.n]));
+  const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+  const raw: { key: string; label: string; n: number; today: boolean }[] = [];
+
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, '0'),
+      String(d.getDate()).padStart(2, '0'),
+    ].join('-');
+    raw.push({ key, label: WEEK[d.getDay()], n: map.get(key) || 0, today: i === 0 });
+  }
+
+  /* ★ 柱高按「本周最大值」归一，而不是按固定上限（比如 50 题）。
+   *   固定上限的问题是：一个每天做 8 题的人，七根柱子都是 16% 高，
+   *   看上去像七根一样的小棍 —— 他这周的努力在图上完全看不见。
+   *   按周内最大值归一，8 题和 12 题的差别才显出来。
+   *   全周都是 0 时用 1 兜底，避免除零。 */
+  const max = Math.max(1, ...raw.map((d) => d.n));
+  return raw.map((d) => ({
+    ...d,
+    /* 最少 6% —— 那天没学也要留一个底座，否则整根消失，
+     * 看起来像「这格坏了」而不是「这天没学」。 */
+    h: d.n === 0 ? 6 : Math.max(12, Math.round((d.n / max) * 100)),
+  }));
+}
+
+/** 三科掌握度。color 由服务端给，但那是给 Web 端深色用的暗色，
+ *  在这里太暗（2.01:1），所以按 id 映射到提亮版 —— 见 wxss 的 .cat-*。 */
+interface CatRow {
+  id: string;
+  name: string;
+  pct: number;
+}
+
+function catRows(radar: any[]): CatRow[] {
+  return (radar || []).map((r) => ({
+    id: r.id,
+    name: String(r.name || '').replace('与数理统计', ''),
+    pct: Math.max(0, Math.min(100, Number(r.accuracy) || 0)),
+  }));
+}
+
 function greeting(): string {
   const h = new Date().getHours();
   if (h < 6) return '夜深了';
@@ -68,6 +130,19 @@ Page({
     levelInto: 0,
     levelNeed: 100,
     due: 0,
+    /** 今天已经做了多少题（来自热力图的最后一格） */
+    todayDone: 0,
+    /** 今日复习进度：已完成 / 应完成（已完成 + 还到期） */
+    reviewDone: 0,
+    reviewTotal: 0,
+    /** 环形进度百分比 */
+    reviewPct: 0,
+
+    /* 一周热力图 */
+    heat: [] as HeatDay[],
+
+    /* 三科掌握度 */
+    cats: [] as CatRow[],
 
     /* 今日一练 */
     quiz: null as QuizItem | null,
@@ -113,6 +188,20 @@ Page({
     const lv = snap.levelInfo || {};
     const quiz = (daily && daily.quiz && daily.quiz[0]) || null;
 
+    /* 这两个模块的数据服务端一直在返回，但页面以前只用了 snapshot 里那几个数。
+     * 结果就是一屏只有一个大数字 —— 数据都在，画面上什么都没有。 */
+    const heat = last7Days((stats && stats.heatmap) || []);
+    const cats = catRows((stats && stats.radar) || []);
+
+    /* 今日复习进度 = 已完成 / (已完成 + 还到期)。
+     * ★ 分母不是「固定目标 20 张」：那样 due 只有 3 张的人永远停在 15%，
+     *   而 due 有 60 张的人从 0 开始掉——两种人都看不到「今天快做完了」。
+     *   用「已完成 + 还到期」当分母，进度永远从 0 走到 100。 */
+    const reviewDone = (daily && daily.review && Array.isArray(daily.review.done))
+      ? daily.review.done.length : 0;
+    const reviewTotal = reviewDone + ((due && due.count) || 0);
+    const reviewPct = reviewTotal > 0 ? Math.round((reviewDone / reviewTotal) * 100) : 0;
+
     this.setData({
       loading: false,
       streak: snap.streak || 0,
@@ -122,6 +211,12 @@ Page({
       levelInto: Number(lv.into) || 0,
       levelNeed: Number(lv.need) || 100,
       due: (due && due.count) || 0,
+      todayDone: heat.length ? heat[heat.length - 1].n : 0,
+      reviewDone,
+      reviewTotal,
+      reviewPct,
+      heat,
+      cats,
       quiz: quiz
         ? { id: quiz.id, typeLabel: quiz.typeLabel, difficulty: quiz.difficulty, stem: quiz.stem }
         : null,

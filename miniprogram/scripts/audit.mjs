@@ -60,11 +60,41 @@ const TODAY = frame(`
       <span class="t-label hero-sep">·</span><span class="t-label">渐入佳境</span></div>
     <div class="pill pill-accent">1240 XP</div>
   </div>
-  <div class="hero-num-row"><span class="t-display hero-num">18</span>
-    <span class="hero-unit">张卡片到期</span></div>
-  <div class="hero-progress"><div class="bar"><div class="bar-fill" style="width:40%"></div></div>
-    <div class="progress-meta"><span class="t-label">40 / 100</span><span class="t-label">40%</span></div></div>
+  <div class="hero-num-row">
+    <div class="hero-num-main"><span class="t-display hero-num">18</span>
+      <span class="hero-unit">张卡片到期</span></div>
+    <div class="ring" style="background: conic-gradient(#c9973f 0 31%, rgba(255,255,255,0.08) 31% 100%)">
+      <div class="ring-hole"><span class="ring-pct">31<span class="ring-unit">%</span></span>
+        <span class="ring-cap">8/26</span></div>
+    </div>
+  </div>
   <button class="btn hero-btn">开始复习</button>
+</div>
+<div class="card">
+  <div class="card-row"><div class="card-title">本周</div><div class="t-label">今天已做 12 题</div></div>
+  <div class="heat">
+    <div class="heat-col"><div class="heat-bar-wrap"><div class="heat-bar heat-on" style="height:40%"></div></div><span class="heat-label">一</span></div>
+    <div class="heat-col"><div class="heat-bar-wrap"><div class="heat-bar heat-on" style="height:60%"></div></div><span class="heat-label">二</span></div>
+    <div class="heat-col"><div class="heat-bar-wrap"><div class="heat-bar" style="height:6%"></div></div><span class="heat-label">三</span></div>
+    <div class="heat-col"><div class="heat-bar-wrap"><div class="heat-bar heat-on" style="height:30%"></div></div><span class="heat-label">四</span></div>
+    <div class="heat-col"><div class="heat-bar-wrap"><div class="heat-bar heat-on" style="height:100%"></div></div><span class="heat-label">五</span></div>
+    <div class="heat-col"><div class="heat-bar-wrap"><div class="heat-bar heat-on" style="height:25%"></div></div><span class="heat-label">六</span></div>
+    <div class="heat-col"><div class="heat-bar-wrap"><div class="heat-bar heat-on heat-today" style="height:70%"></div></div><span class="heat-label">日</span></div>
+  </div>
+</div>
+<div class="card">
+  <div class="card-title">三科掌握</div>
+  <div class="cats">
+    <div class="cat-row"><span class="cat-name">高等数学</span>
+      <div class="cat-track"><div class="cat-fill cat-calculus" style="width:72%"></div></div>
+      <span class="cat-pct">72%</span></div>
+    <div class="cat-row"><span class="cat-name">线性代数</span>
+      <div class="cat-track"><div class="cat-fill cat-linear" style="width:41%"></div></div>
+      <span class="cat-pct">41%</span></div>
+    <div class="cat-row"><span class="cat-name">概率论</span>
+      <div class="cat-track"><div class="cat-fill cat-prob" style="width:18%"></div></div>
+      <span class="cat-pct">18%</span></div>
+  </div>
 </div>
 <div class="card rise-2 rise">
   <div class="card-row"><div class="card-title">今日一练</div><div class="pill pill-violet">单选</div></div>
@@ -114,6 +144,11 @@ const MINE = frame(`
     <div class="stat"><div class="stat-value">1240</div><div class="stat-label">总 XP</div></div>
     <div class="stat"><div class="stat-value">7</div><div class="stat-label">今日 AI</div></div>
   </div>
+</div>
+<div class="card">
+  <div class="card-row"><div class="card-title">近两周</div>
+    <div class="t-label">186 题 · 正确率 68%</div></div>
+  <div class="trend"><div class="trend-col"><div class="trend-bar trend-on" style="height:30%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:50%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:20%"></div></div><div class="trend-col"><div class="trend-bar" style="height:4%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:60%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:80%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:40%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:35%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:70%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:90%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:45%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:25%"></div></div><div class="trend-col"><div class="trend-bar trend-on" style="height:55%"></div></div><div class="trend-col"><div class="trend-bar trend-on trend-today" style="height:75%"></div></div></div>
 </div>
 <div class="card">
   <div class="card-row"><div class="card-title">AI 用量</div><div class="t-label">今日 7 / 30 次</div></div>

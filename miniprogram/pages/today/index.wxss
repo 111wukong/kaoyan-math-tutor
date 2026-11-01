@@ -93,9 +93,69 @@
 
 .hero-num-row {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 30rpx;
+  margin-bottom: 6rpx;
+}
+
+/* 数字和单位在基线上对齐，环在行内垂直居中 —— 两个对齐方式不同，
+ * 所以分开包：混在一起的话，环会被 baseline 拉偏。 */
+.hero-num-main {
+  display: flex;
   align-items: baseline;
   gap: 16rpx;
-  margin-top: 22rpx;
+  min-width: 0;
+}
+
+/* ---------- 今日进度环 ----------
+ * conic-gradient 画弧 + 一个同色内圆挖空。
+ * 比线性条多一层直觉：环快合上时，眼睛自己就知道「差一点」。
+ * 不支持 conic-gradient 的旧内核会退化成纯色圆，不算崩，只是没有进度感。 */
+.ring {
+  width: 116rpx;
+  height: 116rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ring-hole {
+  width: 90rpx;
+  height: 90rpx;
+  border-radius: 50%;
+  background: var(--card-hero);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.ring-pct {
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 环里两行都是功能性文字（读进度用），不能压到 11px 以下 ——
+ * 8.5px 在 3x 屏上是能看见但读不出来的那种小。 */
+.ring-unit {
+  font-size: 22rpx;
+  font-weight: 400;
+  color: var(--fg-mute);
+}
+
+.ring-cap {
+  margin-top: 2rpx;
+  font-size: 22rpx;
+  line-height: 1;
+  color: var(--fg-mute);
+  font-variant-numeric: tabular-nums;
 }
 
 .hero-num {
@@ -199,3 +259,119 @@
   background: var(--card-2);
   border-color: var(--hairline-strong);
 }
+
+/* ============================================================
+   本周热力图（柱状）
+   ============================================================ */
+
+/* ★ 从「七个色块」改成「七根柱子」。
+ *   色块只能表达「有 / 没有」，柱子能表达「多少」—— 一周里哪天花了两小时、
+ *   哪天只是打了卡，柱高一眼就看出来。而且它是这一屏唯一的竖向图形，
+ *   和上下那些横排的卡片形成节奏差。
+ *
+ * ★ 柱高按本周最大值归一（见 ts 里的注释），不是固定上限。
+ *   固定上限会让「每天 8 题」的人七根一样高，努力完全看不见。 */
+.heat {
+  display: flex;
+  gap: 12rpx;
+  margin-top: 24rpx;
+  align-items: flex-end;
+}
+
+.heat-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+}
+
+/* 固定高度的槽：柱子从底部往上长，槽本身不参与视觉 */
+.heat-bar-wrap {
+  width: 100%;
+  height: 100rpx;
+  display: flex;
+  align-items: flex-end;
+}
+
+.heat-bar {
+  width: 100%;
+  border-radius: 8rpx 8rpx 3rpx 3rpx;
+  background: rgba(255, 255, 255, 0.07);
+  transition: height 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 有记录的那天：琥珀。没记录的天保持上面那个极淡的灰底座 ——
+ * 它是「这天没学」，不是「这格坏了」。 */
+.heat-on {
+  background: rgba(201, 151, 63, 0.55);
+}
+
+/* 今天：满饱和。放在 .heat-on 之后，同级选择器后定义的胜出。 */
+.heat-today {
+  background: var(--accent);
+}
+
+.heat-label {
+  font-size: 22rpx;
+  color: var(--fg-mute);
+}
+
+/* ============================================================
+   三科掌握度
+   ============================================================ */
+
+.cats {
+  margin-top: 20rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+}
+
+.cat-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.cat-name {
+  width: 112rpx;
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: var(--fg-soft);
+}
+
+.cat-track {
+  flex: 1;
+  height: 20rpx;
+  border-radius: 10rpx;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.cat-fill {
+  height: 100%;
+  border-radius: 10rpx;
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cat-pct {
+  width: 68rpx;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 23rpx;
+  color: var(--fg-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ★ 分类色不是随手挑的，来自考点分类本身（server/src/data/categories.json）。
+ *   但那里存的是给深色 Web 端用的暗色：高数 #1b4d8f 在这张卡上只有
+ *   2.01:1、线代 #2f6b4f 只有 2.68:1 —— 非文字图形至少要 3:1 才看得见。
+ *   下面是同色相提亮一档的版本，三个色的明度接近，并排才协调。
+ *     高数 #5b8fd4  5.08:1
+ *     线代 #5fa87c  5.93:1
+ *     概率 #c97b5e  5.31:1
+ */
+.cat-calculus { background: #5b8fd4; }
+.cat-linear { background: #5fa87c; }
+.cat-prob { background: #c97b5e; }

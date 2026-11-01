@@ -16,9 +16,11 @@
   gap: 22rpx;
 }
 
-/* 头像：渐变底 + 内圈描边。
-   不做成圆形照片，因为小程序拿不到微信头像（需要用户主动授权），
-   用首字 + 渐变反而更稳定、更统一。 */
+/* 头像：实色琥珀底 + 深字，和登录页的品牌块同一套。
+ *
+ * ★ 原来是「琥珀 28% → 纸白 30% 的渐变底 + 纸白字」——
+ *   纸白字压在纸白底的渐变上，对比度低到几乎看不见。
+ *   渐变本身也没必要：104rpx 的方块上看不出过渡，只是把底色搅浑。 */
 .avatar {
   width: 104rpx;
   height: 104rpx;
@@ -26,15 +28,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, rgba(201, 151, 63, 0.28) 0%, rgba(233, 230, 223, 0.30) 100%);
-  border: 1rpx solid rgba(255, 255, 255, 0.16);
+  background: var(--accent);
   flex-shrink: 0;
 }
 
 .avatar-initial {
   font-size: 46rpx;
   font-weight: 600;
-  color: #e9e6df;
+  color: var(--on-accent);
 }
 
 .who {
@@ -186,4 +187,42 @@
   font-size: 23rpx;
   color: var(--fg-mute);
   line-height: 1.5;
+}
+
+/* ============================================================
+   近两周趋势
+   ============================================================ */
+
+/* 14 根柱子，不加日期标签 —— 375 宽下每根只有 18px，
+ * 十四个日期会挤成一团。这一块要表达的是形状（在往上还是往下），
+ * 不是精确读数；具体数字在标题里。 */
+.trend {
+  display: flex;
+  gap: 6rpx;
+  align-items: flex-end;
+  height: 116rpx;
+  margin-top: 22rpx;
+}
+
+.trend-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.trend-bar {
+  width: 100%;
+  border-radius: 4rpx 4rpx 2rpx 2rpx;
+  background: rgba(255, 255, 255, 0.06);
+  transition: height 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.trend-on {
+  background: rgba(201, 151, 63, 0.68);
+}
+
+/* 今天那根满饱和，其余半透明 —— 让「我在哪儿」一眼可见 */
+.trend-today {
+  background: var(--accent);
 }

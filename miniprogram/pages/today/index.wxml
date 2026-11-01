@@ -55,8 +55,22 @@
         </view>
 
         <view class="hero-num-row">
-          <text class="t-display hero-num">{{due}}</text>
-          <text class="hero-unit">张卡片到期</text>
+          <view class="hero-num-main">
+            <text class="t-display hero-num">{{due}}</text>
+            <text class="hero-unit">张卡片到期</text>
+          </view>
+
+          <!-- 今日进度环：已做 / 应做。conic-gradient 画弧，中间挖空。
+               比线性条多一层「快到了」的直觉 —— 环快合上时最明显。 -->
+          <view
+            class="ring"
+            style="background: conic-gradient(var(--accent) 0 {{reviewPct}}%, rgba(255,255,255,0.08) {{reviewPct}}% 100%)"
+          >
+            <view class="ring-hole">
+              <text class="ring-pct">{{reviewPct}}<text class="ring-unit">%</text></text>
+              <text class="ring-cap">{{reviewDone}}/{{reviewTotal}}</text>
+            </view>
+          </view>
         </view>
       </block>
 
@@ -76,20 +90,50 @@
         </view>
       </block>
 
-      <!-- 等级进度：到下一级还差多少 -->
-      <view class="hero-progress">
-        <view class="bar">
-          <view class="bar-fill" style="width: {{levelPct}}%"></view>
-        </view>
-        <view class="progress-meta">
-          <text class="t-label">{{levelInto}} / {{levelNeed}}</text>
-          <text class="t-label">{{levelPct}}%</text>
-        </view>
-      </view>
-
       <button wx:if="{{due > 0}}" class="btn hero-btn" bindtap="goReview">开始复习</button>
       <button wx:elif="{{quiz}}" class="btn hero-btn" bindtap="startQuiz">做今日一练</button>
       <button wx:else class="btn hero-btn" bindtap="goQuiz">去题库练几道</button>
+    </view>
+
+    <!-- ===== 本周热力图 =====
+         七天，每格深浅 = 当天做了多少题。
+         这一块回答的是「我这周到底有没有在学」—— 一个数字回答不了，
+         一串方块可以。而且它天然有形状：连续七天都亮着，本身就是奖励。 -->
+    <view wx:if="{{heat.length}}" class="card rise-2 rise">
+      <view class="card-row">
+        <view class="card-title">本周</view>
+        <view class="t-label">{{todayDone > 0 ? '今天已做 ' + todayDone + ' 题' : '今天还没开始'}}</view>
+      </view>
+
+      <view class="heat">
+        <view wx:for="{{heat}}" wx:key="key" class="heat-col">
+          <view class="heat-bar-wrap">
+            <view
+              class="heat-bar {{item.n ? 'heat-on' : ''}} {{item.today ? 'heat-today' : ''}}"
+              style="height: {{item.h}}%"
+            ></view>
+          </view>
+          <text class="heat-label">{{item.label}}</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- ===== 三科掌握度 =====
+         颜色来自考点的分类（高数蓝 / 线代绿 / 概率暖），不是随便挑的装饰色。
+         服务端给的是给深色 Web 端用的暗色（#1b4d8f 在卡片上只有 2:1），
+         这里映射到提亮版 —— 见 wxss 的 .cat-*。 -->
+    <view wx:if="{{cats.length}}" class="card rise-2 rise">
+      <view class="card-title">三科掌握</view>
+
+      <view class="cats">
+        <view wx:for="{{cats}}" wx:key="id" class="cat-row">
+          <text class="cat-name">{{item.name}}</text>
+          <view class="cat-track">
+            <view class="cat-fill cat-{{item.id}}" style="width: {{item.pct}}%"></view>
+          </view>
+          <text class="cat-pct">{{item.pct}}%</text>
+        </view>
+      </view>
     </view>
 
     <!-- ===== 今日一练 ===== -->

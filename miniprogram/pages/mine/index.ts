@@ -31,6 +31,11 @@ Page({
     due: 0,
     /** 头像首字 */
     initial: '',
+
+    /* 近两周趋势 */
+    trend: [] as { date: string; h: number; total: number }[],
+    trendTotal: 0,
+    trendPct: 0,
   },
 
   async onShow() {
@@ -55,6 +60,19 @@ Page({
       const unlimited = q.limit === 0;
       const snap = (stats && ((stats as any).snapshot || stats)) || {};
 
+      /* 近两周趋势。柱高按区间最大值归一（和今日页的「本周」同一套逻辑）：
+       * 固定上限会让每天做 5 题的人整条都贴着底，看不出他在坚持。 */
+      const raw = (stats && (stats as any).trend) || [];
+      const tmax = Math.max(1, ...raw.map((d: any) => Number(d.total) || 0));
+      const trend = raw.map((d: any) => ({
+        date: d.date,
+        total: Number(d.total) || 0,
+        /* 没做题的那天留 4% 的底座，否则整根消失，像「这格坏了」 */
+        h: Number(d.total) ? Math.max(10, Math.round((Number(d.total) / tmax) * 100)) : 4,
+      }));
+      const trendTotal = raw.reduce((a: number, d: any) => a + (Number(d.total) || 0), 0);
+      const trendCorrect = raw.reduce((a: number, d: any) => a + (Number(d.correct) || 0), 0);
+
       this.setData({
         user: me.user,
         quota: q,
@@ -70,6 +88,9 @@ Page({
         xp: snap.xp || 0,
         streak: snap.streak || 0,
         initial: (me.user.username || '研')[0],
+        trend,
+        trendTotal,
+        trendPct: trendTotal ? Math.round((trendCorrect / trendTotal) * 100) : 0,
       });
     } catch (e: any) {
       if (e && e.status === 401) {
@@ -97,7 +118,7 @@ Page({
     wx.showModal({
       title: '退出登录',
       content: '退出后需要重新用微信登录。学习数据不会丢。',
-      confirmColor: '#f87171',
+      confirmColor: '#d4685e',
       success: (r) => {
         if (!r.confirm) return;
         clearToken();

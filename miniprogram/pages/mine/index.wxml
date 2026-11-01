@@ -33,6 +33,25 @@
     </view>
   </view>
 
+  <!-- ===== 近两周趋势 =====
+       14 根柱子，按区间最大值归一。和今日页的「本周」是一对：
+       那边看七天（本周有没有断），这边看十四天（这两周在往上还是往下）。 -->
+  <view wx:if="{{trend.length}}" class="card rise-2 rise">
+    <view class="card-row">
+      <view class="card-title">近两周</view>
+      <view class="t-label">{{trendTotal}} 题 · 正确率 {{trendPct}}%</view>
+    </view>
+
+    <view class="trend">
+      <view wx:for="{{trend}}" wx:key="date" class="trend-col">
+        <view
+          class="trend-bar {{item.total ? 'trend-on' : ''}} {{index === trend.length - 1 ? 'trend-today' : ''}}"
+          style="height: {{item.h}}%"
+        ></view>
+      </view>
+    </view>
+  </view>
+
   <!-- ===== AI 用量 ===== -->
   <view class="card rise-1 rise">
     <view class="card-row">
