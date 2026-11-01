@@ -19,15 +19,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-/* DB_PATH 必须在 import 服务端模块之前设好 —— ai.js 会连带加载 db/index.js，
- * 那一步就把库打开了。和 tests/graph.mjs / tests/fsrs.mjs 是同一套做法。 */
+/* DB_PATH 必须在 import 服务端模块之前设好 —— 下面 db/index.js 一被加载
+ * 就会打开库。和 tests/graph.mjs / tests/fsrs.mjs 是同一套做法。
+ *
+ * ★ 课堂状态机已经拆到 lib/classroom.js，它不碰数据库 —— 所以
+ *   「先设 DB_PATH 再 import」这个顺序对状态机本身没有意义了。
+ *   留着是为了下面的 db 初始化。 */
 const TMP = path.join(os.tmpdir(), `kmt-classroom-${process.pid}-${Date.now()}.db`);
 process.env.DB_PATH = TMP;
 
+/* 从 lib/classroom.js 而不是 routes/ai.js import：
+ * 要测的是纯函数，没必要为了拿它而连带加载 13 个路由。 */
 const {
   classifyIntent, resolvePhase, buildClassroomPrompt, guardClassroomResult,
   fallbackCheckPrompt, PROMPT_KIND,
-} = await import('../server/src/routes/ai.js');
+} = await import('../server/src/lib/classroom.js');
 const { db, initSchema } = await import('../server/src/db/index.js');
 
 let pass = 0;
