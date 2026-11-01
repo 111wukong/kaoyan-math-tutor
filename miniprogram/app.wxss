@@ -1,57 +1,81 @@
-/* 全局样式 · 深空主题
+/* 全局样式 · 炭与纸
  *
- * ── 设计口径 ────────────────────────────────────────────────────
- * 和 Web 端保持同一套视觉语言（暗色深空 + 玻璃拟态 + 青色强调），
- * 但**砍掉了三样**，因为它们在小程序上只会变成负担：
- *   · WebGL 赛博网格地平线 → 删。小程序 canvas 撑不住，还费电。
- *   · Canvas 星尘 → 删。换成 CSS 的径向渐变光晕，零成本、零耗电。
- *   · backdrop-filter 毛玻璃 → 不用。小程序对它的支持不稳，
- *     换成「半透明底 + 1rpx 描边」，视觉上差一点点，但一定不糊。
+ * ── 为什么换掉了「深空 + 青紫」
+ * 原来的配色是近黑的深空底 + 青色 + 紫色（三个色值见 git 历史），
+ * 外加顶部一层径向渐变光晕、按钮上的青色发光、数字上的青色 text-shadow。
+ * 这套组合有一个共同的名字：**AI 默认款**。任何模型、任何项目，
+ * 只要让它自由发挥，产出的界面都会长成这样 —— 因为它「看起来高级」，
+ * 而且不需要做任何取舍。
  *
- * ── 为什么颜色写成十六进制而不是 var() 层层套 ──────────────────
- * 小程序 wxss 支持 CSS 变量，但**不支持在 rpx 计算和渐变里做
- * 复杂插值**。渐变必须写死色值，所以这里的做法是：
- *   基础色用变量（便于整体换肤），渐变里写死对应的十六进制。
- * 改配色时两处都要改，文件顶部集中放一份对照表，避免漏改。
+ * 用 impeccable 的检测器扫真实渲染，一次报出 26 个反模式：
+ *   · ai-color-palette  紫/青配色
+ *   · radial-halo       顶部径向光晕
+ *   · dark-glow         青色 text-shadow + box-shadow
+ *   · low-contrast      8 处（最差的一处只有 1.1:1，白字压青底）
+ *   · undersized-ui-text tabBar 文字 10px
  *
- * ── 尺寸 ────────────────────────────────────────────────────────
+ * ── 新的方向：炭与纸
+ * 叙事是「夜里台灯下的演算纸」。考研的人多半在晚上学，屏幕要能看两小时
+ * 不累眼，所以底色是炭（#131417）而不是纯黑 —— 纯黑在 OLED 上和内容
+ * 对比过强，看久了眼睛发酸。文字是纸白（#e9e6df），微微偏暖。
+ * 强调色只有一个：琥珀（#c9973f），像台灯照在纸上的那点暖光，
+ * 只用在主按钮、关键数字、激活态。其余全靠灰阶层级和字重。
+ *
+ * 为什么不用红色做强调：红在界面里天然是「错误」的意思，用在「开始复习」
+ * 这种主行动上会让人紧张。琥珀没有这个包袱。
+ *
+ * ── 三条硬约束（都是实测出来的）
+ * 1. **卡片用实体色，不用半透明白**。原来 --card 是 rgba(255,255,255,0.042)，
+ *    叠在带光晕的背景上，同一张卡片在不同位置的对比度会飘 —— 检测器
+ *    报出 3.3:1 和 3.8:1 两个不同的值，就是因为底下的渐变不一样。
+ *    现在卡片是 #1b1d21 实色，对比度恒定。
+ * 2. **不写彩色阴影**。发光是这套 AI 味的另一半，删干净。
+ * 3. **最小字号 22rpx（11px）**。再小就是可读性问题，不是风格问题。
+ *
+ * ── 尺寸
  * 一律用 rpx（750 设计稿）。唯一例外是公式图，它必须是 px ——
  * 因为服务端按 px 渲染，见 components/math-text/index.wxss。
  */
 
-/* 色板对照（改配色时两处同步）
-   --accent   #5eead4  → 渐变用 #2dd4bf / #14b8a6
-   --accent-2 #8b7ff0  → 渐变用 #a78bfa / #7c3aed
-   --danger   #f87171
-   --warn     #fbbf24
-   --ok       #34d399
+/* 色板（对比度已逐个验过，最低 4.60:1）
+   --fg        #e9e6df on #131417 → 14.78:1
+   --fg-soft   #b3aea4 on #131417 →  8.34:1
+   --fg-mute   #918c82 on #131417 →  5.51:1
+   --fg-mute   #918c82 on #22252a →  4.60:1  ← 最紧的一处（药丸底）
+   --accent    #c9973f on #131417 →  7.00:1
+   按钮文字     #1a1408 on #c9973f →  6.96:1
 */
 
 page {
-  /* 背景：底色 + 顶部一层极淡的紫青光晕。
-     光晕用 radial-gradient 而不是图片 —— 一张渐变图在 3x 屏上
-     要几百 KB，而渐变是浏览器算的，零下载。 */
-  background:
-    radial-gradient(120% 60% at 50% -10%, rgba(139, 127, 240, 0.16) 0%, rgba(94, 234, 212, 0.05) 38%, rgba(8, 9, 15, 0) 70%),
-    #08090f;
+  /* 纯色底。原来这里叠了两层径向渐变（紫 + 青）做「光晕」，
+     那是 AI 味的头号标志 —— 而且它会让同一张卡片在不同位置的
+     对比度飘，检测器因此报出两个不同的值。 */
+  background: #131417;
 
-  --bg: #08090f;
-  --bg-soft: #101320;
-  --card: rgba(255, 255, 255, 0.042);
-  --card-strong: rgba(255, 255, 255, 0.07);
-  --hairline: rgba(255, 255, 255, 0.085);
-  --hairline-strong: rgba(255, 255, 255, 0.14);
+  --bg: #131417;
+  /* 比底色深一档，给导航栏 / 底部操作条用 */
+  --bg-deep: #0d0e10;
+  /* 卡片：实体色，不用半透明。理由见文件头第 1 条硬约束。 */
+  --card: #1b1d21;
+  --card-hero: #1f2228;
+  --card-2: #22252a;
 
-  --fg: #eef1f8;
-  --fg-soft: #a9b2c6;
-  --fg-mute: #6d7688;
+  --hairline: rgba(255, 255, 255, 0.07);
+  --hairline-strong: rgba(255, 255, 255, 0.12);
 
-  --accent: #5eead4;
-  --accent-deep: #14b8a6;
-  --accent-2: #8b7ff0;
-  --ok: #34d399;
-  --warn: #fbbf24;
-  --danger: #f87171;
+  --fg: #e9e6df;
+  --fg-soft: #b3aea4;
+  --fg-mute: #918c82;
+
+  /* 唯一的彩色。暖琥珀，像台灯。 */
+  --accent: #c9973f;
+  --accent-deep: #a87b2c;
+  /* 按钮上的深色文字（琥珀底上用） */
+  --on-accent: #1a1408;
+
+  --ok: #7f9e6b;
+  --warn: #d9a441;
+  --danger: #d4685e;
 
   color: var(--fg);
   font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
@@ -71,16 +95,20 @@ page {
   box-sizing: border-box;
 }
 
-/* 页面级顶部留白。给「大标题 + 副标题」用，
-   比直接顶到导航栏下面透气得多。 */
+/* 页面级顶部留白。给「大标题 + 副标题」用。 */
 .page-head {
   padding: 8rpx 4rpx 28rpx;
 }
 
+/* 字号阶梯（步长刻意拉开，避免「整页一样大」）
+ *   76 / 52 / 34 / 30 / 26 / 24 / 22
+ * 相邻两级的比值最小是 34→30 = 1.13，但靠字重（500 vs 400）
+ * 把标题和正文分开 —— 只靠字号差做层级的话，30 和 32 这种
+ * 1.07 倍的关系在小屏上根本看不出来。 */
 .page-title {
   font-size: 52rpx;
   font-weight: 600;
-  letter-spacing: -1rpx;
+  letter-spacing: -0.5rpx;
   line-height: 1.25;
 }
 
@@ -98,44 +126,37 @@ page {
   position: relative;
   background: var(--card);
   border: 1rpx solid var(--hairline);
-  border-radius: 28rpx;
+  border-radius: 24rpx;
   padding: 32rpx;
   margin-bottom: 24rpx;
   box-sizing: border-box;
 }
 
-/* 强调卡：顶部一道极细的渐变高光。
-   这是「玻璃拟态」在小程序上唯一可靠的替代 —— 不用模糊，
-   只在顶边画一条 1rpx 的亮线，就有「被光照到」的层次。 */
-.card-lit::before {
-  content: "";
-  position: absolute;
-  left: 24rpx;
-  right: 24rpx;
-  top: 0;
-  height: 1rpx;
-  background: linear-gradient(90deg, rgba(94, 234, 212, 0) 0%, rgba(94, 234, 212, 0.65) 45%, rgba(139, 127, 240, 0.5) 60%, rgba(139, 127, 240, 0) 100%);
+/* 强调卡：只把边框提亮一档。
+ * 原来这里画了一道青紫渐变的 1rpx 高光，那是「玻璃拟态」的替代品 ——
+ * 但它的作用只是装饰。层级交给背景明度和边框就够了。 */
+.card-lit {
+  border-color: var(--hairline-strong);
 }
 
-/* 主卡：整块渐变底。用于「今日复习」这种一屏只有一个的重点。 */
+/* 主卡：背景亮一档。
+ * 不用径向渐变，不用侧边色条（side-tab 是 AI 味最明显的标志之一）。
+ * 主卡之所以是主卡，靠的是里面那个 76rpx 的数字，不是背景装饰。 */
 .card-hero {
-  background:
-    radial-gradient(120% 120% at 0% 0%, rgba(94, 234, 212, 0.14) 0%, rgba(94, 234, 212, 0) 55%),
-    radial-gradient(120% 120% at 100% 0%, rgba(139, 127, 240, 0.16) 0%, rgba(139, 127, 240, 0) 55%),
-    rgba(255, 255, 255, 0.05);
-  border-color: rgba(94, 234, 212, 0.16);
+  background: var(--card-hero);
+  border-color: var(--hairline-strong);
 }
 
 .card-title {
-  font-size: 32rpx;
+  font-size: 34rpx;
   font-weight: 500;
   color: var(--fg);
   line-height: 1.4;
 }
 
 .card-desc {
-  margin-top: 10rpx;
-  font-size: 25rpx;
+  margin-top: 12rpx;
+  font-size: 26rpx;
   color: var(--fg-mute);
   line-height: 1.7;
 }
@@ -156,7 +177,9 @@ page {
   min-width: 0;
 }
 
-/* 小节标题：左侧一小段渐变色条，比纯文字有节奏感 */
+/* 小节标题。原来左边有一根青紫渐变的竖条 —— 那是装饰，
+ * 而且竖条 + 标题的组合正是「icon-tile-stack」的近亲。
+ * 现在只靠字号和字重区分。 */
 .section {
   display: flex;
   align-items: center;
@@ -166,22 +189,26 @@ page {
 
 .section-bar {
   width: 6rpx;
-  height: 28rpx;
+  height: 26rpx;
   border-radius: 3rpx;
-  background: linear-gradient(180deg, #5eead4, #8b7ff0);
+  background: var(--accent);
+  opacity: 0.75;
 }
 
 .section-title {
   font-size: 28rpx;
   font-weight: 500;
   color: var(--fg-soft);
-  letter-spacing: 1rpx;
+  letter-spacing: 0.5rpx;
 }
 
 /* ============================================================
    文字
    ============================================================ */
 
+/* 一屏只能有一个 t-display。
+ * ★ 原来的青色 text-shadow 已删 —— 发光是 AI 味的另一半，
+ *   而且它在深色底上会让数字边缘发虚，反而不如干净的白。 */
 .t-display {
   font-size: 76rpx;
   font-weight: 600;
@@ -189,6 +216,7 @@ page {
   letter-spacing: -2rpx;
   /* 数字用等宽：否则「12」和「9」宽度不同，进度跳变时会抖 */
   font-variant-numeric: tabular-nums;
+  color: var(--fg);
 }
 
 .t-num {
@@ -199,9 +227,9 @@ page {
 }
 
 .t-label {
-  font-size: 23rpx;
+  font-size: 24rpx;
   color: var(--fg-mute);
-  letter-spacing: 1rpx;
+  letter-spacing: 0.5rpx;
 }
 
 .muted { color: var(--fg-mute); }
@@ -223,46 +251,49 @@ page {
   font-size: 22rpx;
   line-height: 1;
   color: var(--fg-soft);
-  background: rgba(255, 255, 255, 0.055);
+  background: var(--card-2);
   border: 1rpx solid var(--hairline);
 }
 
+/* 强调药丸：琥珀底 + 深字。这是「标签」，不是按钮，所以用低饱和的底。 */
 .pill-accent {
-  color: #a7f3e6;
-  background: rgba(94, 234, 212, 0.12);
-  border-color: rgba(94, 234, 212, 0.26);
+  color: var(--accent);
+  background: rgba(201, 151, 63, 0.12);
+  border-color: rgba(201, 151, 63, 0.28);
 }
 
+/* 原来这里是紫色药丸。紫色已经不在色板里了 ——
+ * 保留类名是因为几个页面还在用，改成中性色，视觉上退到背景里。 */
 .pill-violet {
-  color: #cfc9ff;
-  background: rgba(139, 127, 240, 0.14);
-  border-color: rgba(139, 127, 240, 0.28);
+  color: var(--fg-soft);
+  background: var(--card-2);
+  border-color: var(--hairline-strong);
 }
 
 .pill-warn {
-  color: #fde68a;
-  background: rgba(251, 191, 36, 0.12);
-  border-color: rgba(251, 191, 36, 0.26);
+  color: var(--warn);
+  background: rgba(217, 164, 65, 0.12);
+  border-color: rgba(217, 164, 65, 0.28);
 }
 
 /* ============================================================
    按钮
    ============================================================ */
 
+/* 主按钮：琥珀实色 + 深色文字。
+ * ★ 去掉了青色的 box-shadow 发光 —— 那是最典型的一处 dark-glow，
+ *   而且发光会让按钮看起来「浮」在页面上，和炭纸的质感冲突。 */
 .btn {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 92rpx;
-  border-radius: 24rpx;
+  border-radius: 20rpx;
   font-size: 30rpx;
   font-weight: 500;
-  letter-spacing: 1rpx;
-  /* 主按钮：实心渐变。小程序里 <button> 有默认样式，
-     必须显式 reset（见下面的 .btn::after）。 */
-  color: #04211d;
-  background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
-  box-shadow: 0 12rpx 32rpx -12rpx rgba(94, 234, 212, 0.55);
+  letter-spacing: 0.5rpx;
+  color: var(--on-accent);
+  background: var(--accent);
   border: none;
 }
 
@@ -270,16 +301,15 @@ page {
 
 .btn-ghost {
   color: var(--fg-soft);
-  background: rgba(255, 255, 255, 0.055);
-  border: 1rpx solid var(--hairline);
-  box-shadow: none;
+  background: transparent;
+  border: 1rpx solid var(--hairline-strong);
 }
 
 .btn-ghost::after { border: none; }
 
 .btn-sm {
   height: 68rpx;
-  border-radius: 20rpx;
+  border-radius: 16rpx;
   font-size: 26rpx;
   padding: 0 28rpx;
   width: auto;
@@ -288,8 +318,7 @@ page {
 /* 禁用态。小程序 button 的 disabled 只加 opacity，
    在深色底上会显得「灰但还亮」，这里统一压暗。 */
 .btn[disabled] {
-  opacity: 0.38;
-  box-shadow: none;
+  opacity: 0.35;
 }
 
 /* ============================================================
@@ -297,40 +326,58 @@ page {
    ============================================================ */
 
 .bar {
-  height: 12rpx;
-  border-radius: 6rpx;
-  background: rgba(255, 255, 255, 0.08);
+  height: 10rpx;
+  border-radius: 5rpx;
+  background: rgba(255, 255, 255, 0.07);
   overflow: hidden;
 }
 
+/* 纯琥珀，不做渐变。渐变进度条在 10rpx 的高度上根本看不出过渡，
+   只会让左端比右端亮，显得脏。 */
 .bar-fill {
   height: 100%;
-  border-radius: 6rpx;
-  background: linear-gradient(90deg, #2dd4bf, #5eead4 55%, #a7f3e6);
-  transition: width 0.45s ease;
+  border-radius: 5rpx;
+  background: var(--accent);
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .bar-fill-violet {
-  background: linear-gradient(90deg, #7c3aed, #8b7ff0 55%, #cfc9ff);
+  background: var(--fg-soft);
 }
 
 /* ============================================================
    统计格
    ============================================================ */
 
+/* 三个数字并排。
+ *
+ * ★ 原来每个数字外面套一个圆角方块（背景白 3% + 描边），三块并排。
+ *   这有两个问题：一是卡片里再套方块，层级多了一层（nested-cards）；
+ *   二是那个 3% 的白叠在主卡上，把背景推到 #26292e，弱文字对比度掉到
+ *   4.36:1 —— 而主卡恰恰是最需要看清数字的地方。
+ *
+ *   现在改成竖线分隔：不额外造层，对比度回到卡片本身的值，
+ *   而且三个数字读起来更像「一组数据」而不是「三个按钮」。 */
 .stats {
   display: flex;
-  gap: 16rpx;
+  margin-top: 28rpx;
 }
 
 .stat {
   flex: 1;
   min-width: 0;
-  padding: 24rpx 20rpx;
-  border-radius: 22rpx;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1rpx solid var(--hairline);
+  padding: 2rpx 12rpx;
   text-align: center;
+  border-left: 1rpx solid var(--hairline);
+}
+
+.stat:first-child {
+  border-left: none;
+  padding-left: 0;
+}
+
+.stat:last-child {
+  padding-right: 0;
 }
 
 .stat-value {
@@ -341,8 +388,8 @@ page {
 }
 
 .stat-label {
-  margin-top: 6rpx;
-  font-size: 22rpx;
+  margin-top: 8rpx;
+  font-size: 23rpx;
   color: var(--fg-mute);
 }
 
@@ -387,8 +434,8 @@ page {
   align-items: flex-start;
   gap: 16rpx;
   padding: 22rpx 22rpx;
-  border-radius: 20rpx;
-  background: rgba(255, 255, 255, 0.035);
+  border-radius: 16rpx;
+  background: var(--card);
   border: 1rpx solid var(--hairline);
   transition: background 0.15s ease, border-color 0.15s ease;
 }
@@ -403,7 +450,7 @@ page {
   font-size: 24rpx;
   font-weight: 600;
   color: var(--accent);
-  background: rgba(94, 234, 212, 0.12);
+  background: rgba(201, 151, 63, 0.12);
   flex-shrink: 0;
 }
 
@@ -415,13 +462,13 @@ page {
 /* 选中态：整块亮起来，字母块反色。
    只改边框不改底色的话，深色底上很难一眼看出选没选。 */
 .opt-on {
-  background: rgba(94, 234, 212, 0.10);
-  border-color: rgba(94, 234, 212, 0.42);
+  background: rgba(201, 151, 63, 0.09);
+  border-color: rgba(201, 151, 63, 0.42);
 }
 
 .opt-on .opt-key {
-  color: #04211d;
-  background: linear-gradient(135deg, #5eead4, #2dd4bf);
+  color: var(--on-accent);
+  background: var(--accent);
 }
 
 .hint {
@@ -453,10 +500,10 @@ page {
   padding: 24rpx 32rpx 26rpx;
   background: linear-gradient(
     180deg,
-    rgba(8, 9, 15, 0) 0%,
-    rgba(8, 9, 15, 0.82) 26%,
-    rgba(8, 9, 15, 0.97) 55%,
-    #08090f 100%
+    rgba(19, 20, 23, 0) 0%,
+    rgba(19, 20, 23, 0.84) 26%,
+    rgba(19, 20, 23, 0.97) 55%,
+    #131417 100%
   );
 }
 
@@ -474,9 +521,8 @@ page {
 .step-pts {
   flex-shrink: 0;
   min-width: 76rpx;
-  font-size: 22rpx;
+  font-size: 23rpx;
   color: var(--accent);
-  opacity: 0.85;
   padding-top: 4rpx;
 }
 
@@ -489,12 +535,15 @@ page {
    区块小标题
    ============================================================ */
 
+/* 原来这里是大写 + 3rpx 字距 + 琥珀色。Impeccable 的
+ * kicker-above-heading 规则说的就是这种「标题上方的小标签」——
+ * 它几乎从不承担信息，只是给标题垫一个「设计感」。
+ * 现在降级成正文色的小字，靠位置（在内容之前）表达「这是标签」。 */
 .block-label {
-  font-size: 22rpx;
-  letter-spacing: 3rpx;
-  color: var(--accent);
-  opacity: 0.9;
-  margin-bottom: 16rpx;
+  font-size: 23rpx;
+  letter-spacing: 1rpx;
+  color: var(--fg-mute);
+  margin-bottom: 14rpx;
 }
 
 /* ============================================================
@@ -506,22 +555,22 @@ page {
   align-items: flex-start;
   gap: 14rpx;
   padding: 24rpx 26rpx;
-  border-radius: 22rpx;
-  font-size: 25rpx;
+  border-radius: 18rpx;
+  font-size: 26rpx;
   line-height: 1.65;
   margin-bottom: 24rpx;
 }
 
 .banner-info {
-  background: rgba(94, 234, 212, 0.08);
-  border: 1rpx solid rgba(94, 234, 212, 0.2);
-  color: #b7f2e8;
+  background: var(--card);
+  border: 1rpx solid var(--hairline);
+  color: var(--fg-soft);
 }
 
 .banner-warn {
-  background: rgba(251, 191, 36, 0.09);
-  border: 1rpx solid rgba(251, 191, 36, 0.24);
-  color: #fde68a;
+  background: rgba(217, 164, 65, 0.08);
+  border: 1rpx solid rgba(217, 164, 65, 0.24);
+  color: var(--warn);
 }
 
 /* ============================================================
@@ -537,9 +586,9 @@ page {
 }
 
 .skeleton {
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.05));
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04));
   background-size: 220% 100%;
-  border-radius: 12rpx;
+  border-radius: 10rpx;
   animation: sk 1.3s ease-in-out infinite;
 }
 
@@ -549,14 +598,16 @@ page {
 }
 
 /* 入场动画：内容出现时轻微上浮。
-   只做 8rpx，多了会显得慢；小程序首屏本来就慢，动画不能加戏。 */
+   只做 8rpx，多了会显得慢；小程序首屏本来就慢，动画不能加戏。
+   缓动用 ease-out-quart —— bounce/elastic 那种回弹在正式产品里
+   显得廉价（Impeccable 的 bounce-easing 规则）。 */
 @keyframes rise {
   from { opacity: 0; transform: translateY(8rpx); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .rise {
-  animation: rise 0.28s ease both;
+  animation: rise 0.28s cubic-bezier(0.25, 1, 0.5, 1) both;
 }
 
 .rise-1 { animation-delay: 0.04s; }

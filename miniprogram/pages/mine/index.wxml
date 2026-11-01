@@ -66,33 +66,50 @@
     </button>
   </view>
 
-  <!-- ===== 拍照工具 ===== -->
+  <!-- ===== 拍照工具 =====
+       改成列表而不是三列图标。
+       原来三个方块并排，每个只有四个字 —— 用户得先猜「拍照录题」和
+       「拍照解题」差在哪。图标也帮不上忙：✓ / + / — 三个形状放在
+       一样的方框里，除了位置没有任何区分度。
+       列表能放下半句说明，这才是入口该有的样子。 -->
   <view class="card rise-2 rise">
     <view class="card-title">拍照工具</view>
     <view class="card-desc">遇到纸质题、不会的题或手写笔记，拍下来让 AI 帮你处理。</view>
 
-    <view class="tool-row" style="margin-top: 22rpx">
-      <!-- 解题放第一位：这是最常用的场景 —— 手上正卡着一道题 -->
-      <view class="tool-item" bindtap="onCamera" data-mode="solve">
-        <view class="tool-icon tool-icon-solve">
-          <view class="tool-check"></view>
+    <view class="tool-list">
+      <!-- 解题放第一位：手上正卡着一道题时最常用 -->
+      <view class="tool-row" bindtap="onCamera" data-mode="solve">
+        <view class="tool-icon"><view class="tool-check"></view></view>
+        <view class="tool-body">
+          <view class="tool-name">拍照解题</view>
+          <view class="tool-desc">拍一道不会的题，AI 给出完整解答</view>
         </view>
-        <view class="tool-label">拍照解题</view>
+        <view class="chevron"></view>
       </view>
-      <view class="tool-item" bindtap="onCamera" data-mode="question">
+
+      <view class="tool-row" bindtap="onCamera" data-mode="question">
         <view class="tool-icon">
           <view class="tool-cross-h"></view>
           <view class="tool-cross-v"></view>
         </view>
-        <view class="tool-label">拍照录题</view>
+        <view class="tool-body">
+          <view class="tool-name">拍照录题</view>
+          <view class="tool-desc">识别纸质题，存成复习卡片</view>
+        </view>
+        <view class="chevron"></view>
       </view>
-      <view class="tool-item" bindtap="onCamera" data-mode="note">
-        <view class="tool-icon tool-icon-note">
+
+      <view class="tool-row" bindtap="onCamera" data-mode="note">
+        <view class="tool-icon">
           <view class="tool-note-line"></view>
-          <view class="tool-note-line" style="width:18rpx"></view>
+          <view class="tool-note-line" style="width:20rpx"></view>
           <view class="tool-note-line" style="width:28rpx"></view>
         </view>
-        <view class="tool-label">整理笔记</view>
+        <view class="tool-body">
+          <view class="tool-name">整理笔记</view>
+          <view class="tool-desc">把手写笔记整理成知识点</view>
+        </view>
+        <view class="chevron"></view>
       </view>
     </view>
   </view>

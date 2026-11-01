@@ -31,9 +31,9 @@
 }
 
 .filter-on {
-  color: #04211d;
+  color: #1a1408;
   font-weight: 500;
-  background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
+  background: var(--accent);
   border-color: transparent;
 }
 
@@ -44,7 +44,7 @@
 }
 
 .q-open {
-  border-color: rgba(94, 234, 212, 0.22);
+  border-color: rgba(201, 151, 63, 0.22);
 }
 
 .q-head {
@@ -63,8 +63,11 @@
   justify-content: center;
   font-size: 22rpx;
   font-weight: 600;
-  color: var(--fg-mute);
-  background: rgba(255, 255, 255, 0.06);
+  /* ★ 背景 0.06 的白叠在卡片上会到 #292b2e，弱文字在上面只有 4.2:1。
+   *   题号是功能性文字（帮用户定位「我在第几题」），压到 0.04 + 提亮
+   *   到 --fg-soft，对比度回到 5.3:1。 */
+  color: var(--fg-soft);
+  background: rgba(255, 255, 255, 0.04);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -88,7 +91,7 @@
 }
 
 .dot-on {
-  background: linear-gradient(180deg, #5eead4, #2dd4bf);
+  background: var(--accent);
 }
 
 /* 展开箭头：两条边框旋转 45 度。不用图标文件 */
@@ -131,8 +134,8 @@
   margin-top: 26rpx;
   padding: 24rpx;
   border-radius: 18rpx;
-  background: rgba(94, 234, 212, 0.055);
-  border: 1rpx solid rgba(94, 234, 212, 0.16);
+  background: rgba(201, 151, 63, 0.055);
+  border: 1rpx solid rgba(201, 151, 63, 0.16);
 }
 
 .ans-label {

@@ -1,9 +1,4 @@
 <view class="login">
-  <!-- 背景光晕：两个极淡的径向渐变。不用图片 ——
-       一张渐变图在 3x 屏上要几百 KB，而渐变是即时算的。 -->
-  <view class="glow glow-a"></view>
-  <view class="glow glow-b"></view>
-
   <view class="content">
     <!-- 品牌 -->
     <view class="brand rise">

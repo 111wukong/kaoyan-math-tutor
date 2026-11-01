@@ -21,14 +21,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(248, 113, 113, 0.10);
-  border: 1rpx solid rgba(248, 113, 113, 0.26);
+  background: rgba(212, 104, 94, 0.10);
+  border: 1rpx solid rgba(212, 104, 94, 0.26);
 }
 
 .count-num {
   font-size: 36rpx;
   font-weight: 600;
-  color: #fca5a5;
+  color: #d4685e;
   font-variant-numeric: tabular-nums;
 }
 
@@ -57,9 +57,9 @@
 }
 
 .chip-on {
-  color: #04211d;
+  color: #1a1408;
   font-weight: 500;
-  background: linear-gradient(135deg, #5eead4 0%, #2dd4bf 100%);
+  background: var(--accent);
   border-color: transparent;
 }
 
@@ -76,7 +76,7 @@
 }
 
 .m-open {
-  border-color: rgba(248, 113, 113, 0.22);
+  border-color: rgba(212, 104, 94, 0.22);
 }
 
 .m-head {
@@ -95,9 +95,9 @@
   display: flex;
   align-items: center;
   font-size: 21rpx;
-  color: #fca5a5;
-  background: rgba(248, 113, 113, 0.10);
-  border: 1rpx solid rgba(248, 113, 113, 0.22);
+  color: #d4685e;
+  background: rgba(212, 104, 94, 0.10);
+  border: 1rpx solid rgba(212, 104, 94, 0.22);
   font-variant-numeric: tabular-nums;
 }
 
@@ -160,13 +160,13 @@
 }
 
 .cmp-bad {
-  background: rgba(248, 113, 113, 0.075);
-  border: 1rpx solid rgba(248, 113, 113, 0.20);
+  background: rgba(212, 104, 94, 0.075);
+  border: 1rpx solid rgba(212, 104, 94, 0.20);
 }
 
 .cmp-ok {
-  background: rgba(52, 211, 153, 0.075);
-  border: 1rpx solid rgba(52, 211, 153, 0.20);
+  background: rgba(127, 158, 107, 0.075);
+  border: 1rpx solid rgba(127, 158, 107, 0.20);
 }
 
 .cmp-label {
@@ -176,8 +176,8 @@
   padding-top: 2rpx;
 }
 
-.cmp-bad .cmp-label { color: #fca5a5; }
-.cmp-ok .cmp-label { color: #6ee7b7; }
+.cmp-bad .cmp-label { color: #d4685e; }
+.cmp-ok .cmp-label { color: #7f9e6b; }
 
 .cmp-body {
   flex: 1;

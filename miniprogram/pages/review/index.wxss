@@ -67,9 +67,9 @@
 }
 
 .recall {
-  color: #cfc9ff;
-  background: rgba(139, 127, 240, 0.12);
-  border-color: rgba(139, 127, 240, 0.26);
+  color: #e9e6df;
+  background: rgba(233, 230, 223, 0.12);
+  border-color: rgba(233, 230, 223, 0.26);
 }
 
 /* ---------- 背面 ---------- */
@@ -94,7 +94,7 @@
 .back-divider-line {
   flex: 1;
   height: 1rpx;
-  background: linear-gradient(90deg, rgba(94, 234, 212, 0), rgba(94, 234, 212, 0.45), rgba(94, 234, 212, 0));
+  background: linear-gradient(90deg, rgba(201, 151, 63, 0), rgba(201, 151, 63, 0.45), rgba(201, 151, 63, 0));
 }
 
 .back-divider-text {
@@ -153,17 +153,17 @@
   opacity: 0.62;
 }
 
-.r1 { border-color: rgba(248, 113, 113, 0.30); }
-.r1 .rate-label { color: #fca5a5; }
+.r1 { border-color: rgba(212, 104, 94, 0.30); }
+.r1 .rate-label { color: #d4685e; }
 
-.r2 { border-color: rgba(251, 191, 36, 0.30); }
-.r2 .rate-label { color: #fcd34d; }
+.r2 { border-color: rgba(217, 164, 65, 0.30); }
+.r2 .rate-label { color: #d9a441; }
 
-.r3 { border-color: rgba(94, 234, 212, 0.32); }
-.r3 .rate-label { color: #7ff0dd; }
+.r3 { border-color: rgba(201, 151, 63, 0.32); }
+.r3 .rate-label { color: #c9973f; }
 
-.r4 { border-color: rgba(167, 139, 250, 0.32); }
-.r4 .rate-label { color: #c4b5fd; }
+.r4 { border-color: rgba(233, 230, 223, 0.32); }
+.r4 .rate-label { color: #b3aea4; }
 
 /* ---------- 完成 / 空态 ---------- */
 .done,

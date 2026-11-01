@@ -1,14 +1,15 @@
 /* 登录页
  *
- * 全屏居中 + 两层径向光晕。
+ * ── 为什么删掉了两层光晕
+ * 原来这里有两个巨大的径向渐变圆（青 + 紫）压在页面四角，做「光从背后透出来」
+ * 的效果。那是 AI 味的头号标志：impeccable 的 radial-halo 规则直接点名
+ * 「saturated at the center, fading to transparent，作为深色页面的装饰光」。
  *
- * ★ 光晕为什么用 view 而不是背景图：
- *   一张 750×1624 的渐变 PNG 在 3x 屏上要 300KB+，而且换主题就得重出图。
- *   CSS 径向渐变是零下载、即时计算的，颜色还能直接引用主题变量。
+ * 而且它在这页是有害的：登录页本来只有一个动作（点按钮），光晕抢走的
+ * 正是那个按钮的注意力。
  *
- * ★ 为什么不用「全屏背景」而用两个定位的光斑：
- *   全屏渐变会盖住内容层的对比度（深色渐变叠深色文字，越叠越糊）。
- *   两个局部光斑只在边角加亮度，中间保持干净。
+ * 现在页面靠三样东西立住：垂直留白、一个实色品牌块、一条清晰的动作路径。
+ * 不需要光。
  */
 
 .login {
@@ -20,29 +21,6 @@
   justify-content: center;
   padding: 60rpx 40rpx;
   box-sizing: border-box;
-}
-
-/* ---------- 光晕 ---------- */
-.glow {
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
-}
-
-.glow-a {
-  width: 760rpx;
-  height: 760rpx;
-  top: -300rpx;
-  left: -240rpx;
-  background: radial-gradient(circle, rgba(94, 234, 212, 0.18) 0%, rgba(94, 234, 212, 0.05) 42%, rgba(94, 234, 212, 0) 70%);
-}
-
-.glow-b {
-  width: 820rpx;
-  height: 820rpx;
-  bottom: -360rpx;
-  right: -280rpx;
-  background: radial-gradient(circle, rgba(139, 127, 240, 0.20) 0%, rgba(139, 127, 240, 0.06) 42%, rgba(139, 127, 240, 0) 70%);
 }
 
 .content {
@@ -58,6 +36,10 @@
   margin-bottom: 56rpx;
 }
 
+/* 品牌块：琥珀实底 + 深色字。
+ * ★ 原来是「渐变底 + 外发光 + 内发光」三层叠加，那是把 logo 做成了
+ *   一个发光体。现在它是一个色块 —— 深色页面上唯一的一块暖色，
+ *   不需要再给它加光。 */
 .logo {
   position: relative;
   width: 148rpx;
@@ -67,21 +49,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(140deg, rgba(94, 234, 212, 0.22) 0%, rgba(139, 127, 240, 0.26) 100%);
-  border: 1rpx solid rgba(255, 255, 255, 0.18);
-  box-shadow:
-    0 20rpx 60rpx -20rpx rgba(94, 234, 212, 0.45),
-    inset 0 0 40rpx rgba(94, 234, 212, 0.14);
+  background: var(--accent);
 }
 
 .logo-text {
   font-size: 68rpx;
   font-weight: 600;
-  color: #f0fffc;
+  color: var(--on-accent);
   letter-spacing: 2rpx;
 }
 
-/* 外圈一道极淡的环，让 logo 有「浮起来」的层次 */
+/* 外圈一道极淡的环。保留 —— 它是描边不是光，而且能给方形块
+ * 一点「被框住」的层次。 */
 .logo-ring {
   position: absolute;
   left: -14rpx;
@@ -89,7 +68,7 @@
   top: -14rpx;
   bottom: -14rpx;
   border-radius: 52rpx;
-  border: 1rpx solid rgba(94, 234, 212, 0.16);
+  border: 1rpx solid var(--hairline-strong);
 }
 
 .brand-name {
@@ -125,7 +104,7 @@
   margin-top: 40rpx;
   display: flex;
   flex-direction: column;
-  gap: 16rpx;
+  gap: 18rpx;
   padding: 0 8rpx;
 }
 
@@ -137,11 +116,13 @@
   color: var(--fg-soft);
 }
 
+/* 纯色小圆点。原来是从琥珀到深琥珀的渐变 —— 在 10rpx 的圆点上
+ * 看不出过渡，只会显得边缘脏。 */
 .point-dot {
   width: 10rpx;
   height: 10rpx;
   border-radius: 50%;
-  background: linear-gradient(180deg, #5eead4, #2dd4bf);
+  background: var(--accent);
   flex-shrink: 0;
 }
 
@@ -152,5 +133,4 @@
   line-height: 1.75;
   color: var(--fg-mute);
   text-align: center;
-  opacity: 0.85;
 }

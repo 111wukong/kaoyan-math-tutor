@@ -23,8 +23,10 @@
   height: 56rpx;
   padding: 0 20rpx 0 14rpx;
   border-radius: 28rpx;
-  background: rgba(251, 146, 60, 0.10);
-  border: 1rpx solid rgba(251, 146, 60, 0.26);
+  /* 中性底。琥珀在这一屏只留给「开始复习」——
+   * 三个琥珀色块（连击 / XP / 主按钮）并排时，强调就不成立了。 */
+  background: var(--card-2);
+  border: 1rpx solid var(--hairline-strong);
   flex-shrink: 0;
 }
 
@@ -32,14 +34,16 @@
   width: 22rpx;
   height: 26rpx;
   border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
-  background: linear-gradient(180deg, #fbbf24 0%, #f97316 100%);
+  /* 纯琥珀。原来是琥珀→橙的渐变 —— 橙色不在色板里，而且这个 22×26rpx
+     的小块上根本看不出过渡。 */
+  background: var(--accent);
   transform: rotate(-4deg);
 }
 
 .streak-num {
   font-size: 26rpx;
   font-weight: 600;
-  color: #fdba74;
+  color: var(--fg-soft);
   font-variant-numeric: tabular-nums;
 }
 
@@ -51,7 +55,6 @@
   border-radius: 50%;
   background: var(--accent);
   flex-shrink: 0;
-  box-shadow: 0 0 0 6rpx rgba(94, 234, 212, 0.14);
 }
 
 .notice-body {
@@ -97,8 +100,6 @@
 
 .hero-num {
   color: var(--fg);
-  /* 数字本身带一点青光，像被主色照到 */
-  text-shadow: 0 0 40rpx rgba(94, 234, 212, 0.28);
 }
 
 .hero-unit {
@@ -176,7 +177,7 @@
 }
 
 .dot-on {
-  background: linear-gradient(180deg, #5eead4, #2dd4bf);
+  background: var(--accent);
 }
 
 .dots-label {
@@ -188,4 +189,13 @@
   margin-top: 10rpx;
   font-size: 24rpx;
   opacity: 0.7;
+}
+
+/* XP 药丸：在今日页改成中性。
+ * .pill-accent 在复习页表示「考点」——那里用琥珀是对的（它标识知识点）。
+ * 但在这张卡里它和「开始复习」抢同一块注意力，所以就地覆盖。 */
+.hero-top .pill-accent {
+  color: var(--fg-soft);
+  background: var(--card-2);
+  border-color: var(--hairline-strong);
 }
