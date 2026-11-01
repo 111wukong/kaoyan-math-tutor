@@ -35,8 +35,17 @@ jobs:
       - name: 装依赖
         run: npm ci
 
-      - name: 类型检查
-        run: npm run typecheck
+      # 拆成两步而不是一条 npm run typecheck：小程序端过去完全没有类型检查，
+      # 出问题时日志里要能一眼看出是「哪一端」挂了。
+      - name: 类型检查（Web）
+        run: npm -w web run typecheck
+
+      # 小程序端 14 个 .ts 文件以前零检查 —— 微信开发者工具打开项目时才编译，
+      # CI 里跑不到。实测一开就抓到 5 个错误，其中 2 个是「类型撒谎」
+      # （声明 boolean[] 实际存对象、声明 total 实际叫 count），
+      # 那种错不会报错也不会崩，只会误导下一个改这里的人。
+      - name: 类型检查（小程序）
+        run: npm run typecheck:mini
 
       - name: 构建
         run: npm run build

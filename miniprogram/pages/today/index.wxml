@@ -36,21 +36,45 @@
 
   <block wx:else>
 
-    <!-- ===== 主卡：待复习 ===== -->
+    <!-- ===== 主卡：待复习 =====
+         两个形态。有卡时是「行动号召」，没卡时是「下一步引导」——
+         新用户第一次进来 due 必然是 0（新卡的到期日是明天），
+         如果这时只给一个灰色的「今天没有到期的卡片」，他看到的是
+         一堵墙：既没东西可做，也不知道该做什么，很可能就此退出。
+         所以零卡态必须给出一个可点的动作。 -->
     <view class="card card-hero card-lit rise-1 rise">
-      <view class="card-row hero-top">
-        <view class="hero-label">
-          <text class="t-label">待复习</text>
-          <text class="t-label hero-sep">·</text>
-          <text class="t-label">{{levelTitle || '开始今天'}}</text>
-        </view>
-        <view class="pill pill-accent">{{xp}} XP</view>
-      </view>
 
-      <view class="hero-num-row">
-        <text class="t-display hero-num">{{due}}</text>
-        <text class="hero-unit">张卡片到期</text>
-      </view>
+      <block wx:if="{{due > 0}}">
+        <view class="card-row hero-top">
+          <view class="hero-label">
+            <text class="t-label">待复习</text>
+            <text class="t-label hero-sep">·</text>
+            <text class="t-label">{{levelTitle || '开始今天'}}</text>
+          </view>
+          <view class="pill pill-accent">{{xp}} XP</view>
+        </view>
+
+        <view class="hero-num-row">
+          <text class="t-display hero-num">{{due}}</text>
+          <text class="hero-unit">张卡片到期</text>
+        </view>
+      </block>
+
+      <block wx:else>
+        <view class="card-row hero-top">
+          <view class="hero-label">
+            <text class="t-label">今天</text>
+            <text class="t-label hero-sep">·</text>
+            <text class="t-label">{{levelTitle || '开始今天'}}</text>
+          </view>
+          <view class="pill pill-accent">{{xp}} XP</view>
+        </view>
+
+        <view class="hero-empty-title">没有要复习的</view>
+        <view class="hero-empty-desc">
+          卡片来自你答过的题。做一道，明天它就会出现在这里。
+        </view>
+      </block>
 
       <!-- 等级进度：到下一级还差多少 -->
       <view class="hero-progress">
@@ -63,9 +87,9 @@
         </view>
       </view>
 
-      <button class="btn hero-btn" bindtap="goReview" disabled="{{due === 0}}">
-        {{due > 0 ? '开始复习' : '今天没有到期的卡片'}}
-      </button>
+      <button wx:if="{{due > 0}}" class="btn hero-btn" bindtap="goReview">开始复习</button>
+      <button wx:elif="{{quiz}}" class="btn hero-btn" bindtap="startQuiz">做今日一练</button>
+      <button wx:else class="btn hero-btn" bindtap="goQuiz">去题库练几道</button>
     </view>
 
     <!-- ===== 今日一练 ===== -->

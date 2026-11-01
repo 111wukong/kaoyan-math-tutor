@@ -31,9 +31,14 @@ interface Q {
 
 interface Row extends Q {
   segs: Segment[];
-  dots: boolean[];
+  /* 难度点。对象而不是布尔：wx:key 需要唯一值，布尔数组里
+   * [true,true,false] 有重复会触发告警（见 today 页同名函数的注释）。 */
+  dots: { i: number; on: boolean }[];
   open: boolean;
-  optSegs: Segment[];
+  /* ★ 二维：每个选项一段。写成 Segment[] 是类型撒谎 ——
+   *   运行时存的确实是 Segment[][]（下面 optSegs: segs.slice(...) 就是
+   *   二维），wxml 里也是嵌套 wx:for。 */
+  optSegs: Segment[][];
   ansSegs: Segment[];
   rendering: boolean;
 }

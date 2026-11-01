@@ -72,7 +72,7 @@ Page({
     /* 今日一练 */
     quiz: null as QuizItem | null,
     quizSegs: [] as Segment[],
-    quizDots: [] as boolean[],
+    quizDots: [] as { i: number; on: boolean }[],
 
     features: {} as Record<string, boolean>,
   },
@@ -154,8 +154,21 @@ Page({
     wx.reLaunch({ url: '/pages/login/index' });
   },
 
+  /**
+   * 做今日一练。
+   *
+   * ★ 直接进答题页，不经过题库列表。原来这里是 switchTab 到题库 ——
+   *   用户点「去做题」的意图非常明确，再让他在列表里找一遍那道题，
+   *   等于把一次点击变成两次，而且他还得认出哪道是今日一练。
+   */
   startQuiz() {
-    if (!this.data.quiz) return;
+    const q = this.data.quiz;
+    if (!q) return;
+    wx.navigateTo({ url: `/pages/answer/index?qid=${encodeURIComponent(q.id)}` });
+  },
+
+  /** 去题库。零卡态没有今日一练时的兜底入口。 */
+  goQuiz() {
     wx.switchTab({ url: '/pages/quiz/index' });
   },
 });

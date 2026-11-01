@@ -12,7 +12,7 @@
     "dev:server": "npm -w server run dev",
     "dev:web": "npm -w web run dev",
     "build": "npm -w web run build",
-    "typecheck": "npm -w web run typecheck",
+    "typecheck": "npm -w web run typecheck && npm run typecheck:mini",
     "check": "npm run typecheck && npm run build",
     "test": "node tests/run-all.mjs",
     "test:latex": "node tests/latex-coverage.mjs",
@@ -29,9 +29,11 @@
     "start": "npm -w server run start",
     "seed": "npm -w server run seed",
     "edges": "npm -w server run edges",
-    "backup": "npm -w server run backup"
+    "backup": "npm -w server run backup",
+    "typecheck:mini": "tsc -p miniprogram/tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "concurrently": "^10.0.5"
+    "concurrently": "^10.0.5",
+    "miniprogram-api-typings": "^5.2.3"
   }
 }

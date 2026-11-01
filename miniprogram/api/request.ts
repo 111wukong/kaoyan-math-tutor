@@ -81,7 +81,13 @@ export function wxLogin(): Promise<{ token: string; user: any; created: boolean 
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /* ★ 没有 PATCH —— 小程序的 wx.request 不支持它。
+   *   微信文档里 method 的合法值只有 OPTIONS / GET / HEAD / POST /
+   *   PUT / DELETE / TRACE / CONNECT。写成 PATCH 的话类型能过（如果
+   *   自己声明了），但运行时会被当成 GET 或直接失败 ——
+   *   而那种失败在开发者工具里不一定看得出来。
+   *   服务端的更新接口一律用 PUT，所以这里也不需要 PATCH。 */
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   data?: any;
   /** 内部用：已经重登过就不再重登，避免死循环 */
   _retried?: boolean;

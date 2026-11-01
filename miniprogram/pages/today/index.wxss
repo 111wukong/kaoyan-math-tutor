@@ -106,6 +106,25 @@
   color: var(--fg-mute);
 }
 
+/* ---------- 零卡态 ----------
+ * 没有「0」这个数字。一个大大的 0 传达的是「你没事可做」，
+ * 而这里想说的是「今天轻松，去做一道题就有了」。所以用一句话
+ * 替代数字，字号也降下来 —— 这一屏的重点不该是一个空状态。 */
+.hero-empty-title {
+  margin-top: 26rpx;
+  font-size: 38rpx;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--fg);
+}
+
+.hero-empty-desc {
+  margin-top: 14rpx;
+  font-size: 25rpx;
+  line-height: 1.7;
+  color: var(--fg-mute);
+}
+
 .hero-progress {
   margin-top: 30rpx;
 }

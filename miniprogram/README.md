@@ -102,6 +102,37 @@ HTML 输出塞进 `rich-text` 一定是错位的乱码。
 
 ---
 
+## 类型检查
+
+```bash
+npm run typecheck:mini     # 在仓库根目录跑
+```
+
+`tsconfig.json` 用的是 `strict: true` + `miniprogram-api-typings`（官方类型包，
+装在仓库根的 devDependencies，所以 `miniprogram/` 目录本身保持干净，
+微信开发者工具不会把它当成 npm 项目）。
+
+**为什么必须有这一步**：这 14 个 `.ts` 文件以前零检查 —— 微信开发者工具
+只在打开项目时编译，CI 里跑不到。第一次接上 tsc 就抓出 5 个错误，其中
+两个是「类型撒谎」：
+
+| 位置 | 声明的类型 | 实际存的 | 后果 |
+|---|---|---|---|
+| `today` 的 `quizDots` | `boolean[]` | `{i,on}[]` | 不崩，但后来的人按类型改 `item ? ...` 就静默失效 |
+| `quiz` 的 `optSegs` | `Segment[]` | `Segment[][]` | 同上 |
+| `fetchDue` 的返回 | `{cards, total}` | `{cards, today, count}` | 有人按类型读 `.total` 就永远得到 0 |
+
+还有一处真陷阱：`RequestOptions.method` 声明了 `PATCH`，但
+**`wx.request` 不支持 PATCH**（合法值只有 OPTIONS/GET/HEAD/POST/PUT/
+DELETE/TRACE/CONNECT）。写成 PATCH 时类型能过，运行时会被当成 GET
+或直接失败 —— 而开发者工具里不一定看得出来。服务端所有更新接口用 PUT，
+所以这个选项直接删掉了。
+
+CI 里拆成两个独立步骤（`类型检查（Web）` / `类型检查（小程序）`），
+挂了能一眼看出是哪一端。
+
+---
+
 ## 控制台在哪
 
 Web 端 → 侧栏「管理 → 小程序控制台」（只有管理员看得到）。
@@ -243,4 +274,9 @@ tabBar 图标不是引第三方图标库，而是用 SVG 现渲染的 81×81 PNG
    按你的决定，不做绑定。
 2. **8 套主题只搬了深空**：其余主题在 Web 端的 `styles/index.css`，
    要按同样色值抄到 `theme.wxss`，并按 `--fg` 决定公式墨色。
-3. **拍照录题没做**：`/api/ai/extract` 接口已有，缺 `wx.chooseMedia` 那一屏。
+3. **小程序端没有单元测试**。现在的保障是三样：`typecheck:mini` 的类型检查、
+   上面那个「模板绑定 / class 覆盖率」静态脚本、以及真浏览器截图验证。
+   这三样能抓住「点了没反应」「样式丢失」「类型对不上」，但抓不住
+   「算错了」—— 比如复习页的四档评分映射。要补的话，得先把纯逻辑
+   （评分映射、进度计算）抽成独立模块，才能在 Node 里测。
+4. **域名 ICP 备案**。发布硬门槛，技术层面已经就绪。

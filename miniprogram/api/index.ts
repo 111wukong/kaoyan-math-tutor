@@ -99,7 +99,11 @@ export async function renderText(text: string, color = INK): Promise<Segment[]> 
  * 这些都是 Web 端已有的接口，返回结构完全一致 —— 两端的 TS 类型
  * 可以直接对照着抄，不需要另写一套。 */
 
-export const fetchDue = () => get<{ cards: any[]; total: number }>('/api/cards/due');
+/* ★ 服务端返回的是 count 而不是 total（见 routes/cards.js 的
+ *   `return { cards, today, count: rows.length }`）。
+ *   这里曾经写成 total —— 类型和实现对不上，tsc 会报错；
+ *   更糟的是它会让后来的人以为该读 .total，一改就静默变成 0。 */
+export const fetchDue = () => get<{ cards: any[]; today: string; count: number }>('/api/cards/due');
 export const fetchDaily = () => get<any>('/api/study/daily');
 export const fetchStats = () => get<any>('/api/study/stats');
 /** 错题本。返回的题带着答案、解析、评分点和「上次答的是什么」——
