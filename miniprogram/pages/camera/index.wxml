@@ -3,9 +3,7 @@
   <!-- ===== 标题 ===== -->
   <view class="cam-head">
     <view class="cam-title">{{title}}</view>
-    <view class="cam-sub">
-      {{mode === 'question' ? '拍一道题，AI 帮你识别并录入' : '拍笔记，AI 帮你整理成知识点'}}
-    </view>
+    <view class="cam-sub">{{sub}}</view>
   </view>
 
   <!-- ===== 图片预览区 ===== -->
@@ -20,14 +18,16 @@
       </view>
     </block>
 
-    <block wx:if="{{phase !== 'idle'}}">
+    <block wx:else>
       <image class="preview-img" src="{{imagePath}}" mode="aspectFit" />
     </block>
 
     <!-- 加载蒙层 -->
     <view wx:if="{{phase === 'recognizing' || phase === 'extracting'}}" class="overlay">
       <view class="spinner"></view>
-      <view class="overlay-text">{{phase === 'recognizing' ? '正在识别…' : '正在生成卡片…'}}</view>
+      <view class="overlay-text">
+        {{phase === 'extracting' ? '正在生成卡片…' : (mode === 'solve' ? '正在解题…' : '正在识别…')}}
+      </view>
     </view>
   </view>
 
@@ -37,17 +37,100 @@
     <view class="card-desc">{{error}}</view>
   </view>
 
-  <!-- ===== 识别结果 ===== -->
-  <block wx:if="{{phase === 'result' || phase === 'extracting'}}">
+  <!-- ============================================================
+       解题结果
+       ============================================================ -->
+  <block wx:if="{{mode === 'solve' && phase === 'result'}}">
+
+    <!-- 格式异常：模型没按 JSON 来，原文照贴 -->
+    <view wx:if="{{solved.degraded}}" class="card card-lit">
+      <view class="card-row">
+        <view class="card-title">解题结果</view>
+        <view class="pill pill-warn">格式异常</view>
+      </view>
+      <view class="result-body"><math-text segments="{{solved.questionSegs}}" /></view>
+    </view>
+
+    <block wx:else>
+      <!-- 题目 -->
+      <view class="card card-lit rise">
+        <view class="block-label">题目</view>
+        <view class="result-body"><math-text segments="{{solved.questionSegs}}" /></view>
+      </view>
+
+      <!-- 思路：先给这个，不直接给答案 -->
+      <view wx:if="{{solved.approach}}" class="card card-hero card-lit rise-1 rise">
+        <view class="block-label">这题在考什么</view>
+        <view class="approach"><math-text segments="{{solved.approachSegs}}" /></view>
+      </view>
+
+      <!-- 完整解答（默认收起） -->
+      <block wx:if="{{solved.steps.length}}">
+        <view wx:if="{{!revealed}}" class="card reveal-card rise-2 rise">
+          <view class="reveal-title">想好了吗？</view>
+          <view class="reveal-desc">先自己推一遍再看解答，比直接读答案记得牢得多。</view>
+          <button class="btn btn-ghost" bindtap="onToggleReveal">看完整解答</button>
+        </view>
+
+        <block wx:else>
+          <view class="card rise">
+            <view class="card-row">
+              <view class="block-label" style="margin:0">解答</view>
+              <view class="t-label" bindtap="onToggleReveal">收起</view>
+            </view>
+
+            <view wx:for="{{solved.stepsView}}" wx:key="index" class="solve-step">
+              <view class="solve-step-no">{{index + 1}}</view>
+              <view class="solve-step-body">
+                <view class="solve-step-t"><math-text segments="{{item.tSegs}}" /></view>
+                <view wx:if="{{item.fSegs.length}}" class="solve-step-f">
+                  <math-text segments="{{item.fSegs}}" />
+                </view>
+              </view>
+            </view>
+
+            <view wx:if="{{solved.answer}}" class="answer-box">
+              <view class="answer-label">答案</view>
+              <view class="answer-text"><math-text segments="{{solved.answerSegs}}" /></view>
+            </view>
+          </view>
+        </block>
+      </block>
+
+      <!-- 考点 + 易错点 + 判断信号 -->
+      <view wx:if="{{solved.points.length || solved.pitfall || solved.signal}}" class="card rise">
+        <block wx:if="{{solved.points.length}}">
+          <view class="block-label">考点</view>
+          <view class="tag-row">
+            <view wx:for="{{solved.points}}" wx:key="index" class="tag">{{item}}</view>
+          </view>
+        </block>
+
+        <block wx:if="{{solved.pitfall}}">
+          <view class="block-label" style="margin-top: 26rpx">易错点</view>
+          <view class="hint-block hint-warn"><math-text segments="{{solved.pitfallSegs}}" /></view>
+        </block>
+
+        <block wx:if="{{solved.signal}}">
+          <view class="block-label" style="margin-top: 26rpx">下次怎么想</view>
+          <view class="hint-block hint-good"><math-text segments="{{solved.signalSegs}}" /></view>
+        </block>
+      </view>
+    </block>
+  </block>
+
+  <!-- ============================================================
+       识别结果（录题 / 笔记）
+       ============================================================ -->
+  <block wx:if="{{mode !== 'solve' && (phase === 'result' || phase === 'extracting')}}">
     <view class="card card-lit">
       <view class="card-row">
         <view class="card-title">识别结果</view>
         <view class="pill pill-accent" wx:if="{{cards.length}}">{{cards.length}} 张卡片</view>
       </view>
-      <view class="result-text">{{result}}</view>
+      <view class="result-body"><math-text segments="{{resultSegs}}" /></view>
     </view>
 
-    <!-- 生成的卡片列表 -->
     <block wx:if="{{cards.length}}">
       <view wx:for="{{cards}}" wx:key="id" class="card rise">
         <view class="card-title">{{item.title}}</view>
@@ -65,14 +148,17 @@
     <block wx:if="{{phase === 'preview'}}">
       <view class="btn-row">
         <button class="btn btn-ghost" bindtap="onRetake">重选</button>
-        <button class="btn" bindtap="onRecognize">开始识别</button>
+        <button class="btn" bindtap="onRecognize">{{mode === 'solve' ? '开始解题' : '开始识别'}}</button>
       </view>
     </block>
 
     <block wx:if="{{phase === 'result'}}">
       <view class="btn-row">
-        <button class="btn btn-ghost" bindtap="onCopy">复制文字</button>
+        <button class="btn btn-ghost" bindtap="onCopy">复制</button>
         <button wx:if="{{mode === 'question'}}" class="btn" bindtap="onExtract">生成卡片</button>
+        <!-- 「再拍一题」是主按钮：拍完一道看完解答，下一步最可能是下一道。
+             三个按钮全做成次要样式的话，用户会找不到该点哪个。 -->
+        <button wx:if="{{mode === 'solve'}}" class="btn" bindtap="onRetake">再拍一题</button>
         <button class="btn btn-ghost" bindtap="onDone">完成</button>
       </view>
     </block>

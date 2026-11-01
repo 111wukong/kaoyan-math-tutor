@@ -69,9 +69,16 @@
   <!-- ===== 拍照工具 ===== -->
   <view class="card rise-2 rise">
     <view class="card-title">拍照工具</view>
-    <view class="card-desc">遇到纸质题或手写笔记，拍下来让 AI 帮你整理。</view>
+    <view class="card-desc">遇到纸质题、不会的题或手写笔记，拍下来让 AI 帮你处理。</view>
 
     <view class="tool-row" style="margin-top: 22rpx">
+      <!-- 解题放第一位：这是最常用的场景 —— 手上正卡着一道题 -->
+      <view class="tool-item" bindtap="onCamera" data-mode="solve">
+        <view class="tool-icon tool-icon-solve">
+          <view class="tool-check"></view>
+        </view>
+        <view class="tool-label">拍照解题</view>
+      </view>
       <view class="tool-item" bindtap="onCamera" data-mode="question">
         <view class="tool-icon">
           <view class="tool-cross-h"></view>
@@ -80,7 +87,7 @@
         <view class="tool-label">拍照录题</view>
       </view>
       <view class="tool-item" bindtap="onCamera" data-mode="note">
-        <view class="tool-icon" style="background:rgba(139,127,240,0.10);border-color:rgba(139,127,240,0.30)">
+        <view class="tool-icon tool-icon-note">
           <view class="tool-note-line"></view>
           <view class="tool-note-line" style="width:18rpx"></view>
           <view class="tool-note-line" style="width:28rpx"></view>

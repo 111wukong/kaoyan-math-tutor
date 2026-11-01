@@ -101,7 +101,7 @@
 /* ---------- 拍照工具 ---------- */
 .tool-row {
   display: flex;
-  gap: 24rpx;
+  gap: 18rpx;
 }
 
 .tool-item {
@@ -109,8 +109,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14rpx;
-  padding: 28rpx 0;
+  gap: 12rpx;
+  padding: 24rpx 0;
   border-radius: 18rpx;
   background: rgba(255, 255, 255, 0.03);
   border: 1rpx solid var(--hairline);
@@ -128,6 +128,27 @@
   align-items: center;
   justify-content: center;
   gap: 6rpx;
+}
+
+/* 解题：紫色 + 对勾。对勾暗示「解出来了」，
+   和「录题」的加号、「笔记」的横线一眼能分开。 */
+.tool-icon-solve {
+  background: rgba(139, 127, 240, 0.10);
+  border-color: rgba(139, 127, 240, 0.32);
+}
+
+.tool-check {
+  width: 28rpx;
+  height: 14rpx;
+  border-left: 4rpx solid #8b7ff0;
+  border-bottom: 4rpx solid #8b7ff0;
+  transform: rotate(-45deg) translate(3rpx, -3rpx);
+  border-radius: 1rpx;
+}
+
+.tool-icon-note {
+  background: rgba(139, 127, 240, 0.10);
+  border-color: rgba(139, 127, 240, 0.30);
 }
 
 .tool-cross-h {

@@ -16,6 +16,7 @@ import { buildSnapshot, nodeMastery, getTree } from '../lib/game.js';
 import { ancestors } from '../lib/graph.js';
 import { answerIssue, normalizeAnswer, parseSteps, SELF_GRADED_TYPES, QUESTION_TYPES, TYPE_LABEL } from '../lib/judge.js';
 import { buildGradePrompt, buildExplainPrompt, parseGrade } from '../lib/grade.js';
+import { buildSolvePrompt, sanitizeSolve } from '../lib/solve.js';
 
 /* ---------- AI 接口的限流档位 ----------
  *
@@ -279,6 +280,45 @@ async function visionLlmOrError(req) {
   return { cfg, quota };
 }
 
+/**
+ * 从 multipart 请求里读一张图。
+ *
+ * 返回 { buffer, mime, fields } 或 { error }。
+ * 抽出来是因为「读图 → 转 base64」在 vision 和 solve 两处一模一样，
+ * 复制两份的话，改一个上限（比如 5MB 调到 8MB）必然漏一处。
+ */
+async function readImage(req) {
+  let data;
+  try {
+    data = await req.file();
+  } catch {
+    return { error: '没有收到图片文件，或文件超过 5MB。' };
+  }
+  if (!data) return { error: '请上传一张图片。' };
+
+  const chunks = [];
+  for await (const chunk of data.file) chunks.push(chunk);
+  const buffer = Buffer.concat(chunks);
+  if (!buffer.length) return { error: '图片文件为空。' };
+
+  return {
+    buffer,
+    mime: data.mimetype || 'image/jpeg',
+    fields: data.fields || {},
+  };
+}
+
+/** 组装一条「文本 + 图片」的多模态消息。 */
+function imageMessage(prompt, mime, buffer) {
+  return {
+    role: 'user',
+    content: [
+      { type: 'text', text: prompt },
+      { type: 'image_url', image_url: { url: `data:${mime};base64,${buffer.toString('base64')}` } },
+    ],
+  };
+}
+
 export default async function aiRoutes(fastify) {
   /* ---------- 配额退还 ----------
    *
@@ -485,38 +525,16 @@ export default async function aiRoutes(fastify) {
   fastify.post('/api/ai/vision', {
     config: { rateLimit: AI_LIMIT },
   }, async (req, reply) => {
-    /* 1. 读文件 */
-    let data;
-    try {
-      data = await req.file();
-    } catch (e) {
-      return reply.code(400).send({ error: '没有收到图片文件，或文件超过 5MB。' });
-    }
-    if (!data) {
-      return reply.code(400).send({ error: '请上传一张图片。' });
-    }
+    const img = await readImage(req);
+    if (img.error) return reply.code(400).send({ error: img.error });
 
-    /* 把 stream 读进 buffer */
-    const chunks = [];
-    for await (const chunk of data.file) {
-      chunks.push(chunk);
-    }
-    const buffer = Buffer.concat(chunks);
-    if (!buffer.length) {
-      return reply.code(400).send({ error: '图片文件为空。' });
-    }
-
-    /* 2. 配置与配额 */
     const { cfg, error } = await visionLlmOrError(req);
     if (error) return reply.code(400).send(error);
 
-    /* 3. 构造 prompt（从 multipart 的表单字段里取） */
-    const prompt = (data.fields?.prompt?.value || '').trim()
+    /* prompt 由客户端给（录题 / 整理笔记用不同的），没给就用通用兜底。 */
+    const prompt = (img.fields?.prompt?.value || '').trim()
       || '识别这张图片中的内容。如果是数学题，提取题干、选项（如果有）、答案和解析；如果是笔记，整理成结构化的知识点。用中文回答。';
 
-    /* 4. 调用 vision 模型（OpenAI-compatible 多模态格式） */
-    const mime = data.mimetype || 'image/jpeg';
-    const base64 = buffer.toString('base64');
     try {
       const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
@@ -526,15 +544,7 @@ export default async function aiRoutes(fastify) {
         },
         body: JSON.stringify({
           model: cfg.model,
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'text', text: prompt },
-                { type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } },
-              ],
-            },
-          ],
+          messages: [imageMessage(prompt, img.mime, img.buffer)],
           temperature: 0.2,
           max_tokens: 2048,
           stream: false,
@@ -551,6 +561,64 @@ export default async function aiRoutes(fastify) {
       const j = await res.json();
       const text = j.choices?.[0]?.message?.content || '';
       return { text: text.trim() };
+    } catch (e) {
+      return reply.code(502).send({ error: e.message });
+    }
+  });
+
+  /* ---------- 拍照解题 ----------
+   *
+   * 和 /api/ai/vision 的区别：vision 只「看清并转录」，solve 要「解出来」。
+   *
+   * ★ 为什么单独一个接口而不是让客户端拼个 prompt 走 vision：
+   *   解题结果是**结构化**的（题目 / 思路 / 分步 / 考点 / 易错点），
+   *   前端要分块渲染、步骤要能逐步展开。让客户端解析模型吐的 JSON，
+   *   等于把容错逻辑放在小程序里 —— 那里既不好测，改一次还要发版。
+   *
+   * ★ 为什么 max_tokens 给到 3000：解题比识别长得多，6 步推导 + 考点
+   *   很容易超 2048。截断的 JSON 解析不出来，用户拿到的是「识别失败」，
+   *   而真实原因是预算不够 —— 这种故障最难查。
+   */
+  fastify.post('/api/ai/solve', {
+    config: { rateLimit: AI_LIMIT },
+  }, async (req, reply) => {
+    const img = await readImage(req);
+    if (img.error) return reply.code(400).send({ error: img.error });
+
+    const { cfg, error } = await visionLlmOrError(req);
+    if (error) return reply.code(400).send(error);
+
+    try {
+      const res = await llmFetch(`${cfg.base.replace(/\/+$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}),
+        },
+        body: JSON.stringify({
+          model: cfg.model,
+          messages: [imageMessage(buildSolvePrompt(), img.mime, img.buffer)],
+          /* 解题要稳，不要发挥。0.1 比识别用的 0.2 更低 ——
+           * 这里最怕的不是答案平淡，是它自己补一个题目条件。 */
+          temperature: 0.1,
+          max_tokens: 3000,
+          stream: false,
+        }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        return reply.code(res.status).send({
+          error: `模型返回 ${res.status}${txt ? '：' + txt.slice(0, 200) : ''}`,
+        });
+      }
+
+      const j = await res.json();
+      const raw = j.choices?.[0]?.message?.content || '';
+      const solved = sanitizeSolve(raw);
+      /* degraded 不是错误：JSON 没解析出来时，把原文塞进 question
+       * 让用户至少能看到内容，前端标一句「格式异常」。 */
+      return { ...solved, model: cfg.model };
     } catch (e) {
       return reply.code(502).send({ error: e.message });
     }
